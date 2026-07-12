@@ -1,0 +1,131 @@
+from __future__ import annotations
+
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+
+from .orchestrator import Orchestrator
+
+mcp = FastMCP("cloud-cua")
+
+
+@mcp.tool()
+def cloud_cua_start_deployment(repo_path: str, cloud: str = "aws", mode: str = "vibe") -> Any:
+    """Start a Cloud CUA deployment run for a local repo."""
+    return Orchestrator(repo_path).start_deployment(cloud, mode)
+
+
+@mcp.tool()
+def cloud_cua_get_status(repo_path: str, run_id: str) -> Any:
+    """Get current run status."""
+    return Orchestrator(repo_path).get_status(run_id)
+
+
+@mcp.tool()
+def cloud_cua_get_recent_events(repo_path: str, run_id: str, limit: int = 50) -> Any:
+    """Get recent Cloud CUA run events."""
+    return Orchestrator(repo_path).get_events(run_id, limit)
+
+
+@mcp.tool()
+def cloud_cua_set_mode(repo_path: str, run_id: str, mode: str) -> Any:
+    """Switch the run mode to vibe, teach, or expert."""
+    return Orchestrator(repo_path).set_mode(run_id, mode)
+
+
+@mcp.tool()
+def cloud_cua_open_dashboard(run_id: str) -> Any:
+    """Return the default local dashboard URL."""
+    return {"dashboard_url": "http://localhost:3000", "run_id": run_id}
+
+
+@mcp.tool()
+def cloud_cua_confirm_manual_login(repo_path: str, run_id: str) -> Any:
+    """Confirm the user finished manual AWS/GCP login, then run the identity verifier."""
+    return Orchestrator(repo_path).continue_after_login(run_id)
+
+
+@mcp.tool()
+def cloud_cua_send_user_message(repo_path: str, run_id: str, message: str) -> Any:
+    """Route a typed user message through the same router as voice commands."""
+    return Orchestrator(repo_path).voice_command(run_id, message)
+
+
+@mcp.tool()
+def cloud_cua_speak(repo_path: str, run_id: str, text: str) -> Any:
+    """Use Gradium TTS to synthesize a short explanation through the backend."""
+    return Orchestrator(repo_path).speak(run_id, text)
+
+
+@mcp.tool()
+def cloud_cua_submit_codex_plan(repo_path: str, run_id: str, plan: str) -> Any:
+    """Submit a Codex deployment plan into the run event log."""
+    return Orchestrator(repo_path).submit_codex_plan(run_id, plan)
+
+
+@mcp.tool()
+def cloud_cua_submit_objection(repo_path: str, run_id: str, objection: str) -> Any:
+    """Submit a Codex objection into the run event log."""
+    return Orchestrator(repo_path).submit_objection(run_id, objection)
+
+
+@mcp.tool()
+def cloud_cua_get_amplify_plan(repo_path: str, run_id: str) -> Any:
+    """Generate the AWS Amplify deployment plan for this repo."""
+    return Orchestrator(repo_path).get_amplify_plan(run_id)
+
+
+@mcp.tool()
+def cloud_cua_h_inspect(repo_path: str, run_id: str, task: str | None = None) -> Any:
+    """Run a bounded inspect-only H CUA browser task."""
+    return Orchestrator(repo_path).run_h_inspect(run_id, task)
+
+
+@mcp.tool()
+def cloud_cua_run_amplify_deployment(repo_path: str, run_id: str) -> Any:
+    """Run the approval-gated AWS Amplify H CUA deployment step."""
+    return Orchestrator(repo_path).run_amplify_deployment(run_id)
+
+
+@mcp.tool()
+def cloud_cua_request_approval(repo_path: str, run_id: str, action: str, reason: str, risk_level: str = "medium") -> Any:
+    """Request user approval for a risky or paid action."""
+    return Orchestrator(repo_path).request_approval(run_id, action, reason, risk_level)
+
+
+@mcp.tool()
+def cloud_cua_decide_approval(repo_path: str, run_id: str, approval_id: str, approved: bool) -> Any:
+    """Approve or deny a pending user approval."""
+    return Orchestrator(repo_path).decide_approval(run_id, approval_id, approved)
+
+
+@mcp.tool()
+def cloud_cua_pause_h_cua(repo_path: str, run_id: str) -> Any:
+    """Pause the deployment run before the next H CUA task."""
+    return Orchestrator(repo_path).pause(run_id)
+
+
+@mcp.tool()
+def cloud_cua_resume_h_cua(repo_path: str, run_id: str) -> Any:
+    """Resume the deployment run."""
+    return Orchestrator(repo_path).resume(run_id)
+
+
+@mcp.tool()
+def cloud_cua_run_verifier(repo_path: str, run_id: str, verifier_name: str = "default", url: str | None = None) -> Any:
+    """Run independent verifier checks."""
+    return Orchestrator(repo_path).run_verifier(run_id, verifier_name, url)
+
+
+@mcp.tool()
+def cloud_cua_write_report(repo_path: str, run_id: str) -> Any:
+    """Write DEPLOYMENT_REPORT.md for the run."""
+    return Orchestrator(repo_path).write_report(run_id)
+
+
+def main() -> None:
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
