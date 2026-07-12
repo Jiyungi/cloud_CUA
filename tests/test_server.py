@@ -52,6 +52,28 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert (tmp_path / "DEPLOYMENT_REPORT.md").exists()
 
 
+def test_voice_transcribe_logs_transcript_and_route(tmp_path, monkeypatch):
+    from cloud_cua.voice_gradium import STTResult
+
+    client = TestClient(create_app())
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.transcribe_stt",
+        lambda *args, **kwargs: STTResult("passed", "pause", "Transcribed audio."),
+    )
+
+    result = client.post(
+        f"/runs/{run['run_id']}/voice-transcribe",
+        json={"repo_path": str(tmp_path), "audio_base64": "cGF1c2U=", "input_format": "webm"},
+    )
+
+    assert result.status_code == 200
+    events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path), "limit": 20}).json()
+    messages = [event["message"] for event in events]
+    assert "Gradium STT heard: pause" in messages
+    assert "STT routed to backend as direct_control." in messages
+
+
 def test_amplify_deploy_requires_approval(tmp_path):
     client = TestClient(create_app())
     (tmp_path / "package.json").write_text('{"scripts":{"build":"vite build"},"dependencies":{"vite":"^5.0.0"}}', encoding="utf-8")

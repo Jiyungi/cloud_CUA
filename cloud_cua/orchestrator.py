@@ -423,10 +423,27 @@ class Orchestrator:
         except Exception as exc:
             return {"status": "failed", "summary": f"Invalid audio payload: {exc}", "transcript": ""}
         stt = transcribe_stt(audio, str(self.repo_path), input_format)
-        self.store.append_event(run_id, "system", "result", "Gradium STT completed.", {"status": stt.status, "summary": stt.summary})
+        transcript = stt.transcript.strip()
+        message = "Gradium STT completed."
+        if stt.status == "passed":
+            message = f"Gradium STT heard: {transcript or '[no speech detected]'}"
+        self.store.append_event(
+            run_id,
+            "system",
+            "result",
+            message,
+            {"status": stt.status, "summary": stt.summary, "transcript": transcript, "input_format": input_format},
+        )
         route = None
-        if stt.status == "passed" and stt.transcript.strip():
-            route = self.voice_command(run_id, stt.transcript)
+        if stt.status == "passed" and transcript:
+            route = self.voice_command(run_id, transcript)
+            self.store.append_event(
+                run_id,
+                "system",
+                "result",
+                f"STT routed to {route['route']} as {route['classification']}.",
+                {"route": route},
+            )
         return {"stt": asdict(stt), "route": route}
 
     def run_verifier(self, run_id: str, verifier_name: str = "default", url: str | None = None) -> list[dict]:
