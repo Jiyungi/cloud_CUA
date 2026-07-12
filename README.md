@@ -86,21 +86,6 @@ The system should select a supported AWS path, operate the browser safely, verif
 - The default AWS cost policy is capped at $5 unless the user approves an extension.
 - Cleanup never silently deletes a live deployment.
 
-### Scope of work
-
-| Area | Current scope |
-|---|---|
-| Repository analysis | Vite, React, Next.js, static sites, Docker apps, APIs, serverless, and IaC detection |
-| AWS deployment | Proven ECS Express and S3 paths; guarded Amplify, Lambda, and IaC planning |
-| Browser operation | Dedicated Chrome profile, manual login, bounded H tasks, pause/resume/cancel |
-| Safety | Account matching, approvals, cost policy, SSM secret references, tagged cleanup |
-| Verification | AWS CLI/API, CloudTrail, resource state, HTTP, Playwright, and deployment report |
-| H skills | 53 synchronized skills, including safety guidance for 50 AWS services |
-| Evaluation | 150 cases covering provisioning, misconfiguration, and recovery/cleanup |
-| GCP | Cloud Run planning only; live acceptance is not complete |
-
-The 50-service skill catalog provides service-specific knowledge and warnings. It does not mean all 50 services already have production-ready automated deployment flows.
-
 ### Core features
 
 | Feature | Behavior |
