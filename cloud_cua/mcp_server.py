@@ -39,6 +39,12 @@ def cloud_cua_get_recent_events(repo_path: str, run_id: str, limit: int = 50) ->
 
 
 @mcp.tool()
+def cloud_cua_get_handoff(repo_path: str, run_id: str) -> Any:
+    """Get the shared Codex-H-user-verifier owner, milestone, evidence, and exact next action."""
+    return _client().get(f"/runs/{run_id}/handoff", {"repo_path": repo_path})
+
+
+@mcp.tool()
 def cloud_cua_watch_run(repo_path: str, run_id: str, cursor: int = 0, timeout_seconds: int = 20) -> Any:
     """Long-poll the shared run so Codex can supervise new H, user, and verifier events."""
     return _client().get(

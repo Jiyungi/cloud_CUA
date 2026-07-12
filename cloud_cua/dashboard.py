@@ -165,6 +165,18 @@ HTML = r"""
     }
     .lane strong { font-size: 13px; }
     .lane span { color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .handoff-strip {
+      display: grid;
+      grid-template-columns: 150px 180px minmax(0, 1fr);
+      gap: 14px;
+      margin-top: 12px;
+      padding: 13px;
+      border-left: 4px solid var(--primary);
+      background: #eef4ff;
+    }
+    .handoff-strip > div { min-width: 0; }
+    .handoff-strip strong { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .handoff-strip span { display: block; line-height: 1.4; overflow-wrap: anywhere; }
     .skill-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; margin-top: 14px; }
     .skill-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .skill-meta > div { border-left: 3px solid var(--border); padding-left: 10px; min-width: 0; }
@@ -264,7 +276,7 @@ HTML = r"""
       .activity { height: auto; min-height: 360px; }
       .mission { grid-template-columns: 1fr; }
       .mission-side { border-left: 0; border-top: 1px solid var(--border); }
-      .lanes, .proof-grid, .safety-grid { grid-template-columns: 1fr; }
+      .lanes, .proof-grid, .safety-grid, .handoff-strip { grid-template-columns: 1fr; }
       .skill-grid, .skill-meta { grid-template-columns: 1fr; }
       .voice-strip { grid-template-columns: 1fr; align-items: stretch; }
       .voice-actions { justify-content: flex-start; }
@@ -373,6 +385,11 @@ HTML = r"""
           <div class="lane"><strong>H CUA</strong><span id="hLane">Waits for login, then operates browser.</span></div>
           <div class="lane"><strong>User</strong><span id="userLane">Approves risky cloud actions.</span></div>
           <div class="lane"><strong>Verifier</strong><span id="verifierLane">Checks AWS/GCP directly.</span></div>
+        </div>
+        <div class="handoff-strip" aria-live="polite">
+          <div><strong>Current owner</strong><span id="handoffOwner">Codex</span></div>
+          <div><strong>Handoff state</strong><span id="handoffState">Planning</span></div>
+          <div><strong>Next action</strong><span id="handoffNext">Attach a repository to begin.</span></div>
         </div>
       </section>
 
@@ -608,10 +625,25 @@ async function refresh() {
   renderEvents(ev);
   renderProof(ev);
   await loadApprovals();
+  await loadHandoffState();
   await loadCapabilities();
   await loadSkillState();
   await loadSafetyState();
   await loadRunPicker();
+}
+async function loadHandoffState() {
+  if (!currentRun) return;
+  const response = await fetch(`/runs/${currentRun.run_id}/handoff?repo_path=${encodeURIComponent(repoInput.value)}`);
+  if (!response.ok) return;
+  const handoff = await response.json();
+  handoffOwner.textContent = readableStatus(handoff.owner || 'none');
+  handoffState.textContent = readableStatus(handoff.state || 'unknown');
+  handoffNext.textContent = handoff.next_action || 'No next action recorded.';
+  const latest = handoff.latest || {};
+  if (latest.codex?.message) codexLane.textContent = latest.codex.message;
+  if (latest.h_cua?.message) hLane.textContent = latest.h_cua.message;
+  if (latest.user?.message) userLane.textContent = latest.user.message;
+  if (latest.verifier?.message) verifierLane.textContent = latest.verifier.message;
 }
 function renderRun() {
   updateRunControls();

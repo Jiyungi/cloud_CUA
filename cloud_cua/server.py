@@ -206,6 +206,10 @@ def create_app() -> FastAPI:
     def get_events(run_id: str, repo_path: str, limit: int = 100):
         return Orchestrator(repo_path).get_events(run_id, limit)
 
+    @app.get("/runs/{run_id}/handoff")
+    def get_handoff(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_handoff_state(run_id)
+
     @app.get("/runs/{run_id}/watch")
     def watch_run(run_id: str, repo_path: str, cursor: int = 0, timeout_seconds: int = 20):
         return Orchestrator(repo_path).watch_run(run_id, cursor, timeout_seconds)

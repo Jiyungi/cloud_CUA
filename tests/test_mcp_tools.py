@@ -10,6 +10,7 @@ from cloud_cua.server import create_app
 from cloud_cua.mcp_server import (
     cloud_cua_get_aws_plan,
     cloud_cua_get_gcp_plan,
+    cloud_cua_get_handoff,
     cloud_cua_get_recent_events,
     cloud_cua_get_voice_status,
     cloud_cua_get_pending_voice_question,
@@ -68,6 +69,7 @@ def test_mcp_tools_share_orchestrator_flow(tmp_path):
     events = cloud_cua_get_recent_events(str(tmp_path), run["run_id"])
     voice = cloud_cua_get_voice_status(str(tmp_path), run["run_id"])
     pending_voice = cloud_cua_get_pending_voice_question(str(tmp_path), run["run_id"])
+    handoff = cloud_cua_get_handoff(str(tmp_path), run["run_id"])
 
     assert run["target"] == "aws_amplify"
     assert "launch_token=" in run["launch_url"]
@@ -78,6 +80,9 @@ def test_mcp_tools_share_orchestrator_flow(tmp_path):
     assert any(event["source"] == "system" for event in events)
     assert voice == {"turn": None, "codex_job": None}
     assert pending_voice["status"] == "idle"
+    assert handoff["owner"] == "user"
+    assert handoff["state"] == "manual_login_required"
+    assert handoff["repo_path"] == str(tmp_path)
 
 
 def test_mcp_gcp_tools(tmp_path):

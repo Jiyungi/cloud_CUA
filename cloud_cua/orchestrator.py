@@ -45,6 +45,7 @@ from .deployments.amplify import (
 from .deployments.s3_static import apply_s3_public_read_policy, build_s3_creation_task, build_s3_website_task, review_s3_bucket, review_s3_website, s3_bucket_name
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
+from .handoff import build_handoff_state, save_handoff
 from .explanations import explain_run_question
 from .h_runner import HTaskResult, run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
@@ -197,6 +198,27 @@ class Orchestrator:
 
     def get_events(self, run_id: str, limit: int = 100) -> list[dict]:
         return self.store.read_events(run_id, limit)
+
+    def get_handoff_state(self, run_id: str) -> dict:
+        run = self.store.load_run(run_id)
+        run_dir = self.store.run_dir(run_id)
+        contract = None
+        if self.store.contract_path(run_id).exists():
+            try:
+                contract = load_contract(self.store.contract_path(run_id)).to_dict()
+            except Exception:
+                contract = {"status": "unreadable"}
+        state = build_handoff_state(
+            run,
+            events=self.store.read_events(run_id, 500),
+            approvals=load_approvals(run_dir),
+            pending_actions=self.get_pending_actions(run_id),
+            h_job=self.h_sessions.get(self.repo_path, run_id),
+            codex_job=CodexVoiceStore(run_dir).current(),
+            contract=contract,
+        )
+        save_handoff(run_dir / "handoff.json", state)
+        return state
 
     def set_mode(self, run_id: str, mode: str) -> dict:
         run = self.store.load_run(run_id)

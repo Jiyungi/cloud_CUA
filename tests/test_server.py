@@ -496,6 +496,9 @@ def test_dashboard_contains_supervision_sections():
     client = TestClient(create_app())
     page = client.get("/")
     assert "Control Loop" in page.text
+    assert "Current owner" in page.text
+    assert "Handoff state" in page.text
+    assert "Next action" in page.text
     assert "Approvals" in page.text
     assert "Run Amplify step" not in page.text
     assert "Deploy" in page.text
