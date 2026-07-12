@@ -26,7 +26,11 @@ def cmd_init(_args: argparse.Namespace) -> int:
         return 0
     hai = getpass.getpass("Enter HAI_API_KEY: ").strip()
     gradium = getpass.getpass("Enter GRADIUM_API_KEY (optional): ").strip()
-    path = save_credentials(hai, gradium or None)
+    try:
+        path = save_credentials(hai, gradium or None)
+    except ValueError as exc:
+        print(f"Credential setup failed: {exc}", file=sys.stderr)
+        return 1
     print(f"Saved credentials to {path}.")
     return 0
 

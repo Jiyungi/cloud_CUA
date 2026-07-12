@@ -14,6 +14,19 @@ class Credentials:
     source: str
 
 
+def validate_secret_value(name: str, value: str, *, required: bool = True) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        if required:
+            raise ValueError(f"{name} is required.")
+        return ""
+    if any(char.isspace() for char in cleaned):
+        raise ValueError(f"{name} must not contain whitespace.")
+    if len(cleaned) < 12 or cleaned.lower() in {"default", "changeme", "your-api-key", "placeholder"}:
+        raise ValueError(f"{name} does not look like a usable API key.")
+    return cleaned
+
+
 def _parse_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -62,10 +75,15 @@ def inspect_credentials(repo_path: str | Path | None = None) -> Credentials:
 
 def save_credentials(hai_api_key: str, gradium_api_key: str | None = None) -> Path:
     user_config_dir().mkdir(parents=True, exist_ok=True)
-    lines = ["# Cloud CUA local credentials. Do not commit this file.", f"HAI_API_KEY={hai_api_key.strip()}"]
-    if gradium_api_key:
-        lines.append(f"GRADIUM_API_KEY={gradium_api_key.strip()}")
+    hai = validate_secret_value("HAI_API_KEY", hai_api_key)
+    gradium = validate_secret_value("GRADIUM_API_KEY", gradium_api_key or "", required=False)
+    lines = ["# Cloud CUA local credentials. Do not commit this file.", f"HAI_API_KEY={hai}"]
+    if gradium:
+        lines.append(f"GRADIUM_API_KEY={gradium}")
     path = credentials_path()
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     return path
-

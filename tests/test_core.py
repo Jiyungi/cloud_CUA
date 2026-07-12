@@ -10,6 +10,7 @@ from cloud_cua.lessons import load_lesson_candidate, resolve_lesson_candidate, w
 from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
 from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
+from cloud_cua.credentials import save_credentials
 from cloud_cua.deployment_contract import build_deployment_contract, load_contract, save_contract
 from cloud_cua.deployment_milestones import build_ecs_submit_task, review_ecs_inspection, review_ecs_prepared_form
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
@@ -63,6 +64,19 @@ def test_run_store_writes_run_atomically(tmp_path: Path):
     store.save_run(run)
     assert store.load_run(run.run_id).status == "running"
     assert not store.run_path(run.run_id).with_suffix(".tmp").exists()
+
+
+def test_credentials_reject_placeholders_and_write_outside_repo(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("cloud_cua.credentials.user_config_dir", lambda: tmp_path / "user-config")
+    monkeypatch.setattr("cloud_cua.credentials.credentials_path", lambda: tmp_path / "user-config" / "credentials.env")
+    try:
+        save_credentials("placeholder")
+        assert False, "placeholder key should be rejected"
+    except ValueError:
+        pass
+    path = save_credentials("hai_live_test_key_123456")
+    assert path.parent == tmp_path / "user-config"
+    assert "hai_live_test_key_123456" in path.read_text(encoding="utf-8")
 
 
 def test_repo_analyzer_vite_recommends_amplify(tmp_path: Path):
