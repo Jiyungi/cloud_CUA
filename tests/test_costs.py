@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from cloud_cua.aws_costs import PriceListClient, build_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock
 from cloud_cua.cost_monitor import CostMonitor
+from cloud_cua.orchestrator import Orchestrator
 from cloud_cua.run_store import RunStore
 
 
@@ -66,3 +67,20 @@ def test_cost_monitor_blocks_run_without_deleting_resources(tmp_path):
     assert status["warning_level"] == 100
     assert updated.status == "cost_action_required"
     assert updated.current_step == "cleanup_or_cost_extension_required"
+
+
+def test_approved_cost_extension_persists_the_new_cap(tmp_path):
+    orchestrator = Orchestrator(tmp_path)
+    run = orchestrator.store.create_run("aws", "vibe")
+    policy = build_cost_policy("aws_ecs_express", "us-east-1", 5.0, FakePricing())
+    policy.started_at = datetime.now(UTC).isoformat()
+    save_cost_policy(orchestrator.store.run_dir(run.run_id) / "cost-policy.json", policy)
+
+    approval = orchestrator.request_cost_extension(run.run_id, 10.0)
+    orchestrator.decide_approval(run.run_id, approval["approval_id"], True)
+    result = orchestrator.request_cost_extension(run.run_id, 10.0)
+
+    persisted = load_cost_policy(orchestrator.store.run_dir(run.run_id) / "cost-policy.json")
+    assert result["max_spend_usd"] == 10.0
+    assert persisted is not None
+    assert persisted.max_spend_usd == 10.0

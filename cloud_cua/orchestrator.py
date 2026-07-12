@@ -11,7 +11,7 @@ from pathlib import Path
 from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
-from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_run_cost_clock
+from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock, start_run_cost_clock
 from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
 from .amplify_artifact import stage_amplify_artifact
 from .browser_profile import launch_dedicated_browser
@@ -930,7 +930,7 @@ class Orchestrator:
             return self.request_approval(run_id, action, "This permits tagged resources from this run to continue accruing estimated AWS charges.", "high")
         policy.max_spend_usd = new_cap_usd
         policy.deadline_at = ""
-        policy = start_run_cost_clock(self.store.run_dir(run_id)) or policy
+        policy = start_cost_clock(policy)
         save_cost_policy(path, policy)
         run = self.store.load_run(run_id)
         if run.status == "cost_action_required":

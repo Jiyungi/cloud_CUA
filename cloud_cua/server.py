@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .dashboard import render_dashboard
 from .orchestrator import Orchestrator
@@ -101,8 +101,8 @@ class CodexMessageRequest(BaseModel):
 
 class RuntimeConfigurationRequest(BaseModel):
     repo_path: str
-    values: dict[str, str] = {}
-    existing_references: dict[str, str] = {}
+    values: dict[str, str] = Field(default_factory=dict)
+    existing_references: dict[str, str] = Field(default_factory=dict)
     region: str = "us-east-1"
 
 
@@ -322,7 +322,8 @@ def create_app() -> FastAPI:
 
     @app.post("/runs/{run_id}/approval-decision")
     def approval_decision(run_id: str, req: ApprovalDecisionRequest, background_tasks: BackgroundTasks):
-        approval = Orchestrator(req.repo_path).decide_approval(run_id, req.approval_id, req.approved)
+        orchestrator = Orchestrator(req.repo_path)
+        approval = orchestrator.decide_approval(run_id, req.approval_id, req.approved)
         if req.approved and (approval["action"].startswith("Run AWS deployment task:") or approval["action"] == "Run GCP Cloud Run deployment task"):
             get_h_session_manager().schedule(
                 req.repo_path,
@@ -330,6 +331,9 @@ def create_app() -> FastAPI:
                 "approved-deployment",
                 lambda: Orchestrator(req.repo_path).resume_approved_deployment(run_id),
             )
+        elif req.approved and approval["action"].startswith("Extend Cloud CUA cost policy to $"):
+            new_cap = float(approval["action"].rsplit("$", 1)[1])
+            approval["cost_policy"] = orchestrator.request_cost_extension(run_id, new_cap)
         return approval
 
     @app.post("/runs/{run_id}/resume-approved")
