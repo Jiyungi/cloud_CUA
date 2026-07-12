@@ -648,15 +648,19 @@ async function loadHandoffState() {
 function renderRun() {
   updateRunControls();
   attachRepoButton.textContent = ['completed', 'cancelled', 'failed'].includes(currentRun.status) ? 'Start new run' : 'Attach repository';
-  statusTitle.textContent = titleForStatus(currentRun.status);
+  statusTitle.textContent = currentRun.status === 'completed' && currentRun.deployment_scope === 'frontend_preview'
+    ? 'Frontend preview complete'
+    : titleForStatus(currentRun.status);
   headerState.innerHTML = `<span class="dot ${dotClass(currentRun.status)}"></span>${currentRun.status}`;
   runIdPill.textContent = currentRun.run_id || 'No run';
   cloudLabel.textContent = currentRun.cloud?.toUpperCase() || 'AWS';
-  targetLabel.textContent = currentRun.target || 'Not analyzed';
+  targetLabel.textContent = currentRun.deployment_scope === 'frontend_preview'
+    ? `${currentRun.target || 'aws_amplify'} / frontend preview`
+    : (currentRun.target || 'Not analyzed');
   stepLabel.textContent = currentRun.current_step || 'Idle';
   const hJob = currentRun.h_job;
   hJobLabel.textContent = hJob ? `${readableStatus(hJob.status)} / ${readableStatus(hJob.milestone)}` : 'Idle';
-  runSummary.innerHTML = `Repo: <b>${shortPath(repoInput.value)}</b><br>Mode: <b>${currentRun.mode}</b>`;
+  runSummary.innerHTML = `Repo: <b>${shortPath(repoInput.value)}</b><br>Mode: <b>${currentRun.mode}</b>${currentRun.deployment_scope === 'frontend_preview' ? '<br><b>Frontend preview only. Backend services are not deployed.</b>' : ''}`;
   const finalUrl = currentRun.live_urls?.[0];
   liveLink.hidden = !finalUrl;
   if (finalUrl) { liveLink.href = finalUrl; liveLink.textContent = 'Open app'; }

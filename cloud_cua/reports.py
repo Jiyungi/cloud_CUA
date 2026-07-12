@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .approvals import load_approvals
+from .agent_test_contract import load_agent_test_contract
 from .run_store import RunStore
 
 
@@ -14,6 +15,7 @@ def write_report(repo_path: str | Path, run_id: str) -> Path:
     verifier_dir = store.verifier_dir(run_id)
     verifier_files = sorted(verifier_dir.glob("*.json"))
     approvals = load_approvals(store.run_dir(run_id))
+    fixture = load_agent_test_contract(repo_path)
     path = Path(repo_path).resolve() / "DEPLOYMENT_REPORT.md"
 
     event_lines = "\n".join(
@@ -33,6 +35,13 @@ def write_report(repo_path: str | Path, run_id: str) -> Path:
     next_action = "Review verifier artifacts and cloud resources before sharing or production use."
     if run.status in {"blocked", "failed"}:
         next_action = "Resolve the blocking step shown above, then rerun the verifier before continuing."
+    scope_note = ""
+    if run.deployment_scope == "frontend_preview" and fixture:
+        missing_backend = ", ".join(fixture.required_aws_services[1:])
+        scope_note = (
+            "\n> Frontend preview only: Amplify hosting is in scope. "
+            f"The application backend was not deployed ({missing_backend}).\n"
+        )
 
     content = f"""# Deployment Report
 
@@ -41,9 +50,11 @@ def write_report(repo_path: str | Path, run_id: str) -> Path:
 - Run: `{run.run_id}`
 - Cloud: `{run.cloud}`
 - Target: `{run.target}`
+- Deployment scope: `{run.deployment_scope}`
 - Mode: `{run.mode}`
 - Status: `{run.status}`
 - Current step: `{run.current_step}`
+{scope_note}
 
 ## Verifier Artifacts
 
