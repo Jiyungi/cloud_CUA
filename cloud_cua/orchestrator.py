@@ -431,7 +431,11 @@ class Orchestrator:
                     prepared_inputs["container_port"] = str(contract.selected_container_port)
                     prepared_inputs["health_check_path"] = contract.health_check_path
             elif option.target == "aws_s3_static_site":
-                static_artifact = prepare_static_artifact(self.repo_path, ctx)
+                static_artifact = prepare_static_artifact(
+                    self.repo_path,
+                    ctx,
+                    self.store.run_dir(run_id) / "static-artifact",
+                )
                 self.store.append_event(run_id, "system", "result", static_artifact.summary, static_artifact.to_dict())
                 if static_artifact.status != "passed":
                     run = self.store.load_run(run_id)
@@ -447,7 +451,11 @@ class Orchestrator:
                     run.current_step = "amplify_manual_deploy_unsupported"
                     self.store.save_run(run)
                     return {"status": "blocked", "summary": "Deploy without Git supports static build output only. SSR/full-stack Amplify requires a separately approved GitHub App workflow."}
-                static_artifact = prepare_static_artifact(self.repo_path, ctx)
+                static_artifact = prepare_static_artifact(
+                    self.repo_path,
+                    ctx,
+                    self.store.run_dir(run_id) / "static-artifact",
+                )
                 self.store.append_event(run_id, "system", "result", static_artifact.summary, static_artifact.to_dict())
                 if static_artifact.status != "passed":
                     run = self.store.load_run(run_id)

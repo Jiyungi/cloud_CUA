@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from cloud_cua.deployment_contract import DeploymentContract
 from cloud_cua.deployments.s3_static import review_s3_creation, s3_bucket_name
@@ -49,3 +50,19 @@ def test_static_artifact_requires_index_html(tmp_path):
     (output / "index.html").write_text("hello", encoding="utf-8")
     ready = prepare_static_artifact(tmp_path, context)
     assert ready.status == "passed"
+
+
+def test_plain_static_root_is_staged_without_local_or_secret_files(tmp_path):
+    (tmp_path / "index.html").write_text("<h1>ready</h1>", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=do-not-stage\n", encoding="utf-8")
+    (tmp_path / ".cloud-cua" / "runs").mkdir(parents=True)
+    (tmp_path / ".cloud-cua" / "runs" / "event.json").write_text("private", encoding="utf-8")
+    context = RepoContext("static", "frontend_static", "unknown", None, ".", None, False, [], [], "aws_amplify")
+
+    result = prepare_static_artifact(tmp_path, context, tmp_path / ".cloud-cua" / "staged")
+
+    staged = Path(result.output_directory)
+    assert result.status == "passed"
+    assert (staged / "index.html").exists()
+    assert not (staged / ".env").exists()
+    assert not (staged / ".cloud-cua").exists()
