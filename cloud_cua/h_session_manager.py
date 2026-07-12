@@ -252,6 +252,8 @@ class HSessionManager:
                 f"{timeout_seconds:g} seconds after {attempts} attempts (last state: {last_status})."
             )
         except Exception as exc:
+            if action == "cancel" and getattr(exc, "status_code", None) == 404:
+                return "completed", None
             return "unknown", f"H session {action} failed: {type(exc).__name__}: {exc}"
 
     def _recover_job(self, store: RunStore, job: HJob) -> None:

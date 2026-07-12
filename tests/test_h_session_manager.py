@@ -104,6 +104,24 @@ def test_h_control_retries_until_remote_state_is_confirmed(monkeypatch):
     assert calls == ["pause", "pause"]
 
 
+def test_cancel_treats_already_removed_remote_session_as_terminal(monkeypatch):
+    class MissingSession(Exception):
+        status_code = 404
+
+    class FakeHandle:
+        def cancel(self):
+            raise MissingSession("session not found")
+
+    fake_module = SimpleNamespace(Client=lambda **_kwargs: SimpleNamespace(session=lambda _session_id: FakeHandle()))
+    monkeypatch.setitem(sys.modules, "hai_agents", fake_module)
+    monkeypatch.setattr("cloud_cua.h_session_manager.load_secret_values", lambda: {"HAI_API_KEY": "test"})
+
+    status, error = HSessionManager()._call_h_and_confirm("session-1", "cancel")
+
+    assert status == "completed"
+    assert error is None
+
+
 def test_recovery_stops_unattachable_local_browser_session(tmp_path, monkeypatch):
     store = RunStore(tmp_path)
     run = store.create_run("aws", "vibe")
