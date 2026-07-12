@@ -35,6 +35,10 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert plan.status_code == 200
     assert plan.json()["supported"] is True
 
+    caps = client.get("/capabilities", params={"repo_path": str(tmp_path)})
+    assert caps.status_code == 200
+    assert "gradium_api_key_present" in caps.json()
+
     approval = client.post(
         f"/runs/{run['run_id']}/approvals",
         json={"repo_path": str(tmp_path), "action": "Create AWS Amplify app", "reason": "Creates a cloud resource."},
@@ -86,6 +90,7 @@ def test_general_aws_deploy_requires_approval(tmp_path):
     assert result.status_code == 200
     assert result.json()["status"] == "blocked"
     assert result.json()["approval"]["status"] == "pending"
+    assert "paid_resources" in result.json()["approval"]["triggers"]
 
 
 def test_general_aws_deploy_blocks_over_budget(tmp_path):
@@ -134,3 +139,27 @@ def test_dashboard_contains_supervision_sections():
     assert "Control Loop" in page.text
     assert "Approvals" in page.text
     assert "Run Amplify step" in page.text
+    assert "Start mic" in page.text
+
+
+def test_gcp_cloud_run_deploy_requires_approval(tmp_path):
+    client = TestClient(create_app())
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "gcp", "mode": "teach"}).json()
+    store = RunStore(tmp_path)
+    saved = store.load_run(run["run_id"])
+    saved.status = "running"
+    saved.current_step = "login_confirmed"
+    store.save_run(saved)
+
+    plan = client.get(f"/runs/{run['run_id']}/gcp-plan", params={"repo_path": str(tmp_path)})
+    result = client.post(
+        f"/runs/{run['run_id']}/gcp-deploy",
+        json={"repo_path": str(tmp_path), "task": "Deploy this safely to Cloud Run"},
+    )
+
+    assert plan.status_code == 200
+    assert plan.json()["supported"] is True
+    assert result.status_code == 200
+    assert result.json()["status"] == "blocked"
+    assert result.json()["approval"]["status"] == "pending"

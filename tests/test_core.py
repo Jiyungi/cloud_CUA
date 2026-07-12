@@ -5,11 +5,15 @@ import subprocess
 from pathlib import Path
 
 from cloud_cua.h_runner import run_h_task
+from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
+from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan
+from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
 from cloud_cua.reports import write_report
 from cloud_cua.repo_analyzer import analyze_repo
 from cloud_cua.run_store import RunStore
+from cloud_cua.safety import detect_approval_triggers
 from cloud_cua.verifier.base import VerifierResult
 from cloud_cua.voice_router import classify_voice_command
 from cloud_cua.voice_gradium import synthesize_tts
@@ -82,6 +86,48 @@ def test_general_aws_plan_has_multiple_frontend_options(tmp_path: Path):
     assert plan.primary_target == "aws_amplify"
     assert "aws_s3_static_site" in targets
     assert plan.max_spend_usd == 5.0
+
+
+def test_gcp_cloud_run_plan_supports_docker_repo(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    plan = build_gcp_cloud_run_plan("demo-api", ctx)
+    assert plan.supported is True
+    assert plan.target == "gcp_cloud_run"
+    assert plan.service_name.startswith("cloud-cua-demo-api")
+
+
+def test_approval_trigger_detection_is_specific():
+    triggers = detect_approval_triggers("Deploy public App Runner service with IAM role and GitHub OAuth")
+    codes = {trigger.code for trigger in triggers}
+    assert {"paid_resources", "public_exposure", "broad_iam", "oauth"} <= codes
+
+
+def test_codex_config_upsert_replaces_cloud_cua_only():
+    text = '[mcp_servers.other]\ncommand = "x"\n'
+    updated = upsert_mcp_server(text, "cloud-cua", "python.exe", ["-m", "cloud_cua.cli", "mcp"])
+    assert "[mcp_servers.other]" in updated
+    assert "[mcp_servers.cloud-cua]" in updated
+    assert 'args = ["-m", "cloud_cua.cli", "mcp"]' in updated
+
+
+def test_install_mcp_writes_config(tmp_path: Path):
+    config = tmp_path / "config.toml"
+    result = install_cloud_cua_mcp(config, python_executable="python", dry_run=False)
+    text = config.read_text(encoding="utf-8")
+    assert result.status == "passed"
+    assert "[mcp_servers.cloud-cua]" in text
+    assert 'command = "python"' in text
+
+
+def test_aws_cleanup_dry_run_uses_discovery(monkeypatch):
+    monkeypatch.setattr(
+        "cloud_cua.aws_cleanup.discover_cleanup_actions",
+        lambda run_id=None: [],
+    )
+    result = cleanup_cloud_cua_aws_resources(dry_run=True)
+    assert result.status == "passed"
+    assert result.dry_run is True
 
 
 def test_repo_analyzer_unknown_blocks(tmp_path: Path):
