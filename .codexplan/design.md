@@ -9,9 +9,9 @@ The system is intentionally not SaaS-first. AWS/GCP login, MFA, SSO, and captcha
 The MVP has two phases:
 
 1. **Local control loop MVP**: Codex calls Cloud CUA through MCP, dashboard opens, login modal blocks, H CUA performs inspect-only browser tasks, independent verifiers run, event log and report are written.
-2. **First deployment MVP**: frontend-style repo deploys through AWS Amplify, with H CUA operating console setup and AWS/HTTP/Playwright verifiers proving the result.
+2. **First deployment MVP**: Cloud CUA proves a low-cost AWS deployment path, records approvals, verifies resources independently, and cleans up tagged resources. H CUA console deployment remains gated by manual login in the H-controlled browser profile.
 
-ECS Express Mode and GCP Cloud Run are designed as later deployment adapters, not first scope.
+AWS is now generalized across Amplify, S3 static hosting, App Runner, ECS inspection, Lambda, and IaC discovery. GCP Cloud Run has an approval-gated plan and verifier path, but needs local `gcloud` auth before real deployment.
 
 ## Design Principles
 
@@ -56,6 +56,9 @@ Commands:
 cloud-cua init
 cloud-cua start
 cloud-cua mcp
+cloud-cua install-mcp
+cloud-cua doctor
+cloud-cua aws-cleanup
 ```
 
 Responsibilities:
@@ -67,7 +70,9 @@ Responsibilities:
 - start the local backend;
 - open or print dashboard URL;
 - run the MCP server over stdio;
-- install or print MCP config snippets for Codex/Kiro/Cursor later.
+- install MCP config for Codex;
+- check local dependencies with `doctor`;
+- clean Cloud CUA tagged AWS resources with dry-run by default.
 
 The CLI is not the main product UI. It exists to make the MCP server and dashboard reliable.
 
@@ -130,6 +135,11 @@ cloud_cua_resume_h_cua(run_id)
 cloud_cua_request_approval(run_id, action, reason)
 cloud_cua_run_verifier(run_id, verifier_name)
 cloud_cua_write_report(run_id)
+cloud_cua_get_aws_plan(repo_path, run_id)
+cloud_cua_run_aws_deployment_task(repo_path, run_id, task, target, max_spend_usd)
+cloud_cua_get_gcp_plan(repo_path, run_id)
+cloud_cua_run_gcp_cloud_run_task(repo_path, run_id, task)
+cloud_cua_cleanup_aws_resources(repo_path, run_id, dry_run)
 ```
 
 Design rule:
@@ -337,7 +347,7 @@ UpdateApp
 UpdateBranch
 ```
 
-### ECS Express Mode Adapter - Planned
+### ECS Express Mode Adapter - Planned/Inspect Only
 
 Use after MVP when containerized apps are supported.
 
@@ -349,14 +359,20 @@ Required before enabling:
 - ALB/live URL verifier;
 - cost approval gate.
 
-### GCP Cloud Run Adapter - Planned
+### GCP Cloud Run Adapter - Implemented Planning Path
 
-Use after AWS Amplify MVP.
+Use for containerized or HTTP service repos when GCP is selected.
 
-Required before enabling:
+Implemented:
+
+- Cloud Run plan generation;
+- approval-gated H CUA task prompt;
+- `gcloud auth list`, `gcloud config get-value project`, and `gcloud run services list` verifiers.
+
+Still required before real deployment:
 
 - `gcloud` auth/project verification;
-- service deploy/describe verification;
+- manual GCP browser login;
 - Cloud Audit Logs query;
 - live URL and Playwright checks.
 

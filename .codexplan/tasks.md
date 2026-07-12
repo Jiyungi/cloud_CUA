@@ -286,11 +286,11 @@ Owner labels are suggested for parallel work.
     - Playwright page render check
     - _Requirements: 14, 17_
 
-  - [x] 12.5 Stub GCP verifiers as planned scope
+  - [x] 12.5 Implement GCP verifier basics
     - `gcloud auth list`
     - `gcloud config get-value project`
-    - `gcloud run services describe`
-    - Mark as disabled until Cloud Run adapter exists
+    - `gcloud run services list`
+    - Skip cleanly when `gcloud` is not installed
     - _Requirements: 14, 18_
 
   - [x]* 12.6 Test verifier result schema
@@ -299,7 +299,7 @@ Owner labels are suggested for parallel work.
     - no secret leakage
     - _Requirements: 14, 19_
 
-- [ ] 13. Implement approval gates (Owner: Frontend/Product)
+- [x] 13. Implement approval gates (Owner: Frontend/Product)
   - [x] 13.1 Build approval model and backend endpoints
     - Pending approval object
     - Approve/deny actions
@@ -311,7 +311,7 @@ Owner labels are suggested for parallel work.
     - Approve and Deny buttons
     - _Requirements: 13, 16_
 
-  - [ ] 13.3 Add required approval triggers
+  - [x] 13.3 Add required approval triggers
     - paid resources
     - broad IAM
     - public exposure
@@ -388,7 +388,7 @@ Owner labels are suggested for parallel work.
     - _Requirements: 15_
 
 - [ ] 16. Implement Teach Mode voice with Gradium and fast command routing (Owner: Frontend/Product)
-  - [ ] 16.1 Build voice UI
+  - [x] 16.1 Build voice UI
     - Voice button in dashboard
     - Text transcript fallback
     - Voice disabled state when no key
@@ -403,7 +403,7 @@ Owner labels are suggested for parallel work.
     - Write `voice_command` events with transcript, classification, and route
     - _Requirements: 11, 11A_
 
-  - [ ] 16.3 Implement Gradium STT adapter
+  - [x] 16.3 Implement Gradium STT adapter
     - Browser records or streams user audio
     - Backend uses `GRADIUM_API_KEY` or short-lived browser token flow
     - STT result goes to Voice Command Router first
@@ -411,7 +411,7 @@ Owner labels are suggested for parallel work.
     - Text fallback uses the same router
     - _Requirements: 11, 11A_
 
-  - [ ] 16.4 Implement Gradium TTS adapter
+  - [x] 16.4 Implement Gradium TTS adapter
     - Speak short Teach Mode explanations, warnings, questions, and final results
     - Do not speak every internal event
     - TTS is output only; it does not choose actions
@@ -444,14 +444,14 @@ Owner labels are suggested for parallel work.
     - Update requirements/design/tasks if product decisions change
     - _Requirements: 20_
 
-- [ ] 18. End-to-end AWS Amplify deployment checkpoint (Owner: Both)
+- [ ] 18. End-to-end AWS deployment checkpoint (Owner: Both)
   - [ ] 18.1 Prepare sample frontend repo
     - Simple Vite/React or static app
     - Known build command
     - Known output directory
     - _Requirements: 5, 17_
 
-  - [ ] 18.2 Run AWS Amplify deployment flow
+  - [ ] 18.2 Run H CUA AWS console deployment flow
     - Manual login
     - H CUA console operation
     - User approval for resource creation
@@ -461,9 +461,17 @@ Owner labels are suggested for parallel work.
     - Report
     - _Requirements: 14, 16, 17, 20_
 
-  - [ ] 18.3 Record target-state gaps
-    - What still needs ECS Express Mode
-    - What still needs GCP Cloud Run
+  - [x] 18.3 Run real low-cost AWS smoke deployment
+    - Created tagged S3 static website bucket under `cloud-cua-smoke-*`
+    - Verified public website endpoint returned the run marker
+    - Deleted object, bucket policy, website config, and bucket
+    - Confirmed `cloud-cua` cleanup dry-run found zero leftover resources
+    - _Requirements: 14, 16, 17, 20_
+
+  - [x] 18.4 Record target-state gaps
+    - H CUA console deployment still needs manual login in the H-controlled browser profile
+    - ECS creation remains heavier planned scope
+    - GCP Cloud Run needs local `gcloud` installation/auth before real deployment
     - What still needs stronger security/cost handling
     - _Requirements: 18, 20_
 
@@ -513,8 +521,36 @@ Owner labels are suggested for parallel work.
     - Dashboard opens
     - H CUA inspect task works
     - Independent verifiers run
-    - AWS Amplify deployment path works or has documented blocker
+    - Low-cost AWS deployment smoke works and cleans up
+    - H CUA AWS console deployment has documented manual-login blocker
     - _Requirements: 20_
+
+- [x] 21. Shareable product hardening (Owner: Both)
+  - [x] 21.1 Add `cloud-cua install-mcp`
+    - Writes Codex MCP config
+    - Backs up existing config before editing
+    - _Requirements: 1, 2_
+
+  - [x] 21.2 Add `cloud-cua doctor`
+    - Checks Python, Node, npm, AWS CLI, AWS identity, gcloud, Chrome, Chrome debug port, Playwright, Docker, credentials, Codex MCP config
+    - _Requirements: 2, 14, 20_
+
+  - [x] 21.3 Add Docker quickstart
+    - `Dockerfile`
+    - `docker-compose.yml`
+    - `.dockerignore`
+    - Does not expose H or Gradium keys in rendered Compose config
+    - _Requirements: 2, 3_
+
+  - [x] 21.4 Add AWS cleanup command
+    - Dry-run by default
+    - Deletes only discovered Cloud CUA named/tagged resources when `--yes` is used
+    - _Requirements: 16, 17_
+
+  - [x] 21.5 Commit shareable release artifact
+    - `dist/cloud-cua-shareable.zip`
+    - Excludes `.env`, `.kiro`, `readme files`, local run artifacts, venvs, node_modules, and git metadata
+    - _Requirements: 2, 19_
 
 ## Task Dependency Graph
 
@@ -542,4 +578,5 @@ Owner labels are suggested for parallel work.
 - Update `design.md` before changing architecture.
 - Update `tasks.md` when implementation scope changes.
 - Do not add NemoClaw tasks.
-- Current H status: local Chrome/Selenium attachment works, stale local bridge trajectories were deleted, quota returned to 3 available slots, and H successfully completed safe browser/AWS sign-in-page navigation. Real AWS creation still requires the user to manually log into the H-controlled browser profile first.
+- Current H status: local Chrome/Selenium attachment works, stale local bridge trajectories were deleted, quota returned to 3 available slots, and H previously completed safe browser/AWS sign-in-page navigation. Real H-driven AWS creation still requires the user to manually log into the H-controlled browser profile first.
+- Current AWS smoke status: AWS CLI profile `cloud-cua-dev` created a tagged S3 static website, verified its public endpoint, deleted it, and `cloud-cua aws-cleanup` found zero leftover Cloud CUA resources.
