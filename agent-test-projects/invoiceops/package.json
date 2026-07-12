@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "fixture:generate": "python3 scripts/generate-invoice-fixture.py",
     "preview": "vite preview"
   },
   "dependencies": {

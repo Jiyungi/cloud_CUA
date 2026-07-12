@@ -9,6 +9,9 @@ const NAV_ITEMS = [
 
 export function AppShell(): React.JSX.Element {
   const { availableUsers, currentUser, switchUser } = useAppState();
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => item.to !== "/upload" || currentUser?.role === "vendor",
+  );
 
   return (
     <div className="app-shell">
@@ -24,7 +27,7 @@ export function AppShell(): React.JSX.Element {
         </NavLink>
 
         <nav className="side-nav" aria-label="Primary navigation">
-          {NAV_ITEMS.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -69,8 +72,8 @@ export function AppShell(): React.JSX.Element {
         </main>
       </div>
 
-      <nav className="mobile-nav" aria-label="Mobile navigation">
-        {NAV_ITEMS.map((item) => (
+      <nav className={`mobile-nav mobile-nav--${visibleNavItems.length}`} aria-label="Mobile navigation">
+        {visibleNavItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
