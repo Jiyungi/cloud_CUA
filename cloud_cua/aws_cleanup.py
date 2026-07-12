@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import asdict, dataclass, field
 
@@ -173,7 +174,9 @@ def _actions_from_arn(arn: str) -> list[CleanupAction]:
         name = arn.split(":service/", 1)[-1].split("/", 1)[0]
         return [CleanupAction("apprunner", name, aws_command(["apprunner", "delete-service", "--service-arn", arn]))]
     if ":amplify:" in arn and ":apps/" in arn:
-        app_id = arn.rsplit("/apps/", 1)[-1].split("/", 1)[0]
+        app_id = arn.split(":apps/", 1)[-1].split("/", 1)[0]
+        if not re.fullmatch(r"[a-z0-9]+", app_id):
+            return []
         return [CleanupAction("amplify", app_id, aws_command(["amplify", "delete-app", "--app-id", app_id]))]
     if ":cloudformation:" in arn and ":stack/" in arn:
         stack_name = arn.split(":stack/", 1)[-1].split("/", 1)[0]
@@ -263,10 +266,10 @@ def _ecs_task_requires_stop(cluster: str, task_arn: str) -> bool:
 
 
 def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     deduped: list[CleanupAction] = []
     for action in actions:
-        key = (action.service, action.resource)
+        key = tuple(action.command)
         if key in seen:
             continue
         seen.add(key)
