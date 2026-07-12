@@ -139,6 +139,11 @@ def _action_from_arn(arn: str) -> CleanupAction | None:
         parsed = _parse_ecs_service_arn(arn)
         if parsed:
             cluster, service = parsed
+            express_status = _express_gateway_status(arn)
+            if express_status == "INACTIVE":
+                return None
+            if express_status:
+                return CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))
             if _is_express_gateway_service(cluster, service):
                 return CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))
             return CleanupAction("ecs", service, aws_command(["ecs", "delete-service", "--cluster", cluster, "--service", service, "--force"]))
@@ -146,6 +151,8 @@ def _action_from_arn(arn: str) -> CleanupAction | None:
         parsed_task = _parse_ecs_task_arn(arn)
         if parsed_task:
             cluster, task = parsed_task
+            if not _ecs_task_requires_stop(cluster, arn):
+                return None
             return CleanupAction("ecs-task", task, aws_command(["ecs", "stop-task", "--cluster", cluster, "--task", arn, "--reason", "Cloud CUA cleanup"]))
     if ":lambda:" in arn and ":function:" in arn:
         name = arn.rsplit(":function:", 1)[-1]
@@ -222,6 +229,22 @@ def _is_express_gateway_service(cluster: str, service: str) -> bool:
         return False
     item = services[0]
     return "resourceManagementType" in item or bool(item.get("currentServiceRevisions"))
+
+
+def _express_gateway_status(service_arn: str) -> str:
+    data = _aws_json(aws_command(["ecs", "describe-express-gateway-service", "--service-arn", service_arn]))
+    service = data.get("service", {}) if isinstance(data, dict) else {}
+    status = service.get("status", {}) if isinstance(service, dict) else {}
+    return str(status.get("statusCode") or "")
+
+
+def _ecs_task_requires_stop(cluster: str, task_arn: str) -> bool:
+    data = _aws_json(aws_command(["ecs", "describe-tasks", "--cluster", cluster, "--tasks", task_arn]))
+    tasks = data.get("tasks", []) if isinstance(data, dict) else []
+    if not tasks:
+        return False
+    task = tasks[0]
+    return task.get("lastStatus") != "STOPPED" and task.get("desiredStatus") != "STOPPED"
 
 
 def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:

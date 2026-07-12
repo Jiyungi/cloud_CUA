@@ -519,6 +519,32 @@ def test_aws_cleanup_dry_run_uses_discovery(monkeypatch):
     assert result.dry_run is True
 
 
+def test_aws_cleanup_skips_inactive_express_service(monkeypatch):
+    from cloud_cua.aws_cleanup import _action_from_arn
+
+    monkeypatch.setattr(
+        "cloud_cua.aws_cleanup._aws_json",
+        lambda command: {"service": {"status": {"statusCode": "INACTIVE"}}}
+        if "describe-express-gateway-service" in command
+        else {},
+    )
+    arn = "arn:aws:ecs:us-east-1:123456789012:service/default/cloud-cua-demo"
+    assert _action_from_arn(arn) is None
+
+
+def test_aws_cleanup_skips_already_stopping_task(monkeypatch):
+    from cloud_cua.aws_cleanup import _action_from_arn
+
+    def fake_aws(command):
+        if "describe-tasks" in command:
+            return {"tasks": [{"lastStatus": "DEPROVISIONING", "desiredStatus": "STOPPED"}]}
+        return {}
+
+    monkeypatch.setattr("cloud_cua.aws_cleanup._aws_json", fake_aws)
+    arn = "arn:aws:ecs:us-east-1:123456789012:task/default/task-1"
+    assert _action_from_arn(arn) is None
+
+
 def test_aws_command_uses_cloud_cua_profile_when_available(monkeypatch):
     class FakeProc:
         returncode = 0
