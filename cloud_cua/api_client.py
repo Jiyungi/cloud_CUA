@@ -28,10 +28,11 @@ class CloudCUAClient:
         return f"{self.state.base_url}/?{urlencode({'repo_path': repo_path, 'run_id': run_id})}"
 
     def open_dashboard(self, repo_path: str, run_id: str, *, open_browser: bool = True) -> dict:
-        url = self.dashboard_url(repo_path, run_id)
+        launch = self.post(f"/dashboard-launch?{urlencode({'run_id': run_id})}", {"repo_path": repo_path})
+        url = launch["dashboard_url"]
         opened = False
         if open_browser and os.environ.get("CLOUD_CUA_NO_BROWSER") != "1":
-            opened = bool(webbrowser.open(url))
+            opened = bool(webbrowser.open(launch["launch_url"]))
         return {"dashboard_url": url, "run_id": run_id, "repo_path": repo_path, "opened": opened}
 
     def _headers(self) -> dict[str, str]:

@@ -15,6 +15,22 @@ def test_dashboard_health():
     page = client.get("/")
     assert page.status_code == 200
     assert "Log into AWS in this browser window. Click Continue when done." in page.text
+    assert "new URLSearchParams(window.location.search)" in page.text
+
+
+def test_service_auth_and_one_time_dashboard_launch(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLOUD_CUA_SERVICE_TOKEN", "local-test-token")
+    client = TestClient(create_app())
+    assert client.get("/defaults").status_code == 401
+    launch = client.post(
+        "/dashboard-launch?run_id=run-1",
+        headers={"X-Cloud-CUA-Token": "local-test-token"},
+        json={"repo_path": str(tmp_path)},
+    )
+    assert launch.status_code == 200
+    opened = client.get(launch.json()["launch_url"], follow_redirects=True)
+    assert opened.status_code == 200
+    assert client.get("/defaults").status_code == 200
 
 
 def test_skill_api_lists_and_syncs(tmp_path, monkeypatch):

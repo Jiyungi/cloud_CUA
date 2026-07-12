@@ -267,7 +267,6 @@ HTML = r"""
             <p id="runSummary" class="summary">Start from Codex through MCP, or use this local repo to test the control loop.</p>
           </div>
           <div class="row">
-            <button onclick="startRun()">Start local repo</button>
             <button class="secondary" onclick="openBrowser()">Open cloud login</button>
             <button class="quiet" onclick="runDeploy()">Deploy</button>
             <button class="quiet" onclick="pauseRun()">Pause</button>
@@ -396,6 +395,7 @@ HTML = r"""
             </div>
           </div>
           <div class="row" style="margin-top:12px">
+            <button class="secondary" onclick="startRun()">Start local repo</button>
             <button class="secondary" onclick="showLogin()">Show login gate</button>
             <button class="secondary" onclick="hInspect()">H inspect</button>
             <button class="secondary" onclick="runDeploy()">Deploy</button>
@@ -675,6 +675,26 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 }
 async function initDefaults() {
+  const params = new URLSearchParams(window.location.search);
+  const linkedRepo = params.get('repo_path');
+  const linkedRun = params.get('run_id');
+  if (linkedRepo && linkedRun) {
+    repoInput.value = linkedRepo;
+    localStorage.setItem('cloud_cua_repo', linkedRepo);
+    try {
+      const response = await fetch(`/runs/${encodeURIComponent(linkedRun)}?repo_path=${encodeURIComponent(linkedRepo)}`);
+      if (!response.ok) throw new Error(await response.text());
+      currentRun = await response.json();
+      cloud.value = currentRun.cloud || 'aws';
+      await loadCapabilities();
+      await refresh();
+      if (currentRun.status === 'waiting_for_login') showLogin();
+      return;
+    } catch (error) {
+      statusTitle.textContent = 'Run could not be loaded';
+      runSummary.textContent = String(error);
+    }
+  }
   const saved = localStorage.getItem('cloud_cua_repo');
   if (saved) { repoInput.value = saved; await loadCapabilities(); return; }
   try { repoInput.value = (await (await fetch('/defaults')).json()).repo_path || ''; } catch {}

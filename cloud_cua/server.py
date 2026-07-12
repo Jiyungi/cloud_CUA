@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+import secrets
+import time
 from pathlib import Path
+from urllib.parse import urlencode
 
-from fastapi import BackgroundTasks, FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from .dashboard import render_dashboard
@@ -96,6 +100,17 @@ class CodexMessageRequest(BaseModel):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
+    service_token = os.environ.get("CLOUD_CUA_SERVICE_TOKEN", "")
+    launch_tokens: dict[str, tuple[float, str, str]] = {}
+
+    @app.middleware("http")
+    async def local_service_auth(request: Request, call_next):
+        if not service_token or request.url.path in {"/", "/health"}:
+            return await call_next(request)
+        supplied = request.headers.get("X-Cloud-CUA-Token") or request.cookies.get("cloud_cua_session")
+        if not secrets.compare_digest(supplied or "", service_token):
+            return JSONResponse({"detail": "Cloud CUA local service authentication failed."}, status_code=401)
+        return await call_next(request)
 
     @app.get("/health")
     def health():
@@ -117,8 +132,27 @@ def create_app() -> FastAPI:
     def sync_skills(req: SkillSyncRequest):
         return Orchestrator(req.repo_path).sync_h_skills(req.names, req.dry_run)
 
+    @app.post("/dashboard-launch")
+    def dashboard_launch(req: RepoRunRequest, request: Request):
+        launch_token = secrets.token_urlsafe(24)
+        launch_tokens[launch_token] = (time.time() + 60, req.repo_path, request.query_params.get("run_id", ""))
+        run_id = request.query_params.get("run_id", "")
+        clean_query = urlencode({"repo_path": req.repo_path, "run_id": run_id})
+        launch_query = clean_query + "&" + urlencode({"launch_token": launch_token})
+        base = str(request.base_url).rstrip("/")
+        return {"dashboard_url": f"{base}/?{clean_query}", "launch_url": f"{base}/?{launch_query}"}
+
     @app.get("/", response_class=HTMLResponse)
-    def dashboard():
+    def dashboard(request: Request):
+        launch_token = request.query_params.get("launch_token")
+        if launch_token and service_token:
+            entry = launch_tokens.pop(launch_token, None)
+            if not entry or entry[0] < time.time():
+                return HTMLResponse("Cloud CUA dashboard launch link expired. Ask Codex to open the dashboard again.", status_code=401)
+            clean_query = urlencode({"repo_path": entry[1], "run_id": request.query_params.get("run_id", "")})
+            response = RedirectResponse(f"/?{clean_query}", status_code=303)
+            response.set_cookie("cloud_cua_session", service_token, httponly=True, samesite="strict")
+            return response
         return render_dashboard()
 
     @app.post("/runs")
