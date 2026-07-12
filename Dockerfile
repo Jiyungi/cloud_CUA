@@ -17,12 +17,15 @@ RUN apt-get update \
     && rm -rf /tmp/aws /tmp/awscliv2.zip /var/lib/apt/lists/*
 
 COPY pyproject.toml package.json package-lock.json README.md ./
-COPY cloud_cua ./cloud_cua
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install . \
+    && python -c "import subprocess, sys, tomllib; dependencies = tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']; subprocess.check_call([sys.executable, '-m', 'pip', 'install', *dependencies])" \
     && python -m playwright install --with-deps chromium \
     && npm ci
+
+COPY cloud_cua ./cloud_cua
+
+RUN python -m pip install . --no-deps
 
 EXPOSE 3000
 

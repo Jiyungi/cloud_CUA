@@ -163,7 +163,7 @@ If H or a verifier fails, Cloud CUA writes `.cloud-cua/runs/<run-id>/lesson_cand
 The Docker path runs the dashboard, MCP server code, repo analyzer, AWS CLI verifiers, and Docker image prep in a container:
 
 ```powershell
-docker compose up --build
+docker compose up -d --build --wait
 ```
 
 Open:

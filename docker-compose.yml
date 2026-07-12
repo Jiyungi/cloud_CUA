@@ -20,6 +20,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /workspace
     command: ["python", "-m", "cloud_cua.container_runtime"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
 volumes:
   cloud-cua-state:
