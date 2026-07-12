@@ -337,10 +337,13 @@ The product now supports generalized AWS deployment planning across Amplify, S3 
 2. BEFORE a skilled H deployment session, THE Cloud_CUA_System SHALL create or update the active H skill and attach its name to the H agent.
 3. IF H skill synchronization fails, THEN THE Cloud_CUA_System SHALL block the H deployment session.
 4. THE Cloud_CUA_System SHALL save a per-run `contract.json` containing the exact image, port, region, tags, health path, skill hash, and autonomy level available for the target.
-5. FOR ECS Express, H CUA SHALL inspect the creation form without mutation before receiving the approved creation milestone.
-6. IF H's structured inspection conflicts with the contract, THEN Codex/backend SHALL record an objection and SHALL NOT send the creation milestone.
+5. FOR ECS Express, H CUA SHALL inspect without mutation, prepare without submission, and submit only after both structured milestone reviews match the contract.
+6. IF H's structured inspection or prepared-form answer conflicts with the contract, THEN Codex/backend SHALL record an objection and SHALL NOT send the submit milestone.
 7. THE Run_Event_Log SHALL record H trajectory events incrementally while the H session runs.
 8. THE ECS verifier SHALL independently compare the exact run-tagged service's task-definition image and port to `contract.json`, require healthy targets, and verify a real non-console application URL.
 9. ON a milestone or verifier failure, THE Cloud_CUA_System SHALL write `lesson_candidate.json` with failure evidence, a proposed general rule, and a required test.
 10. THE Cloud_CUA_System SHALL NOT automatically promote lesson candidates into trusted skills.
 11. THE Local_Dashboard SHALL show the active skill, H sync state, autonomy level, contract facts, missing facts, verifier gates, and pending lesson.
+12. THE Cloud_CUA_System SHALL persist clear milestones against an exact contract fingerprint and SHALL reuse them on a safe retry.
+13. THE H runner SHALL expose hosted session identity, stop unresponsive structured milestones, and prevent a repeated Create/Submit click after one attempt.
+14. IF a previously failed run later passes every required verifier, THEN its lesson evidence SHALL be retained but marked resolved.

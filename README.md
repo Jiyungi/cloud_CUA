@@ -123,9 +123,9 @@ python -m cloud_cua.cli h-skills sync
 
 The active skill auto-syncs before a deployment H session. A failed sync blocks browser operation instead of falling back to hidden prompt instructions. Synced skills are also visible in the H web skill catalog for the API key's organization.
 
-For ECS Express, Cloud CUA saves `.cloud-cua/runs/<run-id>/contract.json`, asks H to inspect the form without modifying it, reviews H's structured observation, and sends the creation milestone only when the visible defaults do not conflict with the contract. H trajectory events appear in the dashboard while the session runs.
+For ECS Express, Cloud CUA saves `.cloud-cua/runs/<run-id>/contract.json` and uses three H milestones: inspect without mutation, prepare without submission, then submit once. The backend reviews structured H answers after the first two milestones and stores clear checkpoints in `milestones.json`. H trajectory events and hosted session IDs appear in the dashboard while the session runs.
 
-If H or a verifier fails, Cloud CUA writes `.cloud-cua/runs/<run-id>/lesson_candidate.json`. The dashboard and MCP expose it, but it remains `pending_review`; Cloud CUA never silently rewrites a trusted skill from one failed run.
+If H or a verifier fails, Cloud CUA writes `.cloud-cua/runs/<run-id>/lesson_candidate.json`. The dashboard and MCP expose it, but Cloud CUA never silently rewrites a trusted skill from one failed run. A later strict success marks stale lesson evidence `resolved` instead of deleting it.
 
 ## Docker Quickstart
 
@@ -198,7 +198,7 @@ It still requires local `gcloud` auth and manual GCP browser login before H oper
 
 ## Current External Tool Status
 
-This repo currently has the product shell and verifier framework. Real cloud operation still depends on external tools being installed and authenticated:
+The ECS Express path has completed one real H-operated AWS deployment and passed exact-run AWS, HTTP, and Playwright verification. Real cloud operation still depends on external tools being installed and authenticated:
 
 - H Company Python SDK for real H CUA browser control
 - Chrome with remote debugging for local browser control
@@ -212,6 +212,8 @@ Current local validation:
 - Chrome/Selenium local attachment works.
 - AWS CLI identity verification works with profile `cloud-cua-dev`.
 - H local browser control works after cleaning stale local bridge trajectories.
+- H hosted skills auto-sync and attach to the browser agent before skilled runs.
+- The verified ECS smoke used the exact ECR image, port, health path, and run tags, reached one healthy running task, returned HTTP 200, rendered in Playwright, and was then sent through tagged cleanup.
 - If H returns HTTP 429, run `python -m cloud_cua.cli h-cleanup`; stale `surferh` bridge trajectories can consume concurrency.
 
 ## Shareable Package

@@ -461,10 +461,13 @@ Local YAML is the reviewed source of truth for each deployment skill. Before H o
 
 Each run also has a concrete `contract.json`. The skill describes the reusable workflow; the contract contains run-specific facts such as image URI, container port, health path, region, tags, skill hash, and autonomy level.
 
-ECS Express uses two H milestones:
+ECS Express uses three H milestones:
 
 1. H inspects the creation form without mutation and returns structured JSON.
-2. Codex/backend compares every visible value to the contract. If clear, H receives the approved creation milestone; otherwise the run blocks.
+2. H prepares the exact image, port, health path, and tags without submitting. Codex/backend compares the structured answer to the contract.
+3. H receives a submit-only task only after both reviews clear. It trusts the immediately preceding prepared checkpoint, clicks Create once, and never retries the submit click from ambiguous browser feedback.
+
+Clear inspection and preparation reviews are saved in `milestones.json` with an exact contract fingerprint. A retry can reuse them, while the submit step still confirms that no new blocker is visible. The H runner emits the hosted session id, streams events, forces a bounded answer after an agent error or prolonged silence, and stops the local worker if H remains unresponsive.
 
 H session events stream through the worker as newline-delimited JSON and become `h_cua:trajectory` events in the dashboard. Large screenshots and raw payloads are not copied into the event log.
 
@@ -474,7 +477,7 @@ Autonomy grows only through reviewed skills:
 - Level 2: execute a known workflow with milestone review;
 - Level 3+: future skill branching and broader autonomy after verifier coverage exists.
 
-Failures create `lesson_candidate.json`. A lesson records evidence, a proposed reusable rule, and a required regression test. It is never applied automatically.
+Failures create `lesson_candidate.json`. A lesson records evidence, a proposed reusable rule, and a required regression test. It is never applied automatically. If the same run later passes every strict verifier, the evidence remains but its status becomes `resolved`.
 
 ## Verifier Design
 
@@ -490,7 +493,7 @@ Verifier layers:
 6. **Render verifier**: Playwright render check.
 7. **Report verifier**: final report and event log exist.
 
-For ECS Express, resource verification is contract-aware: exact run tag, task-definition image, container port, rollout, running tasks, target health, public URL, HTTP response, Playwright rendering, and cleanup discovery must pass before the run can complete.
+For ECS Express, resource verification is contract-aware: all required tags, task-definition image, container port, health path, rollout, running tasks, managed target-group health, public URL, HTTP response, Playwright rendering, report, and cleanup discovery must pass before the run can complete. Because ECS Express omits its managed load balancer from the normal `loadBalancers` field, target-group ARNs are also discovered from ECS service events.
 
 Verifier result shape:
 

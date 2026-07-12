@@ -473,7 +473,7 @@ Owner labels are suggested for parallel work.
 
   - [x] 18.4 Record target-state gaps
     - H CUA console deployment still needs manual login in the H-controlled browser profile
-    - ECS Express console creation remains unproven until H CUA completes it in the user's AWS account
+    - ECS Express console creation is now proven for one Docker app; broader repo types still need their own hardened skills and verifiers
     - GCP Cloud Run needs local `gcloud` installation/auth before real deployment
     - What still needs stronger security/cost handling
     - _Requirements: 18, 20_
@@ -557,7 +557,7 @@ Owner labels are suggested for parallel work.
     - Excludes `.env`, `.kiro`, `readme files`, local run artifacts, venvs, node_modules, and git metadata
     - _Requirements: 2, 19_
 
-- [ ] 22. ECS Express Mode end-to-end hardening (Owner: Cloud/Verification)
+- [x] 22. ECS Express Mode end-to-end hardening (Owner: Cloud/Verification)
   - [x] 22.1 Make Docker repos prefer ECS Express Mode
     - App Runner is deprecated/blocked for new AWS accounts
     - AWS planner lists App Runner only to explain why it will not be used
@@ -569,19 +569,19 @@ Owner labels are suggested for parallel work.
     - Pass the exact image URI to H CUA for ECS Express Mode
     - _Requirements: 5, 7, 17_
 
-  - [ ] 22.3 Prove real ECS Express console deployment
+  - [x] 22.3 Prove real ECS Express console deployment
     - User logs into AWS manually in the H-controlled browser
     - H CUA creates/updates an ECS Express service from the prepared ECR image
     - Verifier proves the exact service/resource URL for the run
     - _Requirements: 14, 16, 17, 20_
 
-  - [ ] 22.4 Tighten exact-run verification
+  - [x] 22.4 Tighten exact-run verification
     - Extract ECS Express service name/cluster/load balancer URL from H final answer or AWS APIs
     - Verify HTTP and Playwright against the exact live URL
     - Write exact resource names into `DEPLOYMENT_REPORT.md`
     - _Requirements: 14, 15, 17_
 
-- [ ] 23. Implement H skill autonomy loop (Owner: Agent/Backend)
+- [x] 23. Implement H skill autonomy loop (Owner: Agent/Backend)
   - [x] 23.1 Add local skill registry
     - Validated YAML recipes for ECS Express, Amplify, and GCP Cloud Run
     - Reusable facts, stop conditions, allowed actions, proof gates, and cleanup strategy
@@ -600,8 +600,9 @@ Owner labels are suggested for parallel work.
 
   - [x] 23.4 Add ECS milestone supervision
     - Inspect form without mutation
-    - Parse structured H observation
-    - Block on contract mismatch before creation
+    - Prepare form without submission
+    - Parse structured H observations and save contract-bound checkpoints
+    - Submit once only after both contract reviews clear
     - _Requirements: 7, 8, 21_
 
   - [x] 23.5 Add contract-aware ECS proof
@@ -613,13 +614,15 @@ Owner labels are suggested for parallel work.
     - Review-only `lesson_candidate.json`
     - Dashboard shows skill, sync, autonomy, facts, gates, and lessons
     - MCP exposes skill sync/status and lesson retrieval
+    - A later strict success marks stale lesson evidence resolved
     - _Requirements: 8, 13, 21_
 
-  - [ ] 23.7 Run real hosted-skill ECS smoke
-    - Confirm all three skills appear in the H web catalog
+  - [x] 23.7 Run real hosted-skill ECS smoke
+    - Confirm all three skills exist in H's hosted skill catalog
     - Run host-local H inspection and creation milestones
     - Require every ECS contract verifier to pass
-    - Clean up run-tagged resources
+    - Run `20260712T054353Z-ddbc05cd` passed all 16 verifier checks, including HTTP 200 and Playwright render
+    - Tagged ECS task, ECS Express service, and ECR repository cleanup commands all passed
     - _Requirements: 20, 21_
 
 ## Task Dependency Graph
@@ -648,6 +651,6 @@ Owner labels are suggested for parallel work.
 - Update `design.md` before changing architecture.
 - Update `tasks.md` when implementation scope changes.
 - Do not add NemoClaw tasks.
-- Current H status: host-local doctor can confirm H credentials/quota and Chrome prerequisites, but the latest full H browser takeover is not proven after local bridge failures. Docker mode intentionally blocks H browser takeover; use host-local `python -m cloud_cua.cli start` for real H CUA work.
+- Current H status: hosted skills sync and attach successfully; host-local H completed the three-milestone ECS Express workflow. The runner cleans stale local bridges, exposes session IDs, bounds stalled milestones, and blocks repeated submit intent. Docker mode intentionally blocks H browser takeover; use host-local `python -m cloud_cua.cli start` for real H CUA work.
 - Current visual QA status: `npm run visual:dashboard` passes desktop/mobile/login-modal smoke checks and writes screenshots under `.cloud-cua/visual-checks/`, but this is not a full manual dashboard QA pass.
-- Current AWS smoke status: AWS CLI profile `cloud-cua-dev` created a tagged S3 static website, verified its public endpoint, deleted it, and `cloud-cua aws-cleanup` found zero leftover Cloud CUA resources.
+- Current AWS smoke status: AWS CLI profile `cloud-cua-dev` has both the earlier S3 smoke and a real H-operated ECS Express smoke. The ECS run used exact run tags/image/port/health path, reached a healthy task, returned HTTP 200, rendered in Playwright, passed every verifier, and cleanup commands succeeded.
