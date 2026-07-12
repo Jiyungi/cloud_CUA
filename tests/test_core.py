@@ -252,10 +252,30 @@ def _ecs_contract_fixture(tmp_path: Path):
     )
 
 
-def _fake_ecs_aws_json(command, timeout=30, *, image=None, port=8080, health="healthy", tagged=True):
+def _fake_ecs_aws_json(
+    command,
+    timeout=30,
+    *,
+    image=None,
+    port=8080,
+    health="healthy",
+    tagged=True,
+    express_events=False,
+    health_path="/",
+    repo_tag="demo",
+):
     joined = " ".join(command)
     if "resourcegroupstaggingapi" in joined:
-        resources = [{"ResourceARN": "arn:aws:ecs:us-east-1:123456789012:service/default/cloud-cua-demo"}] if tagged else []
+        resources = [
+            {
+                "ResourceARN": "arn:aws:ecs:us-east-1:123456789012:service/default/cloud-cua-demo",
+                "Tags": [
+                    {"Key": "cloud-cua", "Value": "true"},
+                    {"Key": "cloud-cua-run", "Value": "run-1"},
+                    {"Key": "cloud-cua-repo", "Value": repo_tag},
+                ],
+            }
+        ] if tagged else []
         return {"ResourceTagMappingList": resources}
     if "describe-services" in joined:
         return {
@@ -266,7 +286,8 @@ def _fake_ecs_aws_json(command, timeout=30, *, image=None, port=8080, health="he
                     "runningCount": 1,
                     "taskDefinition": "arn:aws:ecs:us-east-1:123456789012:task-definition/demo:1",
                     "deployments": [{"status": "PRIMARY", "rolloutState": "COMPLETED"}],
-                    "loadBalancers": [{"targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/demo/abc"}],
+                    "loadBalancers": [] if express_events else [{"targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/demo/abc"}],
+                    "events": ([{"message": "registered 1 targets in (target-group arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/demo/abc)"}] if express_events else []),
                 }
             ]
         }
@@ -277,7 +298,7 @@ def _fake_ecs_aws_json(command, timeout=30, *, image=None, port=8080, health="he
                 "activeConfigurations": [
                     {
                         "taskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/demo:1",
-                        "healthCheckPath": "/",
+                        "healthCheckPath": health_path,
                         "primaryContainer": {
                             "image": image or "123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
                             "containerPort": port,
@@ -333,6 +354,40 @@ def test_ecs_contract_verifier_requires_exact_run_tag(tmp_path: Path, monkeypatc
     result = verify_ecs_contract("run-1", contract)
     assert result.status == "failed"
     assert "cloud-cua-run=run-1" in result.summary
+
+
+def test_ecs_contract_verifier_finds_express_target_group_in_events(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr(
+        "cloud_cua.verifier.aws._aws_json",
+        lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, express_events=True),
+    )
+
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "passed"
+    assert '"state": "healthy"' in result.summary
+
+
+def test_ecs_contract_verifier_rejects_health_path_mismatch(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr(
+        "cloud_cua.verifier.aws._aws_json",
+        lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, health_path="/healthz"),
+    )
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "health path mismatch" in result.summary
+
+
+def test_ecs_contract_verifier_rejects_required_tag_mismatch(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr(
+        "cloud_cua.verifier.aws._aws_json",
+        lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, repo_tag="other-repo"),
+    )
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "cloud-cua-repo" in result.summary
 
 
 def test_lesson_candidate_is_review_only_and_redacted(tmp_path: Path):

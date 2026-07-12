@@ -88,9 +88,7 @@ def verify_ecs_run_services(run_id: str) -> VerifierResult:
         rollout = primary.get("rolloutState")
         if rollout and rollout != "COMPLETED":
             failures.append(f"{service} rolloutState is {rollout}: {primary.get('rolloutStateReason')}")
-        for event in events[:20]:
-            message = str(event.get("message", ""))
-            target_groups.update(re.findall(r"(arn:aws:elasticloadbalancing:[^)\s]+:targetgroup/[^)\s]+)", message))
+        target_groups.update(_service_target_groups(item))
 
     target_health: list[dict] = []
     for target_group in sorted(target_groups):
@@ -124,17 +122,23 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
         ),
         timeout=45,
     )
-    service_arns = sorted(
-        str(item.get("ResourceARN", ""))
-        for item in tagged.get("ResourceTagMappingList", [])
+    mappings = tagged.get("ResourceTagMappingList", [])
+    service_mappings = {
+        str(item.get("ResourceARN", "")): {str(tag.get("Key", "")): str(tag.get("Value", "")) for tag in item.get("Tags", [])}
+        for item in mappings
         if ":ecs:" in str(item.get("ResourceARN", "")) and ":service/" in str(item.get("ResourceARN", ""))
-    )
+    }
+    service_arns = sorted(service_mappings)
     failures: list[str] = []
     evidence: list[dict] = []
     if not service_arns:
         failures.append(f"No ECS service carrying cloud-cua-run={run_id} was found.")
 
     for arn in service_arns:
+        actual_tags = service_mappings.get(arn, {})
+        for key, expected in contract.required_tags.items():
+            if actual_tags.get(key) != expected:
+                failures.append(f"ECS service {arn} tag {key!r} mismatch: expected {expected!r}, found {actual_tags.get(key)!r}.")
         parsed = _parse_ecs_service_arn(arn)
         if not parsed:
             failures.append(f"Could not parse tagged ECS service ARN {arn}.")
@@ -165,6 +169,11 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
                 for item in active_configuration.get("ingressPaths", [])
                 if item.get("endpoint")
             )
+            actual_health_path = active_configuration.get("healthCheckPath")
+            if actual_health_path != contract.health_check_path:
+                failures.append(
+                    f"ECS Express health path mismatch: expected {contract.health_check_path!r}, found {actual_health_path!r}."
+                )
         task_definition_arn = str(active_configuration.get("taskDefinitionArn") or service.get("taskDefinition") or "")
         if not task_definition_arn:
             failures.append(f"ECS service {service_name} has no task definition ARN.")
@@ -206,11 +215,7 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
         if primary.get("rolloutState") and primary.get("rolloutState") != "COMPLETED":
             failures.append(f"ECS service {service_name} rollout is {primary.get('rolloutState')}.")
 
-        target_groups = {
-            str(item.get("targetGroupArn"))
-            for item in service.get("loadBalancers", [])
-            if item.get("targetGroupArn")
-        }
+        target_groups = _service_target_groups(service)
         target_health: list[dict] = []
         if not target_groups:
             failures.append(f"ECS service {service_name} exposes no target group for health verification.")
@@ -240,6 +245,18 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
 
     summary = json.dumps({"contract": contract.to_dict(), "services": evidence, "failures": failures}, indent=2)
     return VerifierResult("aws_ecs_contract", "failed" if failures else "passed", command_label, summary)
+
+
+def _service_target_groups(service: dict) -> set[str]:
+    target_groups = {
+        str(item.get("targetGroupArn"))
+        for item in service.get("loadBalancers", []) or []
+        if item.get("targetGroupArn")
+    }
+    for event in service.get("events", [])[:20]:
+        message = str(event.get("message", ""))
+        target_groups.update(re.findall(r"(arn:aws:elasticloadbalancing:[^)\s]+:targetgroup/[^)\s]+)", message))
+    return target_groups
 
 
 def verify_ecr_repositories() -> VerifierResult:
