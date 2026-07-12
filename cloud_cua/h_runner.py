@@ -47,10 +47,10 @@ class ECSInspectionAnswer(BaseModel):
     service_target: str
     region: str | None = None
     visible_defaults: ECSVisibleDefaults = Field(default_factory=ECSVisibleDefaults)
-    required_inputs_visible: list[str] = Field(default_factory=list)
+    required_inputs_visible: list[str] | None = None
     can_apply_contract: bool
-    required_corrections: list[str] = Field(default_factory=list)
-    blockers: list[str] = Field(default_factory=list)
+    required_corrections: list[str] | None = None
+    blockers: list[str] | None = None
     console_url: str | None = None
 
 
@@ -66,9 +66,9 @@ class ECSCreationAnswer(BaseModel):
     target_health: str | None = None
     public_app_url: str | None = None
     console_url: str | None = None
-    created_resources: list[str] = Field(default_factory=list)
-    blockers: list[str] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
+    created_resources: list[str] | None = None
+    blockers: list[str] | None = None
+    assumptions: list[str] | None = None
 
 
 class ECSPreparedFormAnswer(BaseModel):
@@ -79,7 +79,7 @@ class ECSPreparedFormAnswer(BaseModel):
     health_check_path: str | None = None
     tags: dict[str, str] = Field(default_factory=dict)
     ready_to_submit: bool
-    blockers: list[str] = Field(default_factory=list)
+    blockers: list[str] | None = None
     console_url: str | None = None
 
 

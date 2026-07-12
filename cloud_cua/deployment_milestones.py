@@ -63,7 +63,7 @@ def review_ecs_inspection(result: HTaskResult, contract: DeploymentContract) -> 
         return MilestoneReview("blocked", objections=["H inspection did not return the required structured JSON object."])
 
     objections: list[str] = []
-    corrections = [str(item) for item in observation.get("required_corrections", [])]
+    corrections = [str(item) for item in (observation.get("required_corrections") or [])]
     if observation.get("milestone") != "inspect_ecs_express_form":
         objections.append("H returned the wrong milestone result.")
     if observation.get("service_target") != contract.target:
