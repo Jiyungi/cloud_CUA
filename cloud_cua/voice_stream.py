@@ -10,6 +10,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from .orchestrator import Orchestrator
 from .voice_gradium import synthesize_tts_stream, transcribe_stt_stream
+from .voice_router import classify_voice_command
 from .voice_state import VoiceTurnStore
 
 MAX_VOICE_SECONDS = 60
@@ -97,6 +98,10 @@ async def handle_voice_stream(websocket: WebSocket, repo_path: str, run_id: str,
         transcript = stt.transcript.strip()
         turns.update(turn.turn_id, state="routing", transcript=transcript, partial_transcript="")
         await websocket.send_json({"type": "final_transcript", "state": "routing", "turn_id": turn.turn_id, "text": transcript})
+        preview = classify_voice_command(transcript)
+        next_state = "answering" if preview.classification in {"reasoning_question", "planned_cloud_action"} else "executing"
+        turns.update(turn.turn_id, state=next_state, classification=preview.classification, action=preview.action or "")
+        await websocket.send_json({"type": "state", "state": next_state, "turn_id": turn.turn_id, "classification": preview.classification})
         result = await asyncio.to_thread(orchestrator.voice_command, run_id, transcript, turn_id=turn.turn_id)
         await websocket.send_json({"type": "action_result", "state": "completed" if result.get("executed") else "failed", "turn_id": turn.turn_id, "result": result})
 
@@ -122,7 +127,7 @@ async def handle_voice_stream(websocket: WebSocket, repo_path: str, run_id: str,
             orchestrator.cancel_codex_voice(run_id)
         with suppress(KeyError):
             turns.update(turn.turn_id, state="cancelled", error="Dashboard disconnected during voice turn.")
-    except (TimeoutError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+    except Exception as exc:
         with suppress(KeyError):
             turns.update(turn.turn_id, state="failed", error=str(exc))
         with suppress(RuntimeError, WebSocketDisconnect):

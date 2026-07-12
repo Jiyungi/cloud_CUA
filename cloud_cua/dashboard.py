@@ -209,6 +209,9 @@ HTML = r"""
     }
     .voice-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .recording { background: var(--danger) !important; border-color: var(--danger) !important; }
+    .voice-feedback { min-height: 20px; margin-top: 8px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+    .voice-feedback strong { color: var(--text); }
+    #micButton { min-width: 118px; touch-action: none; user-select: none; }
     .activity {
       height: calc(100vh - 112px);
       min-height: 560px;
@@ -339,12 +342,13 @@ HTML = r"""
         <div class="voice-strip">
           <div>
             <label for="voiceText">Command or question</label>
-            <textarea id="voiceText" rows="2" placeholder="pause, switch to Teach mode, why this service?"></textarea>
+            <input id="voiceText" placeholder="Pause, deploy this, or ask why" />
+            <div id="voiceTranscript" class="voice-feedback" aria-live="polite"></div>
+            <div id="voiceResponse" class="voice-feedback" aria-live="polite"></div>
           </div>
           <div class="voice-actions">
-            <button id="micButton" class="secondary" onclick="toggleRecording()">Start mic</button>
+            <button id="micButton" class="secondary" title="Hold while speaking">Hold to talk</button>
             <button class="secondary" onclick="sendVoice()">Route text</button>
-            <button class="quiet" onclick="speakLatest()">Speak latest</button>
           </div>
         </div>
       </section>
@@ -506,8 +510,22 @@ let lastEvents = [];
 let voiceReady = false;
 let voiceMuted = false;
 let containerMode = false;
-let mediaRecorder = null;
-let audioChunks = [];
+let voiceSocket = null;
+let voiceHeld = false;
+let voiceTurnActive = false;
+let voiceSpeaking = false;
+let microphoneStream = null;
+let captureContext = null;
+let captureSource = null;
+let captureProcessor = null;
+let captureSink = null;
+let resampleInput = [];
+let resampleOffset = 0;
+let pcmPending = [];
+let playbackContext = null;
+let playbackNextTime = 0;
+let playbackSampleRate = 48000;
+const playbackSources = new Set();
 let runtimeStatus = null;
 let costStatus = null;
 let cleanupReviewed = false;
@@ -640,6 +658,7 @@ async function sendVoice() {
   const result = await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value}));
   voiceText.value = '';
   voiceState.textContent = result.response || 'Command routed.';
+  voiceResponse.innerHTML = result.response ? `<strong>Result:</strong> ${escapeHtml(result.response)}` : '';
   if (result.ui_action === 'open_logs') document.querySelector('.activity').scrollIntoView({behavior:'smooth'});
   if (result.ui_action === 'mute_voice') voiceMuted = true;
   await refresh();
@@ -792,7 +811,7 @@ async function loadCapabilities() {
     containerMode = Boolean(caps.container_mode);
     micButton.disabled = !voiceReady || !currentRun;
     voiceKeyChip.textContent = voiceReady ? 'Gradium ready' : 'Voice disabled';
-    voiceState.textContent = voiceReady ? 'Mic commands use Gradium STT, then the same router as typed commands.' : 'Add GRADIUM_API_KEY to enable microphone and speech playback. Typed commands still work.';
+    if (!voiceTurnActive) voiceState.textContent = voiceReady ? 'Ready for a voice command.' : 'Add GRADIUM_API_KEY to enable voice. Typed commands still work.';
     if (containerMode) hLane.textContent = 'Docker mode can supervise and verify. Run host-local Python for real H browser takeover.';
   } catch {
     voiceReady = false;
@@ -844,48 +863,186 @@ async function syncSkills() {
     await loadSkillState();
   }
 }
-async function toggleRecording() {
-  if (!currentRun || !voiceReady) return;
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
-    return;
+async function beginVoiceHold(event) {
+  event.preventDefault();
+  if (!currentRun || !voiceReady || voiceHeld) return;
+  voiceHeld = true;
+  if (voiceSpeaking) {
+    stopVoicePlayback(true);
+    await new Promise(resolve => setTimeout(resolve, 150));
   }
-  const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
-  mediaRecorder = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
-  audioChunks = [];
-  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-  mediaRecorder.onstop = async () => {
-    stream.getTracks().forEach(track => track.stop());
-    micButton.textContent = 'Start mic';
-    micButton.classList.remove('recording');
-    const blob = new Blob(audioChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
-    const base64 = await blobToBase64(blob);
-    const inputFormat = blob.type.includes('wav') ? 'wav' : 'webm';
-    await post(`/runs/${currentRun.run_id}/voice-transcribe`, body({audio_base64: base64, input_format: inputFormat}));
-    await refresh();
-  };
-  mediaRecorder.start();
-  micButton.textContent = 'Stop mic';
+  voiceTurnActive = true;
+  voiceTranscript.textContent = '';
+  voiceResponse.textContent = '';
+  micButton.textContent = 'Connecting';
   micButton.classList.add('recording');
-}
-async function speakLatest() {
-  if (!currentRun || !voiceReady || voiceMuted) return;
-  const latestText = latest('h_cua') || latest('verifier') || latest('system') || 'No Cloud CUA update is available yet.';
-  const result = await post(`/runs/${currentRun.run_id}/speak`, body({text: latestText.slice(0, 500)}));
-  if (result.audio_base64) {
-    const audio = new Audio(`data:audio/wav;base64,${result.audio_base64}`);
-    await audio.play();
+  voiceState.textContent = 'Connecting microphone and Gradium.';
+  try {
+    captureContext = new (window.AudioContext || window.webkitAudioContext)();
+    const mediaPromise = navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
+    const socketPromise = connectVoiceSocket();
+    [microphoneStream] = await Promise.all([mediaPromise, socketPromise]);
+    if (!voiceHeld) { await endVoiceHold(); return; }
+    await startPCMProcessor();
+    micButton.textContent = 'Listening';
+    voiceState.textContent = 'Listening. Release to send.';
+  } catch (error) {
+    failVoiceTurn(error);
   }
-  await refresh();
 }
-function blobToBase64(blob) {
+async function endVoiceHold(event) {
+  if (event) event.preventDefault();
+  if (!voiceHeld && !captureContext) return;
+  voiceHeld = false;
+  flushPCMFrames();
+  if (voiceSocket?.readyState === WebSocket.OPEN) voiceSocket.send(JSON.stringify({type:'end'}));
+  await stopMicrophoneCapture();
+  micButton.textContent = 'Transcribing';
+  micButton.classList.remove('recording');
+  voiceState.textContent = 'Transcribing with Gradium.';
+}
+function connectVoiceSocket() {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const query = new URLSearchParams({repo_path: repoInput.value});
+    voiceSocket = new WebSocket(`${protocol}//${location.host}/runs/${encodeURIComponent(currentRun.run_id)}/voice-stream?${query}`);
+    voiceSocket.binaryType = 'arraybuffer';
+    let connected = false;
+    voiceSocket.onmessage = async event => {
+      if (event.data instanceof ArrayBuffer) {
+        queueTTSChunk(event.data);
+        return;
+      }
+      const message = JSON.parse(event.data);
+      if (message.type === 'state' && message.state === 'listening' && !connected) { connected = true; resolve(); }
+      handleVoiceMessage(message);
+    };
+    voiceSocket.onerror = () => { if (!connected) reject(new Error('Voice connection failed.')); };
+    voiceSocket.onclose = event => {
+      if (!connected && event.code !== 1000) reject(new Error(event.reason || 'Voice connection closed.'));
+      if (voiceTurnActive && !voiceSpeaking && !['Transcribing', 'Codex is answering'].includes(micButton.textContent)) finishVoiceUI();
+    };
   });
+}
+async function startPCMProcessor() {
+  const workletSource = `class CloudCUAPCM extends AudioWorkletProcessor { process(inputs) { const channel = inputs[0] && inputs[0][0]; if (channel) this.port.postMessage(channel.slice()); return true; } } registerProcessor('cloud-cua-pcm', CloudCUAPCM);`;
+  const workletUrl = URL.createObjectURL(new Blob([workletSource], {type:'text/javascript'}));
+  await captureContext.audioWorklet.addModule(workletUrl);
+  URL.revokeObjectURL(workletUrl);
+  captureSource = captureContext.createMediaStreamSource(microphoneStream);
+  captureProcessor = new AudioWorkletNode(captureContext, 'cloud-cua-pcm');
+  captureSink = captureContext.createGain();
+  captureSink.gain.value = 0;
+  captureProcessor.port.onmessage = event => processMicrophoneSamples(event.data, captureContext.sampleRate);
+  captureSource.connect(captureProcessor);
+  captureProcessor.connect(captureSink);
+  captureSink.connect(captureContext.destination);
+  await captureContext.resume();
+}
+function processMicrophoneSamples(samples, inputRate) {
+  for (let i = 0; i < samples.length; i++) resampleInput.push(samples[i]);
+  const ratio = inputRate / 24000;
+  const output = [];
+  while (resampleOffset + 1 < resampleInput.length) {
+    const index = Math.floor(resampleOffset);
+    const fraction = resampleOffset - index;
+    output.push(resampleInput[index] + (resampleInput[index + 1] - resampleInput[index]) * fraction);
+    resampleOffset += ratio;
+  }
+  const consumed = Math.floor(resampleOffset);
+  if (consumed > 0) {
+    resampleInput = resampleInput.slice(consumed);
+    resampleOffset -= consumed;
+  }
+  for (const sample of output) pcmPending.push(Math.max(-1, Math.min(1, sample)));
+  while (pcmPending.length >= 1920) sendPCMFrame(pcmPending.splice(0, 1920));
+}
+function sendPCMFrame(samples) {
+  if (voiceSocket?.readyState !== WebSocket.OPEN || !samples.length) return;
+  const bytes = new ArrayBuffer(samples.length * 2);
+  const view = new DataView(bytes);
+  samples.forEach((sample, index) => view.setInt16(index * 2, sample < 0 ? sample * 32768 : sample * 32767, true));
+  voiceSocket.send(bytes);
+}
+function flushPCMFrames() {
+  if (pcmPending.length) sendPCMFrame(pcmPending.splice(0));
+  resampleInput = [];
+  resampleOffset = 0;
+}
+async function stopMicrophoneCapture() {
+  microphoneStream?.getTracks().forEach(track => track.stop());
+  microphoneStream = null;
+  captureSource?.disconnect();
+  captureProcessor?.disconnect();
+  captureSink?.disconnect();
+  captureSource = captureProcessor = captureSink = null;
+  if (captureContext && captureContext.state !== 'closed') await captureContext.close();
+  captureContext = null;
+}
+function handleVoiceMessage(message) {
+  if (message.type === 'partial_transcript') voiceTranscript.innerHTML = `<strong>Hearing:</strong> ${escapeHtml(message.text)}`;
+  if (message.type === 'final_transcript') voiceTranscript.innerHTML = `<strong>Understood:</strong> ${escapeHtml(message.text)}`;
+  if (message.type === 'state' && message.state === 'answering') { micButton.textContent = 'Codex is answering'; voiceState.textContent = 'Codex is checking the repository and deployment evidence.'; }
+  if (message.type === 'state' && message.state === 'executing') { micButton.textContent = 'Executing'; voiceState.textContent = 'Executing the recognized control.'; }
+  if (message.type === 'action_result') {
+    const result = message.result || {};
+    voiceResponse.innerHTML = `<strong>Result:</strong> ${escapeHtml(result.response || 'Command completed.')}`;
+    if (result.ui_action === 'open_logs') document.querySelector('.activity').scrollIntoView({behavior:'smooth'});
+    if (result.ui_action === 'mute_voice') voiceMuted = true;
+    if (result.ui_action === 'stop_speaking') stopVoicePlayback(false);
+  }
+  if (message.type === 'tts_start') beginVoicePlayback(message.sample_rate || 48000);
+  if (message.type === 'tts_end') { voiceSpeaking = false; voiceState.textContent = message.status === 'passed' ? 'Spoken response completed.' : message.message; }
+  if (message.type === 'error') failVoiceTurn(message.message || 'Voice command failed.');
+  if (message.type === 'done') finishVoiceUI();
+}
+function beginVoicePlayback(sampleRate) {
+  if (voiceMuted) return;
+  voiceSpeaking = true;
+  playbackSampleRate = sampleRate;
+  playbackContext = playbackContext && playbackContext.state !== 'closed' ? playbackContext : new (window.AudioContext || window.webkitAudioContext)();
+  playbackNextTime = playbackContext.currentTime;
+  micButton.textContent = 'Hold to interrupt';
+  voiceState.textContent = 'Speaking. Hold the microphone to interrupt.';
+}
+function queueTTSChunk(buffer) {
+  if (!voiceSpeaking || voiceMuted || !playbackContext) return;
+  const pcm = new Int16Array(buffer);
+  const samples = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768;
+  const audioBuffer = playbackContext.createBuffer(1, samples.length, playbackSampleRate);
+  audioBuffer.copyToChannel(samples, 0);
+  const source = playbackContext.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(playbackContext.destination);
+  source.onended = () => playbackSources.delete(source);
+  playbackSources.add(source);
+  const startAt = Math.max(playbackContext.currentTime + 0.02, playbackNextTime);
+  source.start(startAt);
+  playbackNextTime = startAt + audioBuffer.duration;
+}
+function stopVoicePlayback(closeSocket) {
+  for (const source of playbackSources) { try { source.stop(); } catch {} }
+  playbackSources.clear();
+  voiceSpeaking = false;
+  playbackNextTime = 0;
+  if (closeSocket && voiceSocket && voiceSocket.readyState < WebSocket.CLOSING) voiceSocket.close(1000, 'Speech interrupted');
+  voiceState.textContent = 'Speech stopped.';
+}
+function finishVoiceUI() {
+  voiceTurnActive = false;
+  voiceHeld = false;
+  micButton.textContent = 'Hold to talk';
+  micButton.classList.remove('recording');
+  if (!voiceSpeaking) voiceState.textContent = 'Ready for a voice command.';
+  voiceSocket = null;
+  refresh();
+}
+async function failVoiceTurn(error) {
+  voiceResponse.innerHTML = `<strong>Voice failed:</strong> ${escapeHtml(String(error))}`;
+  await stopMicrophoneCapture();
+  stopVoicePlayback(true);
+  finishVoiceUI();
 }
 function latest(source) {
   const event = lastEvents.slice().reverse().find(e => e.source === source);
@@ -950,6 +1107,15 @@ async function initDefaults() {
   await loadCapabilities();
 }
 repoInput.addEventListener('change', loadCapabilities);
+micButton.addEventListener('pointerdown', beginVoiceHold);
+window.addEventListener('pointerup', event => { if (voiceHeld) endVoiceHold(event); });
+window.addEventListener('pointercancel', event => { if (voiceHeld) endVoiceHold(event); });
+micButton.addEventListener('keydown', event => {
+  if ((event.key === ' ' || event.key === 'Enter') && !voiceHeld) beginVoiceHold(event);
+});
+micButton.addEventListener('keyup', event => {
+  if ((event.key === ' ' || event.key === 'Enter') && voiceHeld) endVoiceHold(event);
+});
 setInterval(refresh, 3500);
 </script>
 </body>

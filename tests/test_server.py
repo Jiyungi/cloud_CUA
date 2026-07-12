@@ -476,7 +476,9 @@ def test_dashboard_contains_supervision_sections():
     assert "Approvals" in page.text
     assert "Run Amplify step" not in page.text
     assert "Deploy" in page.text
-    assert "Start mic" in page.text
+    assert "Hold to talk" in page.text
+    assert "MediaRecorder" not in page.text
+    assert "AudioWorkletNode" in page.text
     assert "Skills" in page.text
     assert "Sync H skills" in page.text
     assert "Lesson awaiting review" in page.text
