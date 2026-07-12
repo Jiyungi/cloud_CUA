@@ -326,3 +326,21 @@ The product now supports generalized AWS deployment planning across Amplify, S3 
 7. THE MVP SHALL support live mode switching.
 8. THE first deployment MVP SHALL run at least one low-cost real AWS deployment smoke, verify it independently, and clean it up.
 9. THE H-driven cloud-console deployment MVP SHALL remain blocked until the H-controlled browser profile is manually logged into the target cloud account.
+
+### Requirement 21: Skills, Contracts, and Safe Learning
+
+**User Story:** As a developer, I want H CUA to gain bounded autonomy from reusable deployment skills while independent checks prevent repeated mistakes.
+
+#### Acceptance Criteria
+
+1. THE Cloud_CUA_System SHALL store reviewed deployment skills as local YAML and synchronize them to the user's H skill catalog.
+2. BEFORE a skilled H deployment session, THE Cloud_CUA_System SHALL create or update the active H skill and attach its name to the H agent.
+3. IF H skill synchronization fails, THEN THE Cloud_CUA_System SHALL block the H deployment session.
+4. THE Cloud_CUA_System SHALL save a per-run `contract.json` containing the exact image, port, region, tags, health path, skill hash, and autonomy level available for the target.
+5. FOR ECS Express, H CUA SHALL inspect the creation form without mutation before receiving the approved creation milestone.
+6. IF H's structured inspection conflicts with the contract, THEN Codex/backend SHALL record an objection and SHALL NOT send the creation milestone.
+7. THE Run_Event_Log SHALL record H trajectory events incrementally while the H session runs.
+8. THE ECS verifier SHALL independently compare the exact run-tagged service's task-definition image and port to `contract.json`, require healthy targets, and verify a real non-console application URL.
+9. ON a milestone or verifier failure, THE Cloud_CUA_System SHALL write `lesson_candidate.json` with failure evidence, a proposed general rule, and a required test.
+10. THE Cloud_CUA_System SHALL NOT automatically promote lesson candidates into trusted skills.
+11. THE Local_Dashboard SHALL show the active skill, H sync state, autonomy level, contract facts, missing facts, verifier gates, and pending lesson.

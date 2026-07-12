@@ -248,14 +248,14 @@ Owner labels are suggested for parallel work.
     - _Requirements: 5, 6, 18_
 
 - [ ] 11. Implement H CUA runner (Owner: Agent/Backend)
-  - [ ] 11.1 Implement inspect-only H task runner
+  - [x] 11.1 Implement inspect-only H task runner
     - Accept bounded task payload
     - Include success criteria
     - Log command/result
     - Respect pause state
     - _Requirements: 7, 8_
 
-  - [ ] 11.2 Implement H result handling
+  - [x] 11.2 Implement H result handling
     - Handle completed, blocked, failed, timed_out, ambiguous
     - Stop workflow on blocked/ambiguous modification steps
     - Trigger verifier where useful
@@ -580,6 +580,47 @@ Owner labels are suggested for parallel work.
     - Verify HTTP and Playwright against the exact live URL
     - Write exact resource names into `DEPLOYMENT_REPORT.md`
     - _Requirements: 14, 15, 17_
+
+- [ ] 23. Implement H skill autonomy loop (Owner: Agent/Backend)
+  - [x] 23.1 Add local skill registry
+    - Validated YAML recipes for ECS Express, Amplify, and GCP Cloud Run
+    - Reusable facts, stop conditions, allowed actions, proof gates, and cleanup strategy
+    - _Requirements: 21_
+
+  - [x] 23.2 Synchronize real H-hosted skills
+    - Create/update/list through the H SDK
+    - CLI, API, and MCP surfaces
+    - Auto-sync active skill before H deployment sessions
+    - _Requirements: 21_
+
+  - [x] 23.3 Attach skills and persist contracts
+    - H agent receives the hosted skill name
+    - `contract.json` records run-specific facts and skill hash
+    - _Requirements: 7, 21_
+
+  - [x] 23.4 Add ECS milestone supervision
+    - Inspect form without mutation
+    - Parse structured H observation
+    - Block on contract mismatch before creation
+    - _Requirements: 7, 8, 21_
+
+  - [x] 23.5 Add contract-aware ECS proof
+    - Exact run tag, image, port, rollout, task health, target health, URL, report, and cleanup discovery
+    - Regression tests cover wrong image, wrong port, unhealthy target, and missing run tag
+    - _Requirements: 14, 21_
+
+  - [x] 23.6 Add safe lesson candidates and dashboard visibility
+    - Review-only `lesson_candidate.json`
+    - Dashboard shows skill, sync, autonomy, facts, gates, and lessons
+    - MCP exposes skill sync/status and lesson retrieval
+    - _Requirements: 8, 13, 21_
+
+  - [ ] 23.7 Run real hosted-skill ECS smoke
+    - Confirm all three skills appear in the H web catalog
+    - Run host-local H inspection and creation milestones
+    - Require every ECS contract verifier to pass
+    - Clean up run-tagged resources
+    - _Requirements: 20, 21_
 
 ## Task Dependency Graph
 

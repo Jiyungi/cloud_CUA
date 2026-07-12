@@ -4,7 +4,7 @@ Cloud CUA is a local deployment assistant that lets Codex start and supervise cl
 
 The current build is the local MVP shell:
 
-- CLI: `cloud-cua init`, `cloud-cua start`, `cloud-cua mcp`, `cloud-cua check`, `cloud-cua doctor`, `cloud-cua install-mcp`, `cloud-cua aws-cleanup`
+- CLI: `cloud-cua init`, `cloud-cua start`, `cloud-cua mcp`, `cloud-cua check`, `cloud-cua doctor`, `cloud-cua install-mcp`, `cloud-cua h-skills`, `cloud-cua aws-cleanup`
 - MCP tools for Codex
 - local dashboard at `http://127.0.0.1:3000`
 - blocking manual AWS/GCP login modal
@@ -18,6 +18,8 @@ The current build is the local MVP shell:
 - generalized AWS deployment planner for Amplify, ECS Express Mode, Lambda, S3 static hosting, and IaC discovery
 - H session cleanup for stale local browser bridge sessions
 - Cloud-CUA-tagged AWS cleanup dry run and delete command
+- local YAML deployment skills that auto-sync to the user's H skill catalog
+- per-run deployment contracts, milestone supervision, and review-only lesson candidates
 
 ## Credentials
 
@@ -94,11 +96,36 @@ Then Codex can call tools such as:
 - `cloud_cua_get_gcp_plan`
 - `cloud_cua_run_gcp_cloud_run_task`
 - `cloud_cua_cleanup_h_sessions`
+- `cloud_cua_get_skill_status`
+- `cloud_cua_sync_h_skills`
+- `cloud_cua_get_lesson_candidate`
 - `cloud_cua_cleanup_aws_resources`
 - `cloud_cua_run_verifier`
 - `cloud_cua_write_report`
 
 Restart Codex after installing the MCP server so it reloads config.
+
+## H Deployment Skills
+
+Cloud CUA stores reviewed deployment recipes under `cloud_cua/skills/` and publishes them to the user's private H skill catalog. These are real H skills attached to the browser agent by name:
+
+- `cloud-cua/aws-ecs-express`
+- `cloud-cua/aws-amplify`
+- `cloud-cua/gcp-cloud-run`
+
+Inspect or synchronize them from the CLI:
+
+```powershell
+python -m cloud_cua.cli h-skills list
+python -m cloud_cua.cli h-skills sync --dry-run
+python -m cloud_cua.cli h-skills sync
+```
+
+The active skill auto-syncs before a deployment H session. A failed sync blocks browser operation instead of falling back to hidden prompt instructions. Synced skills are also visible in the H web skill catalog for the API key's organization.
+
+For ECS Express, Cloud CUA saves `.cloud-cua/runs/<run-id>/contract.json`, asks H to inspect the form without modifying it, reviews H's structured observation, and sends the creation milestone only when the visible defaults do not conflict with the contract. H trajectory events appear in the dashboard while the session runs.
+
+If H or a verifier fails, Cloud CUA writes `.cloud-cua/runs/<run-id>/lesson_candidate.json`. The dashboard and MCP expose it, but it remains `pending_review`; Cloud CUA never silently rewrites a trusted skill from one failed run.
 
 ## Docker Quickstart
 
@@ -147,7 +174,7 @@ cloud-cua-repo=<repo-name>
 cloud-cua-run=<run-id>
 ```
 
-The verifier checks tagged resources through AWS Resource Groups Tagging API so proof is tied to the exact run when AWS exposes tags for the selected service.
+For ECS Express, the verifier checks the exact run tag, task-definition image, contracted container port, running task count, rollout state, target health, public app URL, HTTP response, Playwright rendering, report, and cleanup discovery. Missing proof leaves the run `blocked`.
 
 Cleanup is explicit:
 

@@ -182,6 +182,8 @@ Each run is stored locally:
 .cloud-cua/runs/<run-id>/
   run.json
   events.jsonl
+  contract.json
+  lesson_candidate.json
   verifier-results/
   h-cua/
   report-draft.md
@@ -453,6 +455,27 @@ Rules:
 - blocked/timed-out tasks stop the workflow until user/Codex decides next step;
 - prefer short tasks because HoloDesktop MCP calls can be blocking.
 
+## Skill And Autonomy Design
+
+Local YAML is the reviewed source of truth for each deployment skill. Before H operates a supported target, Cloud CUA compares the local skill content to the user's H skill catalog, creates or updates the hosted skill, and attaches the hosted name to the inline H browser agent. Failure to sync is a blocking error.
+
+Each run also has a concrete `contract.json`. The skill describes the reusable workflow; the contract contains run-specific facts such as image URI, container port, health path, region, tags, skill hash, and autonomy level.
+
+ECS Express uses two H milestones:
+
+1. H inspects the creation form without mutation and returns structured JSON.
+2. Codex/backend compares every visible value to the contract. If clear, H receives the approved creation milestone; otherwise the run blocks.
+
+H session events stream through the worker as newline-delimited JSON and become `h_cua:trajectory` events in the dashboard. Large screenshots and raw payloads are not copied into the event log.
+
+Autonomy grows only through reviewed skills:
+
+- Level 1: inspect with supervision;
+- Level 2: execute a known workflow with milestone review;
+- Level 3+: future skill branching and broader autonomy after verifier coverage exists.
+
+Failures create `lesson_candidate.json`. A lesson records evidence, a proposed reusable rule, and a required regression test. It is never applied automatically.
+
 ## Verifier Design
 
 The verifier stack is independent of CUA.
@@ -466,6 +489,8 @@ Verifier layers:
 5. **Live URL verifier**: HTTP response.
 6. **Render verifier**: Playwright render check.
 7. **Report verifier**: final report and event log exist.
+
+For ECS Express, resource verification is contract-aware: exact run tag, task-definition image, container port, rollout, running tasks, target health, public URL, HTTP response, Playwright rendering, and cleanup discovery must pass before the run can complete.
 
 Verifier result shape:
 
