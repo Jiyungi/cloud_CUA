@@ -4,7 +4,7 @@ import asyncio
 import base64
 import json
 
-from cloud_cua.voice_gradium import synthesize_tts_stream, transcribe_stt_stream
+from cloud_cua.voice_gradium import _connect, synthesize_tts_stream, transcribe_stt_stream
 
 
 class FakeWebSocket:
@@ -31,6 +31,19 @@ class FakeWebSocket:
         if not self.messages:
             raise StopAsyncIteration
         return json.dumps(self.messages.pop(0))
+
+
+def test_gradium_connect_selects_installed_websocket_header_name(monkeypatch) -> None:
+    captured = {}
+
+    def connect(url, extra_headers=None):
+        captured.update(url=url, headers=extra_headers)
+        return "connection"
+
+    monkeypatch.setattr("cloud_cua.voice_gradium.websockets.connect", connect)
+    result = asyncio.run(_connect("wss://example.test", "key"))
+    assert result == "connection"
+    assert captured["headers"] == {"x-api-key": "key"}
 
 
 def test_streaming_stt_sends_pcm_and_reports_partial_text(monkeypatch) -> None:

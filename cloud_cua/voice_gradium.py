@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 from dataclasses import dataclass
 from typing import Any, AsyncIterable, Awaitable, Callable
@@ -42,10 +43,9 @@ async def _noop_audio(_audio: bytes) -> None:
 
 
 async def _connect(url: str, api_key: str):
-    try:
-        return websockets.connect(url, additional_headers={"x-api-key": api_key})
-    except TypeError:
-        return websockets.connect(url, extra_headers={"x-api-key": api_key})
+    parameters = inspect.signature(websockets.connect).parameters
+    header_name = "additional_headers" if "additional_headers" in parameters else "extra_headers"
+    return websockets.connect(url, **{header_name: {"x-api-key": api_key}})
 
 
 async def synthesize_tts_async(text: str, repo_path: str | None = None, voice_id: str | None = None) -> TTSResult:
