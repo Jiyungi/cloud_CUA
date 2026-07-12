@@ -9,7 +9,13 @@ if (-not (Test-Path $Python)) {
 }
 
 & $Python -m pip install --upgrade pip
-& $Python -m pip install "${ProjectRoot}[h]"
+$BundledWheel = Get-ChildItem (Join-Path $ProjectRoot "wheel") -Filter "cloud_cua-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($BundledWheel) {
+    & $Python -m pip install $BundledWheel.FullName
+    & $Python -m pip install "hai-agents[browser]>=1.0.6"
+} else {
+    & $Python -m pip install "${ProjectRoot}[h]"
+}
 & $Python -I -m cloud_cua.cli install-mcp --python-executable $Python
 & $Python -I -m cloud_cua.cli doctor
 

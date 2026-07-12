@@ -37,3 +37,7 @@ addopts = "-p no:eval_protocol"
 
 [tool.setuptools.package-data]
 cloud_cua = ["skills/*.yaml"]
+
+[tool.setuptools.packages.find]
+include = ["cloud_cua*"]
+exclude = ["tests*", "node_modules*"]
