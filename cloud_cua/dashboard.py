@@ -494,12 +494,12 @@ function continueAfterApproval(approval) {
   if (!approval?.approval_id || continuedApprovals.has(approval.approval_id)) return;
   continuedApprovals.add(approval.approval_id);
   const action = String(approval?.action || '');
-  if (action.startsWith('Run AWS deployment task:')) {
-    post(`/runs/${currentRun.run_id}/aws-deploy`, body({task: awsTask.value || null, max_spend_usd: 5})).then(refresh).catch(console.error);
-  } else if (action === 'Run GCP Cloud Run deployment task') {
-    post(`/runs/${currentRun.run_id}/gcp-deploy`, body({task: awsTask.value || null})).then(refresh).catch(console.error);
-  } else if (action === 'Create or update AWS Amplify app') {
-    post(`/runs/${currentRun.run_id}/amplify-deploy`, body()).then(refresh).catch(console.error);
+  if (
+    action.startsWith('Run AWS deployment task:') ||
+    action === 'Run GCP Cloud Run deployment task' ||
+    action === 'Create or update AWS Amplify app'
+  ) {
+    post(`/runs/${currentRun.run_id}/resume-approved`, body()).then(refresh).catch(console.error);
   }
 }
 function maybeContinueApprovedApproval(items) {

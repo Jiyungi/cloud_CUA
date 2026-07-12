@@ -162,6 +162,8 @@ class Orchestrator:
 
     def run_amplify_deployment(self, run_id: str) -> dict:
         run = self.store.load_run(run_id)
+        if run.status == "running" and run.current_step.startswith("h_cua_"):
+            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
         if run.status == "waiting_for_login":
             return {"status": "blocked", "summary": "Manual AWS login is required first."}
         if run.cloud != "aws" or run.target != "aws_amplify":
@@ -219,6 +221,8 @@ class Orchestrator:
         max_spend_usd: float = DEFAULT_MAX_SPEND_USD,
     ) -> dict:
         run = self.store.load_run(run_id)
+        if run.status == "running" and run.current_step.startswith("h_cua_"):
+            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
         if run.status == "waiting_for_login":
             return {"status": "blocked", "summary": "Manual AWS login is required first."}
         if run.cloud != "aws":
@@ -277,6 +281,8 @@ class Orchestrator:
         task: str | None = None,
     ) -> dict:
         run = self.store.load_run(run_id)
+        if run.status == "running" and run.current_step.startswith("h_cua_"):
+            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
         if run.status == "waiting_for_login":
             return {"status": "blocked", "summary": "Manual GCP login is required first."}
         if run.cloud != "gcp":
@@ -350,6 +356,43 @@ class Orchestrator:
                 run.current_step = "approval_approved"
                 self.store.save_run(run)
         return asdict(approval)
+
+    def resume_approved_deployment(self, run_id: str) -> dict:
+        approvals = load_approvals(self.store.run_dir(run_id))
+        approval = next(
+            (
+                item
+                for item in approvals
+                if item.status == "approved"
+                and (
+                    item.action.startswith("Run AWS deployment task:")
+                    or item.action == "Run GCP Cloud Run deployment task"
+                    or item.action == "Create or update AWS Amplify app"
+                )
+            ),
+            None,
+        )
+        if approval is None:
+            return {"status": "skipped", "summary": "No approved deployment gate is ready to resume."}
+
+        run = self.store.load_run(run_id)
+        if run.status == "running" and run.current_step.startswith("h_cua_"):
+            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
+
+        if run.status == "blocked" and run.current_step == "approval_required":
+            run.status = "running"
+            run.current_step = "approval_approved"
+            self.store.save_run(run)
+
+        self.store.append_event(run_id, "system", "command", "Continuing approved deployment gate.", {"approval_id": approval.approval_id, "action": approval.action})
+        if approval.action.startswith("Run AWS deployment task:"):
+            target = run.target if run.cloud == "aws" and run.target else None
+            return self.run_aws_deployment_task(run_id, target=target)
+        if approval.action == "Run GCP Cloud Run deployment task":
+            return self.run_gcp_deployment_task(run_id)
+        if approval.action == "Create or update AWS Amplify app":
+            return self.run_amplify_deployment(run_id)
+        return {"status": "skipped", "summary": f"Approved action is not resumable: {approval.action}"}
 
     def list_approvals(self, run_id: str) -> list[dict]:
         return [asdict(item) for item in load_approvals(self.store.run_dir(run_id))]

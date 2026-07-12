@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from cloud_cua.h_runner import HTaskResult
 from cloud_cua.run_store import RunStore
 from cloud_cua.server import create_app
 from cloud_cua.verifier.base import VerifierResult
@@ -69,7 +70,7 @@ def test_amplify_deploy_requires_approval(tmp_path):
     assert body["approval"]["status"] == "pending"
 
 
-def test_general_aws_deploy_requires_approval(tmp_path):
+def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     client = TestClient(create_app())
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
@@ -92,14 +93,20 @@ def test_general_aws_deploy_requires_approval(tmp_path):
     assert result.json()["approval"]["status"] == "pending"
     assert "paid_resources" in result.json()["approval"]["triggers"]
 
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.run_h_task",
+        lambda *args, **kwargs: HTaskResult("blocked", "fake H handoff stopped for test"),
+    )
     approved = client.post(
         f"/runs/{run['run_id']}/approval-decision",
         json={"repo_path": str(tmp_path), "approval_id": result.json()["approval"]["approval_id"], "approved": True},
     )
     assert approved.status_code == 200
     status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
-    assert status["status"] == "running"
-    assert status["current_step"] == "approval_approved"
+    assert status["status"] == "blocked"
+    assert status["current_step"] == "h_cua_aws_task_blocked"
+    events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
+    assert any(event["source"] == "h_cua" and event["type"] == "command" for event in events)
 
 
 def test_general_aws_deploy_blocks_over_budget(tmp_path):

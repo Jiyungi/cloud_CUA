@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -178,8 +178,16 @@ def create_app() -> FastAPI:
         return Orchestrator(req.repo_path).request_approval(run_id, req.action, req.reason, req.risk_level)
 
     @app.post("/runs/{run_id}/approval-decision")
-    def approval_decision(run_id: str, req: ApprovalDecisionRequest):
-        return Orchestrator(req.repo_path).decide_approval(run_id, req.approval_id, req.approved)
+    def approval_decision(run_id: str, req: ApprovalDecisionRequest, background_tasks: BackgroundTasks):
+        approval = Orchestrator(req.repo_path).decide_approval(run_id, req.approval_id, req.approved)
+        if req.approved:
+            background_tasks.add_task(Orchestrator(req.repo_path).resume_approved_deployment, run_id)
+        return approval
+
+    @app.post("/runs/{run_id}/resume-approved")
+    def resume_approved(run_id: str, req: RepoRunRequest, background_tasks: BackgroundTasks):
+        background_tasks.add_task(Orchestrator(req.repo_path).resume_approved_deployment, run_id)
+        return {"status": "scheduled", "summary": "Approved deployment gate resume was scheduled."}
 
     @app.post("/runs/{run_id}/voice")
     def voice(run_id: str, req: VoiceRequest):
