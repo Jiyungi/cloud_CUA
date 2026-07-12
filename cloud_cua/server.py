@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ from .dashboard import render_dashboard
 from .orchestrator import Orchestrator
 from .h_session_manager import get_h_session_manager
 from .cost_monitor import get_cost_monitor
+from .voice_stream import handle_voice_stream
 
 
 class StartRequest(BaseModel):
@@ -363,6 +364,18 @@ def create_app() -> FastAPI:
     @app.post("/runs/{run_id}/voice")
     def voice(run_id: str, req: VoiceRequest):
         return Orchestrator(req.repo_path).voice_command(run_id, req.text)
+
+    @app.websocket("/runs/{run_id}/voice-stream")
+    async def voice_stream(websocket: WebSocket, run_id: str, repo_path: str):
+        await handle_voice_stream(websocket, repo_path, run_id, service_token)
+
+    @app.get("/runs/{run_id}/voice-status")
+    def voice_status(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_voice_status(run_id)
+
+    @app.post("/runs/{run_id}/voice-cancel-codex")
+    def voice_cancel_codex(run_id: str, req: RepoRunRequest):
+        return Orchestrator(req.repo_path).cancel_codex_voice(run_id)
 
     @app.post("/runs/{run_id}/voice-transcribe")
     def voice_transcribe(run_id: str, req: VoiceAudioRequest):
