@@ -28,7 +28,7 @@ from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_clo
 from .h_admin import cleanup_h_sessions
 from .h_runner import run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
-from .lessons import load_lesson_candidate, write_lesson_candidate
+from .lessons import load_lesson_candidate, resolve_lesson_candidate, write_lesson_candidate
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
 from .paths import resolve_repo_path
@@ -759,6 +759,18 @@ class Orchestrator:
         run.current_step = "verifier_complete"
         if all(item["status"] in {"passed", "skipped"} for item in results):
             run.status = "completed" if any(item["status"] == "passed" for item in results) else run.status
+            resolved = resolve_lesson_candidate(
+                self.store.run_dir(run_id),
+                "The run later passed every required independent verifier.",
+            )
+            if resolved:
+                self.store.append_event(
+                    run_id,
+                    "codex",
+                    "lesson_resolved",
+                    "Resolved the stale lesson candidate after strict verification passed.",
+                    {"affected_skill": resolved.get("affected_skill"), "resolved_at": resolved.get("resolved_at")},
+                )
         else:
             run.status = "blocked"
         self.store.save_run(run)

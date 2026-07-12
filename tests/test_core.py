@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cloud_cua.aws_cli import aws_command
 from cloud_cua.h_runner import HTaskResult, run_h_task
-from cloud_cua.lessons import load_lesson_candidate, write_lesson_candidate
+from cloud_cua.lessons import load_lesson_candidate, resolve_lesson_candidate, write_lesson_candidate
 from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
 from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
@@ -405,6 +405,23 @@ def test_lesson_candidate_is_review_only_and_redacted(tmp_path: Path):
     assert lesson["status"] == "pending_review"
     assert lesson["evidence"]["api_key"] == "[REDACTED]"
     assert "secret-value" not in path.read_text(encoding="utf-8")
+
+
+def test_lesson_candidate_can_be_resolved_without_deleting_evidence(tmp_path: Path):
+    write_lesson_candidate(
+        tmp_path,
+        run_id="run-1",
+        affected_skill="cloud-cua/aws-ecs-express",
+        failure="Transient verifier mismatch.",
+        evidence={"check": "failed"},
+        proposed_rule="Use the native ECS Express response.",
+        required_test="Verify managed target discovery.",
+    )
+    resolved = resolve_lesson_candidate(tmp_path, "Strict verification later passed.")
+
+    assert resolved is not None
+    assert resolved["status"] == "resolved"
+    assert resolved["evidence"] == {"check": "failed"}
 
 
 def test_resource_record_separates_console_and_app_urls():

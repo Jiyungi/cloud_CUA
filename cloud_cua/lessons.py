@@ -52,3 +52,15 @@ def load_lesson_candidate(run_dir: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def resolve_lesson_candidate(run_dir: Path, resolution: str) -> dict[str, Any] | None:
+    path = run_dir / "lesson_candidate.json"
+    lesson = load_lesson_candidate(run_dir)
+    if lesson is None:
+        return None
+    lesson["status"] = "resolved"
+    lesson["resolved_at"] = now_iso()
+    lesson["resolution"] = sanitize_text(resolution)
+    path.write_text(json.dumps(lesson, indent=2), encoding="utf-8")
+    return lesson
