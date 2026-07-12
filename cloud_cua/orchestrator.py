@@ -61,7 +61,7 @@ from .verifier.base import VerifierResult
 from .verifier.gcp import verify_gcp_cloud_run_services, verify_gcp_identity, verify_gcp_project
 from .verifier.http import verify_http_url
 from .verifier.playwright_check import verify_playwright_url
-from .verifier.repo import verify_git_diff
+from .verifier.repo import verify_repository
 from .voice_gradium import synthesize_tts, transcribe_stt
 from .voice_router import classify_voice_command
 
@@ -889,7 +889,8 @@ class Orchestrator:
             f"Deployment report exists at {report_path}." if report_path.exists() else "Deployment report was not written.",
         )
         results.append(asdict(report_result.save(out_dir)))
-        for result in [verify_git_diff(self.repo_path)]:
+        repo_context = analyze_repo(self.repo_path)
+        for result in verify_repository(self.repo_path, repo_context, run_tests=verifier_name in {"repo-full", "full"}):
             results.append(asdict(result.save(out_dir)))
         if run.cloud == "aws":
             aws_results = [
