@@ -11,6 +11,7 @@ def test_skill_registry_loads_unique_valid_skills():
     assert {skill.name for skill in skills} == {
         "cloud-cua/aws-amplify",
         "cloud-cua/aws-ecs-express",
+        "cloud-cua/aws-s3-static",
         "cloud-cua/gcp-cloud-run",
     }
     assert len({skill.target for skill in skills}) == len(skills)

@@ -24,6 +24,7 @@ class DeploymentContract:
     skill_hash: str = ""
     autonomy_level: int = 1
     cloud_region: str = ""
+    resource_name: str = ""
     container_image_uri: str = ""
     ecr_repository: str = ""
     expected_account_id: str = ""
@@ -51,6 +52,7 @@ class DeploymentContract:
             f"- target: {self.target}",
             f"- run_id: {self.run_id or 'not assigned'}",
             f"- cloud_region: {self.cloud_region or 'not assigned'}",
+            f"- resource_name: {self.resource_name or 'not assigned'}",
             f"- health_check_path: {self.health_check_path}",
             f"- required_public_app_url: {self.required_public_app_url}",
         ]
@@ -98,6 +100,7 @@ class DeploymentContract:
         container_image_uri: str = "",
         ecr_repository: str = "",
         repo_name: str = "",
+        resource_name: str = "",
         expected_account_id: str = "",
         runtime_secret_references: dict[str, str] | None = None,
         cost_limit_usd: float = 0.0,
@@ -111,6 +114,7 @@ class DeploymentContract:
             skill_hash=skill_hash,
             autonomy_level=autonomy_level,
             cloud_region=cloud_region,
+            resource_name=resource_name,
             container_image_uri=container_image_uri,
             ecr_repository=ecr_repository,
             expected_account_id=expected_account_id,

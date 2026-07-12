@@ -96,6 +96,18 @@ class AWSBrowserIdentityAnswer(BaseModel):
     blockers: list[str] | None = None
 
 
+class S3CreationAnswer(BaseModel):
+    milestone: str
+    status: str
+    bucket_name: str | None = None
+    region: str | None = None
+    tags: dict[str, str] = Field(default_factory=dict)
+    website_enabled: bool = False
+    public_app_url: str | None = None
+    console_url: str | None = None
+    blockers: list[str] | None = None
+
+
 def _event_excerpt(events: list[Any], limit: int = 8) -> str:
     lines: list[str] = []
     for event in events[-limit:]:
@@ -592,6 +604,7 @@ def cleanup_orphaned_chromedrivers() -> list[int]:
 def _answer_schema_for(name: str | None):
     return {
         "aws_browser_identity": AWSBrowserIdentityAnswer,
+        "s3_creation": S3CreationAnswer,
         "ecs_inspection": ECSInspectionAnswer,
         "ecs_prepared_form": ECSPreparedFormAnswer,
         "ecs_creation": ECSCreationAnswer,

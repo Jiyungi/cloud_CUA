@@ -28,9 +28,10 @@ from .deployment_milestones import (
 )
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
+from .deployments.s3_static import build_s3_creation_task, review_s3_creation, s3_bucket_name
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
-from .h_runner import run_h_task, summarize_h_event
+from .h_runner import HTaskResult, run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
 from .h_session_manager import get_h_session_manager
 from .lessons import load_lesson_candidate, resolve_lesson_candidate, write_lesson_candidate
@@ -41,6 +42,7 @@ from .repo_analyzer import analyze_repo
 from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
 from .skill_registry import get_skill, load_skills, skill_for_target
+from .static_artifact import prepare_static_artifact, upload_static_artifact
 from .run_store import RunStore
 from .safety import approval_reason, detect_approval_triggers, risk_level
 from .supervisor import review_h_result
@@ -276,6 +278,7 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
+        resource_name = s3_bucket_name(self.repo_path.name, run_id) if option.target == "aws_s3_static_site" else ""
         cost_policy = ensure_cost_policy(self.store.run_dir(run_id), option.target, plan.region, max_spend_usd)
         self.cost_monitor.register(self.repo_path, run_id)
         if cost_policy.status != "ready":
@@ -303,6 +306,7 @@ class Orchestrator:
                 container_image_uri=previous_contract.container_image_uri if previous_contract and previous_contract.target == option.target else "",
                 ecr_repository=previous_contract.ecr_repository if previous_contract and previous_contract.target == option.target else "",
                 repo_name=self.repo_path.name,
+                resource_name=resource_name,
                 expected_account_id=browser_identity.expected_account_id,
                 cost_limit_usd=cost_policy.max_spend_usd,
                 estimated_hourly_usd=cost_policy.fixed_hourly_usd,
@@ -359,6 +363,7 @@ class Orchestrator:
             return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
 
         prepared_inputs: dict[str, str] = {}
+        static_artifact = None
         try:
             if option.target == "aws_ecs_express":
                 def progress(step: str, message: str, evidence: dict) -> None:
@@ -402,6 +407,16 @@ class Orchestrator:
                 if contract.selected_container_port is not None:
                     prepared_inputs["container_port"] = str(contract.selected_container_port)
                     prepared_inputs["health_check_path"] = contract.health_check_path
+            elif option.target == "aws_s3_static_site":
+                static_artifact = prepare_static_artifact(self.repo_path, ctx)
+                self.store.append_event(run_id, "system", "result", static_artifact.summary, static_artifact.to_dict())
+                if static_artifact.status != "passed":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "static_artifact_failed"
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": static_artifact.summary, "artifact": static_artifact.to_dict()}
+                prepared_inputs = {"output_directory": static_artifact.output_directory, "bucket_name": resource_name}
 
             skill = skill_for_target(option.target)
             if skill is None:
@@ -435,6 +450,7 @@ class Orchestrator:
                 container_image_uri=prepared_inputs.get("container_image_uri", ""),
                 ecr_repository=prepared_inputs.get("ecr_repository", ""),
                 repo_name=self.repo_path.name,
+                resource_name=resource_name,
                 expected_account_id=browser_identity.expected_account_id,
                 runtime_secret_references=runtime_config.reference_map(),
                 cost_limit_usd=cost_policy.max_spend_usd,
@@ -555,6 +571,8 @@ class Orchestrator:
                     return {"status": "blocked", "summary": "The prepared ECS form did not match the deployment contract.", "review": prepare_review.to_dict(), "contract": contract.to_dict()}
 
                 task_text = build_ecs_submit_task(contract)
+            elif option.target == "aws_s3_static_site":
+                task_text = build_s3_creation_task(contract)
             else:
                 task_text = build_general_aws_h_task(
                     self.repo_path.name,
@@ -583,9 +601,19 @@ class Orchestrator:
                 max_time_s=900,
                 skill_names=[skill.name],
                 event_callback=self._h_event_callback(run_id, "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"),
-                answer_schema_name="ecs_creation" if option.target == "aws_ecs_express" else None,
+                answer_schema_name="ecs_creation" if option.target == "aws_ecs_express" else "s3_creation" if option.target == "aws_s3_static_site" else None,
             )
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
+            if option.target == "aws_s3_static_site" and result.status == "completed":
+                s3_review = review_s3_creation(result, contract)
+                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed S3 website creation: {s3_review.status}.", s3_review.to_dict())
+                if s3_review.status == "clear" and static_artifact:
+                    upload = upload_static_artifact(static_artifact.output_directory, s3_review.bucket_name)
+                    self.store.append_event(run_id, "system", "result", upload.summary, upload.to_dict())
+                    if upload.status != "passed":
+                        result = HTaskResult("blocked", upload.summary, session_id=result.session_id, outcome=result.outcome)
+                else:
+                    result = HTaskResult("blocked", "S3 console result did not match the deployment contract: " + "; ".join(s3_review.objections), session_id=result.session_id, outcome=result.outcome)
             review = review_h_result(result, contract)
             self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
             if result.status == "completed" and review.status != "blocked":

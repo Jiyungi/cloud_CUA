@@ -94,5 +94,5 @@ def test_mcp_skill_tools(tmp_path, monkeypatch):
     status = cloud_cua_get_skill_status(str(tmp_path))
     synced = cloud_cua_sync_h_skills(str(tmp_path))
     assert status["status"] == "passed"
-    assert len(status["skills"]) == 3
+    assert len(status["skills"]) == 4
     assert synced["status"] == "passed"

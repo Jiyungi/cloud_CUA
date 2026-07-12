@@ -1,0 +1,42 @@
+name: cloud-cua/aws-s3-static
+description: Safely create a tagged S3 static website from a prepared local build artifact.
+target: aws_s3_static_site
+autonomy_level: 2
+required_facts:
+  - run_id
+  - aws_region
+  - expected_account_id
+  - resource_name
+  - cloud_cua_run_tag
+unknowns_that_block:
+  - bucket name or region is missing
+  - the named bucket already exists
+  - build output lacks index.html
+h_cua_allowed_actions:
+  - inspect the S3 console and account identity
+  - create only the contract-named bucket
+  - configure static website hosting and minimum public object read
+  - add the exact Cloud CUA tags
+h_cua_stop_conditions:
+  - an existing bucket would be modified
+  - AWS shows account, region, IAM, billing, or validation mismatch
+  - CloudFront, Route 53, custom domain, versioning, or replication is required
+required_verifiers:
+  - aws_identity
+  - aws_s3_static_run
+  - http_live_url
+  - playwright_render
+  - cleanup_discovery
+success_conditions:
+  - exact run-tagged bucket exists
+  - website index is index.html
+  - uploaded live URL returns the app
+cleanup_strategy: Empty and delete only the exact run-tagged bucket.
+body: |
+  # AWS S3 Static Website
+
+  Follow the run contract exactly. Never choose a bucket name, account, region, policy scope, or optional AWS feature that is not in the contract.
+
+  Before creating anything, verify the named bucket does not already exist. Stop on an existing bucket or account mismatch. Create only the contract bucket, enable website hosting with `index.html`, apply minimum public object read, and add every required tag. Skip CloudFront, domains, logging, replication, versioning, and non-standard storage.
+
+  Report structured evidence. Never call an AWS Console URL the deployed application URL.
