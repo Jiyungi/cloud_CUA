@@ -67,6 +67,23 @@ def test_voice_router_supports_status_cleanup_and_exact_approval():
     assert approval.spoken_target == "Create ECS service"
 
 
+def test_voice_cancel_does_not_claim_success_without_h_confirmation(tmp_path, monkeypatch):
+    from cloud_cua.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(tmp_path)
+    run = orchestrator.start_deployment("aws", "teach")
+    monkeypatch.setattr(
+        orchestrator,
+        "cancel",
+        lambda _run_id: {"h_control": {"status": "cancelling", "summary": "Cancellation is not confirmed."}},
+    )
+
+    result = orchestrator.voice_command(run["run_id"], "cancel run")
+
+    assert result["executed"] is False
+    assert result["response"] == "Cancellation is not confirmed."
+
+
 def test_voice_turn_store_persists_bounded_sanitized_history(tmp_path: Path):
     store = VoiceTurnStore(tmp_path)
     first = store.create("run-1")

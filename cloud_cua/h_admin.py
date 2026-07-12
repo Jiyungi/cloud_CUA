@@ -111,7 +111,9 @@ def cleanup_h_session(session_id: str, repo_path: str | None = None) -> HCleanup
             item = session.json()
             if _session_agent_name(item) != "cloud-cua-local-browser":
                 return HCleanupResult("failed", before, before, [], [], "Refused to clean a session not owned by Cloud CUA.")
-            if _session_status(item) in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{session_id}"):
+            if _session_status(item) in NON_TERMINAL:
+                if not _delete_ok(client, f"/api/v2/sessions/{session_id}"):
+                    return HCleanupResult("failed", before, before, [], [], f"H did not accept cleanup for Cloud CUA session {session_id}.")
                 cancelled.append(session_id)
             bridge_ids = _session_bridge_ids(item) | {session_id}
         else:

@@ -1192,14 +1192,21 @@ class Orchestrator:
         if route.classification == "direct_control":
             turns.update(turn.turn_id, state="executing", classification=route.classification, action=route.action or "")
             if route.action == "pause":
-                self.pause(run_id)
-                response, executed = "Deployment paused.", True
+                control = self.pause(run_id)
+                executed = control.get("h_control", {}).get("status") in {"paused", "skipped"}
+                response = "Deployment paused." if executed else control.get("h_control", {}).get("summary", "H did not confirm pause.")
             elif route.action == "resume":
-                self.resume(run_id)
-                response, executed = "Deployment resumed.", True
+                control = self.resume(run_id)
+                executed = control.get("h_control", {}).get("status") in {"running", "skipped"}
+                response = "Deployment resumed." if executed else control.get("h_control", {}).get("summary", "H did not confirm resume.")
             elif route.action == "stop":
-                self.cancel(run_id)
-                response, executed = "Deployment cancelled. Existing cloud resources were not deleted.", True
+                control = self.cancel(run_id)
+                executed = control.get("h_control", {}).get("status") == "cancelled"
+                response = (
+                    "Deployment cancelled. Existing cloud resources were not deleted."
+                    if executed
+                    else control.get("h_control", {}).get("summary", "H did not confirm cancellation; the run is blocked for review.")
+                )
             elif route.action == "set_mode" and route.mode:
                 self.set_mode(run_id, route.mode)
                 response, executed = f"Switched to {route.mode} mode.", True

@@ -69,11 +69,28 @@ def test_cancel_stays_pending_when_remote_does_not_confirm(tmp_path, monkeypatch
     manager.schedule(tmp_path, run.run_id, "inspect", lambda: time.sleep(1) or {"status": "passed"})
     manager.observe_event(tmp_path, run.run_id, "inspect", {"type": "HSessionStarted", "data": {"session_id": "session-1"}})
     monkeypatch.setattr(manager, "_call_h_and_confirm", lambda *_args, **_kwargs: ("running", "cancel not confirmed"))
+    monkeypatch.setattr("cloud_cua.h_session_manager.cleanup_h_session", lambda *_args, **_kwargs: SimpleNamespace(status="failed"))
 
     result = manager.cancel(tmp_path, run.run_id)
 
     assert result["status"] == "cancelling"
     assert manager.get(tmp_path, run.run_id)["status"] == "cancelling"
+
+
+def test_cancel_uses_targeted_cleanup_after_confirmation_timeout(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    manager = HSessionManager()
+    manager.schedule(tmp_path, run.run_id, "inspect", lambda: time.sleep(1) or {"status": "passed"})
+    manager.observe_event(tmp_path, run.run_id, "inspect", {"type": "HSessionStarted", "data": {"session_id": "session-1"}})
+    monkeypatch.setattr(manager, "_call_h_and_confirm", lambda *_args, **_kwargs: ("running", "cancel not confirmed"))
+    cleanup = SimpleNamespace(status="passed", to_dict=lambda: {"status": "passed"})
+    monkeypatch.setattr("cloud_cua.h_session_manager.cleanup_h_session", lambda *_args, **_kwargs: cleanup)
+
+    result = manager.cancel(tmp_path, run.run_id)
+
+    assert result["status"] == "cancelled"
+    assert manager.get(tmp_path, run.run_id)["milestone"] == "targeted_cleanup_after_cancel_timeout"
 
 
 def test_h_control_retries_until_remote_state_is_confirmed(monkeypatch):

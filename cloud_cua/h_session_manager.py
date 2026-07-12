@@ -114,6 +114,23 @@ class HSessionManager:
         if job.session_id:
             remote_status, error = self._call_h_and_confirm(job.session_id, "cancel")
             if error:
+                fallback = cleanup_h_session(job.session_id, str(store.repo_path))
+                if fallback.status == "passed":
+                    if job.worker_pid:
+                        _terminate_worker(job.worker_pid)
+                    with self._guard:
+                        job.status = "cancelled"
+                        job.milestone = "targeted_cleanup_after_cancel_timeout"
+                        job.error = ""
+                        job.finished_at = now_iso()
+                        job.heartbeat_at = now_iso()
+                        self._save(store, job)
+                    return {
+                        "status": "cancelled",
+                        "summary": "H did not confirm cancellation in time, so Cloud CUA stopped its owned session with targeted cleanup.",
+                        "h_job": job.to_dict(),
+                        "cleanup": fallback.to_dict(),
+                    }
                 with self._guard:
                     job.status = "cancelling"
                     job.error = error
