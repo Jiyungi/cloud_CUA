@@ -30,4 +30,4 @@ pythonpath = ["."]
 addopts = "-p no:eval_protocol"
 
 [tool.setuptools.package-data]
-cloud_cua = ["skills/*.yaml"]
+cloud_cua = ["skills/*.yaml", "aws_eval_catalog.yaml"]
