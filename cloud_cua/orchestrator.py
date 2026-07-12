@@ -40,7 +40,7 @@ from .deployments.amplify import (
     review_amplify_inspection,
     review_amplify_prepared,
 )
-from .deployments.s3_static import build_s3_creation_task, review_s3_creation, s3_bucket_name
+from .deployments.s3_static import build_s3_creation_task, build_s3_website_task, review_s3_bucket, review_s3_creation, s3_bucket_name
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
 from .explanations import explain_run_question
@@ -390,6 +390,7 @@ class Orchestrator:
         prepared_inputs: dict[str, str] = {}
         static_artifact = None
         amplify_artifact = None
+        cost_clock_started = False
         try:
             if option.target == "aws_ecs_express":
                 def progress(step: str, message: str, evidence: dict) -> None:
@@ -698,7 +699,49 @@ class Orchestrator:
                     return {"status": "blocked", "summary": "Prepared Amplify form did not match the contract.", "review": amplify_prepared.to_dict()}
                 task_text = build_amplify_submit_task(contract)
             elif option.target == "aws_s3_static_site":
-                task_text = build_s3_creation_task(contract)
+                checkpoint_path = self.store.milestones_path(run_id)
+                bucket_checkpoint = load_milestone_checkpoint(checkpoint_path, "prepare_s3_static_bucket", contract)
+                if not bucket_checkpoint:
+                    run = self.store.load_run(run_id)
+                    run.status = "running"
+                    run.current_step = "h_cua_prepare_s3_bucket"
+                    run.target = option.target
+                    self.store.save_run(run)
+                    active_cost = start_run_cost_clock(self.store.run_dir(run_id))
+                    cost_clock_started = active_cost is not None
+                    if active_cost:
+                        self.cost_monitor.register(self.repo_path, run_id)
+                        self.store.append_event(run_id, "system", "cost_started", "Started the deployment cost clock before the S3 bucket-creation milestone.", {"cost_policy": active_cost.to_dict()})
+                    bucket_result = run_h_task(
+                        build_s3_creation_task(contract),
+                        run.mode,
+                        max_steps=40,
+                        max_time_s=600,
+                        skill_names=[skill.name],
+                        event_callback=self._h_event_callback(run_id, "prepare_s3_static_bucket"),
+                        answer_schema_name="s3_creation",
+                    )
+                    bucket_review = review_s3_bucket(bucket_result, contract)
+                    self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed S3 bucket preparation: {bucket_review.status}.", bucket_review.to_dict())
+                    if bucket_review.status == "clear":
+                        save_milestone_checkpoint(checkpoint_path, "prepare_s3_static_bucket", contract, asdict(bucket_result), bucket_review.to_dict())
+                    else:
+                        run = self.store.load_run(run_id)
+                        run.status = "blocked"
+                        run.current_step = "s3_bucket_preparation_blocked"
+                        self.store.save_run(run)
+                        self._write_lesson(
+                            run_id,
+                            skill.name,
+                            "H CUA did not finish the bounded S3 bucket-preparation milestone.",
+                            {"result": asdict(bucket_result), "review": bucket_review.to_dict()},
+                            "Create or reuse only the exact run-tagged bucket, then checkpoint before website configuration.",
+                            "Test that a partial or incorrectly tagged S3 bucket blocks website configuration.",
+                        )
+                        return {"status": "blocked", "summary": "S3 bucket preparation did not match the contract.", "review": bucket_review.to_dict()}
+                else:
+                    self.store.append_event(run_id, "codex", "milestone_reused", "Reused the contract-matching S3 bucket checkpoint.", {"milestone": "prepare_s3_static_bucket"})
+                task_text = build_s3_website_task(contract)
             else:
                 task_text = build_general_aws_h_task(
                     self.repo_path.name,
@@ -716,7 +759,7 @@ class Orchestrator:
             run.target = option.target
             self.store.save_run(run)
             self.store.append_event(run_id, "h_cua", "milestone", "H CUA is executing the approved deployment milestone.", {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name, "milestone": "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"})
-            active_cost = start_run_cost_clock(self.store.run_dir(run_id))
+            active_cost = None if cost_clock_started else start_run_cost_clock(self.store.run_dir(run_id))
             if active_cost:
                 self.cost_monitor.register(self.repo_path, run_id)
                 self.store.append_event(run_id, "system", "cost_started", "Started the deployment cost clock before the resource-creation milestone.", {"cost_policy": active_cost.to_dict()})

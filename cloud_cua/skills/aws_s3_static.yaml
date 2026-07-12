@@ -10,7 +10,7 @@ required_facts:
   - cloud_cua_run_tag
 unknowns_that_block:
   - bucket name or region is missing
-  - the named bucket already exists
+  - the named bucket already exists without every required tag for this exact run
   - build output lacks index.html
 h_cua_allowed_actions:
   - inspect the S3 console and account identity
@@ -37,6 +37,6 @@ body: |
 
   Follow the run contract exactly. Never choose a bucket name, account, region, policy scope, or optional AWS feature that is not in the contract.
 
-  Before creating anything, verify the named bucket does not already exist. Stop on an existing bucket or account mismatch. Create only the contract bucket, enable website hosting with `index.html`, apply minimum public object read, and add every required tag. Skip CloudFront, domains, logging, replication, versioning, and non-standard storage.
+  Work only through the bounded milestone in the current task. The bucket-preparation milestone creates or reuses only the exact bucket and proves every required run tag. The website milestone configures only website hosting and the bucket-scoped public object-read policy. Stop on an existing bucket unless every required tag proves it belongs to this exact run. Skip CloudFront, domains, logging, replication, versioning, and non-standard storage.
 
   Report structured evidence. Never call an AWS Console URL the deployed application URL.

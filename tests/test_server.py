@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from cloud_cua.container_image import ContainerImagePrepResult
 from cloud_cua.cloud_identity import BrowserIdentityProof, save_browser_identity
+from cloud_cua.deployments.s3_static import s3_bucket_name
 from cloud_cua.h_runner import HTaskResult
 from cloud_cua.run_store import RunStore
 from cloud_cua.server import create_app
@@ -181,6 +182,49 @@ def test_non_primary_aws_target_is_persisted_for_approval_resume(tmp_path):
 
     assert result.json()["approval"]["action"] == "Run AWS deployment task: S3 static website"
     assert store.load_run(run["run_id"]).target == "aws_s3_static_site"
+
+
+def test_s3_resume_checkpoints_bucket_before_website_configuration(tmp_path, monkeypatch):
+    client = TestClient(create_app())
+    (tmp_path / "index.html").write_text("<h1>static</h1>", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
+    store = RunStore(tmp_path)
+    mark_aws_login_verified(store, run["run_id"])
+    bucket_name = s3_bucket_name(tmp_path.name, run["run_id"])
+    responses = [
+        HTaskResult(
+            "completed",
+            '{"milestone":"prepare_s3_static_bucket","status":"completed","bucket_name":"'
+            + bucket_name
+            + '","region":"us-east-1","tags":{"cloud-cua":"true","cloud-cua-run":"'
+            + run["run_id"]
+            + '","cloud-cua-repo":"'
+            + tmp_path.name
+            + '"},"website_enabled":false,"public_app_url":null,"blockers":[]}',
+        ),
+        HTaskResult("blocked", "website form unavailable"),
+    ]
+    monkeypatch.setattr("cloud_cua.orchestrator.run_h_task", lambda *args, **kwargs: responses.pop(0))
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.sync_h_skills",
+        lambda *args, **kwargs: type("Report", (), {"status": "passed", "message": "synced", "to_dict": lambda self: {"status": "passed", "skills": []}})(),
+    )
+    planned = client.post(
+        f"/runs/{run['run_id']}/aws-deploy",
+        json={"repo_path": str(tmp_path), "target": "aws_s3_static_site", "max_spend_usd": 5},
+    ).json()
+
+    client.post(
+        f"/runs/{run['run_id']}/approval-decision",
+        json={"repo_path": str(tmp_path), "approval_id": planned["approval"]["approval_id"], "approved": True},
+    )
+    deadline = time.time() + 3
+    while time.time() < deadline and store.load_run(run["run_id"]).status == "running":
+        time.sleep(0.03)
+
+    checkpoint = (store.run_dir(run["run_id"]) / "milestones.json").read_text(encoding="utf-8")
+    assert "prepare_s3_static_bucket" in checkpoint
+    assert store.load_run(run["run_id"]).status == "blocked"
 
 
 def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):

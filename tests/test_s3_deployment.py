@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from cloud_cua.deployment_contract import DeploymentContract
-from cloud_cua.deployments.s3_static import review_s3_creation, s3_bucket_name
+from cloud_cua.deployments.s3_static import build_s3_website_task, review_s3_bucket, review_s3_creation, s3_bucket_name
 from cloud_cua.h_runner import HTaskResult
 from cloud_cua.models import RepoContext
 from cloud_cua.static_artifact import prepare_static_artifact
@@ -39,6 +39,22 @@ def test_s3_creation_must_match_contract():
         ),
     )
     assert review_s3_creation(result, contract).status == "clear"
+    assert review_s3_bucket(result, contract).status == "clear"
+
+
+def test_s3_website_milestone_is_bounded_to_the_checkpoint_bucket():
+    contract = DeploymentContract(
+        "aws_s3_static_site",
+        cloud_region="us-east-1",
+        resource_name="cloud-cua-demo-abc",
+        required_tags={"cloud-cua": "true", "cloud-cua-run": "run-1"},
+    )
+
+    task = build_s3_website_task(contract)
+
+    assert "prior saved checkpoint" in task
+    assert "cloud-cua-demo-abc" in task
+    assert "Do not change tags" in task
 
 
 def test_static_artifact_requires_index_html(tmp_path):
