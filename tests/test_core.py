@@ -472,6 +472,17 @@ def test_h_event_summary_keeps_action_without_large_payload():
     assert len(summary) < 500
 
 
+def test_orphaned_chromedriver_cleanup_parses_stopped_ids(monkeypatch):
+    from cloud_cua.h_runner import cleanup_orphaned_chromedrivers
+
+    monkeypatch.setattr("cloud_cua.h_runner.os.name", "nt")
+    monkeypatch.setattr(
+        "cloud_cua.h_runner.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "123,456\n", ""),
+    )
+    assert cleanup_orphaned_chromedrivers() == [123, 456]
+
+
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     result = VerifierResult(
         "secret_check",

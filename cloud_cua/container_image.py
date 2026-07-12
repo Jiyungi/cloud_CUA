@@ -94,6 +94,8 @@ def prepare_ecr_image_with_progress(
         ["docker", "login", "--username", "AWS", "--password-stdin", registry],
         input=password.stdout,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=60,
     )
@@ -132,7 +134,7 @@ def prepare_ecr_image_with_progress(
 
 def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(command, text=True, capture_output=True, timeout=timeout)
+        return subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout)
     except Exception as exc:
         return subprocess.CompletedProcess(command, 1, "", f"{type(exc).__name__}: {exc}")
 

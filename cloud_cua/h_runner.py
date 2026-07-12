@@ -98,6 +98,14 @@ def _run_h_task_sdk(
         )
     try:
         cleanup_h_sessions()
+        orphaned_drivers = cleanup_orphaned_chromedrivers()
+        if orphaned_drivers and event_callback:
+            event_callback(
+                {
+                    "type": "LocalBridgeCleanup",
+                    "data": {"status": "finished", "message": f"Stopped {len(orphaned_drivers)} orphaned ChromeDriver process(es) before H startup."},
+                }
+            )
         quota = get_h_quota()
         if quota and quota.available is not None and quota.available <= 0:
             return HTaskResult(
@@ -119,26 +127,51 @@ def _run_h_task_sdk(
     try:
         from hai_agents import Client
 
-        client = Client(api_key=api_key)
-        create_params = {
-            "agent": _inline_browser_agent(mode, skill_names),
-            "messages": full_task,
-            "max_steps": max_steps,
-            "max_time_s": max_time_s,
-            "queue": False,
-        }
-        if event_callback:
-            handle = client.start_session(**create_params)
-            for event in handle.stream(wait_for_seconds=5, until="settled", timeout_seconds=max_time_s + 60):
-                event_callback(_event_dict(event))
-            result = handle.wait_for_completion(wait_for_seconds=5, timeout_seconds=60, include_events=True)
-        else:
-            result = client.run_session(
-                **create_params,
-                wait_for_seconds=5,
-                timeout_seconds=max_time_s + 60,
-                include_events=True,
-            )
+        result = None
+        for attempt in (1, 2):
+            try:
+                client = Client(api_key=api_key)
+                create_params = {
+                    "agent": _inline_browser_agent(mode, skill_names),
+                    "messages": full_task,
+                    "max_steps": max_steps,
+                    "max_time_s": max_time_s,
+                    "queue": False,
+                }
+                if event_callback:
+                    handle = client.start_session(**create_params)
+                    for event in handle.stream(wait_for_seconds=5, until="settled", timeout_seconds=max_time_s + 60):
+                        event_callback(_event_dict(event))
+                    result = handle.wait_for_completion(wait_for_seconds=5, timeout_seconds=60, include_events=True)
+                else:
+                    result = client.run_session(
+                        **create_params,
+                        wait_for_seconds=5,
+                        timeout_seconds=max_time_s + 60,
+                        include_events=True,
+                    )
+                break
+            except Exception as exc:
+                if attempt == 1 and "local web bridge" in str(exc).lower():
+                    stopped = cleanup_orphaned_chromedrivers()
+                    try:
+                        cleanup_h_sessions()
+                    except Exception:
+                        pass
+                    if event_callback:
+                        event_callback(
+                            {
+                                "type": "LocalBridgeRetry",
+                                "data": {
+                                    "status": "retrying",
+                                    "message": f"H local bridge startup failed; cleared {len(stopped)} orphaned driver(s) and will retry once.",
+                                },
+                            }
+                        )
+                    continue
+                raise
+        if result is None:
+            raise RuntimeError("H session did not return a result after local bridge retry.")
         status = "completed" if result.status in {"completed", "idle"} and result.outcome not in {"blocked", "infeasible"} else str(result.status)
         answer = "" if result.answer is None else str(result.answer)
         summary = answer.strip() or result.error or _event_excerpt(result.events) or f"H session ended with status {result.status}."
@@ -310,3 +343,29 @@ def _stream_worker(
     proc.wait(timeout=5)
     stderr = proc.stderr.read() if proc.stderr is not None else ""
     return result_json, stderr
+
+
+def cleanup_orphaned_chromedrivers() -> list[int]:
+    if os.name != "nt":
+        return []
+    script = (
+        "$stopped=@(); "
+        "Get-CimInstance Win32_Process -Filter \"Name='chromedriver.exe'\" | ForEach-Object { "
+        "$parent=Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue; "
+        "if (-not $parent) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $stopped += $_.ProcessId } }; "
+        "$stopped -join ','"
+    )
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:
+        return []
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+    return [int(item) for item in proc.stdout.strip().split(",") if item.strip().isdigit()]
