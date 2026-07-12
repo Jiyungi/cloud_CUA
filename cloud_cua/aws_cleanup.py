@@ -128,54 +128,66 @@ def _tagged_resource_actions(run_id: str | None) -> list[CleanupAction]:
     actions: list[CleanupAction] = []
     for item in data.get("ResourceTagMappingList", []) if isinstance(data, dict) else []:
         arn = str(item.get("ResourceARN", ""))
-        action = _action_from_arn(arn)
-        if action:
-            actions.append(action)
+        actions.extend(_actions_from_arn(arn))
     return actions
 
 
 def _action_from_arn(arn: str) -> CleanupAction | None:
+    actions = _actions_from_arn(arn)
+    return actions[0] if actions else None
+
+
+def _actions_from_arn(arn: str) -> list[CleanupAction]:
     if ":ecs:" in arn and ":service/" in arn:
         parsed = _parse_ecs_service_arn(arn)
         if parsed:
             cluster, service = parsed
             express_status = _express_gateway_status(arn)
             if express_status == "INACTIVE":
-                return None
+                return []
             if express_status:
-                return CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))
+                return [CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))]
             if _is_express_gateway_service(cluster, service):
-                return CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))
-            return CleanupAction("ecs", service, aws_command(["ecs", "delete-service", "--cluster", cluster, "--service", service, "--force"]))
+                return [CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))]
+            return [CleanupAction("ecs", service, aws_command(["ecs", "delete-service", "--cluster", cluster, "--service", service, "--force"]))]
     if ":ecs:" in arn and ":task/" in arn:
         parsed_task = _parse_ecs_task_arn(arn)
         if parsed_task:
             cluster, task = parsed_task
             if not _ecs_task_requires_stop(cluster, arn):
-                return None
-            return CleanupAction("ecs-task", task, aws_command(["ecs", "stop-task", "--cluster", cluster, "--task", arn, "--reason", "Cloud CUA cleanup"]))
+                return []
+            return [CleanupAction("ecs-task", task, aws_command(["ecs", "stop-task", "--cluster", cluster, "--task", arn, "--reason", "Cloud CUA cleanup"]))]
+    if ":ecs:" in arn and ":task-definition/" in arn:
+        definition = arn.rsplit(":task-definition/", 1)[-1]
+        return [
+            CleanupAction("ecs-task-definition", definition, aws_command(["ecs", "deregister-task-definition", "--task-definition", arn])),
+            CleanupAction("ecs-untag", definition, aws_command(["ecs", "untag-resource", "--resource-arn", arn, "--tag-keys", "cloud-cua", "cloud-cua-run", "cloud-cua-repo"])),
+        ]
+    if ":logs:" in arn and ":log-group:" in arn:
+        log_group = arn.split(":log-group:", 1)[-1].split(":", 1)[0]
+        return [CleanupAction("cloudwatch-logs", log_group, aws_command(["logs", "delete-log-group", "--log-group-name", log_group]))]
     if ":lambda:" in arn and ":function:" in arn:
         name = arn.rsplit(":function:", 1)[-1]
-        return CleanupAction("lambda", name, aws_command(["lambda", "delete-function", "--function-name", name]))
+        return [CleanupAction("lambda", name, aws_command(["lambda", "delete-function", "--function-name", name]))]
     if ":apprunner:" in arn and ":service/" in arn:
         name = arn.split(":service/", 1)[-1].split("/", 1)[0]
-        return CleanupAction("apprunner", name, aws_command(["apprunner", "delete-service", "--service-arn", arn]))
+        return [CleanupAction("apprunner", name, aws_command(["apprunner", "delete-service", "--service-arn", arn]))]
     if ":amplify:" in arn and ":apps/" in arn:
         app_id = arn.rsplit("/apps/", 1)[-1].split("/", 1)[0]
-        return CleanupAction("amplify", app_id, aws_command(["amplify", "delete-app", "--app-id", app_id]))
+        return [CleanupAction("amplify", app_id, aws_command(["amplify", "delete-app", "--app-id", app_id]))]
     if ":cloudformation:" in arn and ":stack/" in arn:
         stack_name = arn.split(":stack/", 1)[-1].split("/", 1)[0]
-        return CleanupAction("cloudformation", stack_name, aws_command(["cloudformation", "delete-stack", "--stack-name", stack_name]))
+        return [CleanupAction("cloudformation", stack_name, aws_command(["cloudformation", "delete-stack", "--stack-name", stack_name]))]
     if arn.startswith("arn:aws:s3:::"):
         bucket = arn.rsplit(":::", 1)[-1]
-        return CleanupAction("s3", bucket, aws_command(["s3", "rb", f"s3://{bucket}", "--force"]))
+        return [CleanupAction("s3", bucket, aws_command(["s3", "rb", f"s3://{bucket}", "--force"]))]
     if ":ecr:" in arn and ":repository/" in arn:
         name = arn.split(":repository/", 1)[-1]
-        return CleanupAction("ecr", name, aws_command(["ecr", "delete-repository", "--repository-name", name, "--force"]))
+        return [CleanupAction("ecr", name, aws_command(["ecr", "delete-repository", "--repository-name", name, "--force"]))]
     if ":ssm:" in arn and ":parameter/" in arn:
         name = "/" + arn.split(":parameter/", 1)[-1]
-        return CleanupAction("ssm", name, aws_command(["ssm", "delete-parameter", "--name", name]))
-    return None
+        return [CleanupAction("ssm", name, aws_command(["ssm", "delete-parameter", "--name", name]))]
+    return []
 
 
 def _execute_action(action: CleanupAction) -> CleanupAction:
@@ -259,5 +271,5 @@ def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:
             continue
         seen.add(key)
         deduped.append(action)
-    priority = {"ecs-task": 0, "ecs-express": 1, "ecs": 1, "apprunner": 2, "amplify": 2, "lambda": 2, "cloudformation": 3, "s3": 4, "ssm": 8, "ecr": 9}
+    priority = {"ecs-task": 0, "ecs-express": 1, "ecs": 1, "ecs-task-definition": 3, "apprunner": 2, "amplify": 2, "lambda": 2, "cloudformation": 3, "s3": 4, "cloudwatch-logs": 5, "ecs-untag": 7, "ssm": 8, "ecr": 9}
     return sorted(deduped, key=lambda action: (priority.get(action.service, 5), action.service, action.resource))

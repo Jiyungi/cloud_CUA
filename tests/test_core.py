@@ -591,6 +591,17 @@ def test_aws_cleanup_deletes_tagged_ssm_parameter():
     assert action.command[-2:] == ["--name", "/cloud-cua/run-1/DATABASE_URL"]
 
 
+def test_aws_cleanup_handles_tagged_task_definitions_and_log_groups():
+    from cloud_cua.aws_cleanup import _actions_from_arn
+
+    task_actions = _actions_from_arn("arn:aws:ecs:us-east-1:123456789012:task-definition/cloud-cua-demo:1")
+    log_actions = _actions_from_arn("arn:aws:logs:us-east-1:123456789012:log-group:/aws/ecs/cloud-cua-demo")
+
+    assert [item.service for item in task_actions] == ["ecs-task-definition", "ecs-untag"]
+    assert log_actions[0].service == "cloudwatch-logs"
+    assert "delete-log-group" in log_actions[0].command
+
+
 def test_aws_command_uses_cloud_cua_profile_when_available(monkeypatch):
     class FakeProc:
         returncode = 0

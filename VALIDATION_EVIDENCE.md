@@ -41,6 +41,8 @@ All required verifiers passed:
 
 The run ended `completed`. Cleanup then deleted the exact bucket and object. A final Cloud CUA dry run found zero actions, and AWS Resource Groups Tagging API returned no resources for the run tag.
 
+The later global audit also removed a retained ECS task definition and CloudWatch log group missed by the earlier cleanup implementation. AWS's tagging index still returns two older ECS Express service ARNs whose service status is `INACTIVE`; AWS rejects deletion and untagging for inactive services. They are retained service metadata, not running or billable resources, and Cloud CUA correctly reports no executable cleanup action for them.
+
 ## Dashboard And Tests
 
 - Development suite: 118 tests passed after the S3 and managed Playwright fixes.
