@@ -122,7 +122,7 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
         raw = _event_excerpt(result.events, limit=20)
         return HTaskResult(
             status=status,
-            summary=summary[-1600:],
+            summary=summary[-8000:],
             raw=raw,
             session_id=result.id,
             outcome=result.outcome,

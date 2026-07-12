@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from cloud_cua.deployment_contract import DeploymentContract
 from cloud_cua.models import RepoContext
 
 
@@ -103,6 +104,7 @@ def build_general_aws_h_task(
     user_task: str | None = None,
     run_id: str | None = None,
     prepared_inputs: dict[str, str] | None = None,
+    contract: DeploymentContract | None = None,
 ) -> str:
     option = plan.option(target)
     repo_details = [
@@ -127,6 +129,9 @@ def build_general_aws_h_task(
         prepared_lines = [f"- {key}: {value}" for key, value in prepared_inputs.items() if value]
         if prepared_lines:
             prepared = "\n\nPrepared inputs from Codex/local repo tools:\n" + "\n".join(prepared_lines)
+    contract_text = ""
+    if contract:
+        contract_text = "\n\n" + contract.h_instructions()
     return (
         "You are operating the AWS Console for Cloud CUA.\n"
         "Goal: complete a safe deployment task or stop with a precise blocker.\n\n"
@@ -136,6 +141,7 @@ def build_general_aws_h_task(
         "Repo facts:\n"
         + "\n".join(f"- {item}" for item in repo_details)
         + prepared
+        + contract_text
         + "\n\nSafety constraints:\n"
         + constraints
         + "\n\nKnown risks for this target:\n"
@@ -145,7 +151,9 @@ def build_general_aws_h_task(
         "- Every created or modified resource name.\n"
         "- Region.\n"
         "- Any live URL or deployment status URL.\n"
+        "- The public application URL separately from any AWS Console URL.\n"
         "- Any blocker that needs the user, Codex, or AWS CLI.\n"
+        "- Current task count/target health if ECS is used.\n"
         "- Whether the run stayed under the $5 budget constraint.\n"
     )
 

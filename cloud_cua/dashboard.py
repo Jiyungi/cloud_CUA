@@ -565,10 +565,21 @@ function latest(source) {
   return event ? event.message : '';
 }
 function renderProof(ev) {
-  const evidence = JSON.stringify(ev.filter(e => e.source === 'verifier').map(e => e.evidence || {}));
-  identityState.textContent = evidence.includes('aws_identity') || evidence.includes('gcp_auth_list') ? 'Checked' : 'Not checked';
-  resourceState.textContent = evidence.includes('aws_tagged_run_resources') || evidence.includes('gcp_cloud_run_services') || evidence.includes('aws_amplify_list_apps') ? 'Checked' : 'Not checked';
-  liveState.textContent = evidence.includes('http_live_url') || evidence.includes('playwright_render') ? 'Checked' : 'No URL yet';
+  identityState.textContent = hasPassedVerifier(ev, ['aws_identity', 'gcp_auth_list']) ? 'Checked' : 'Not checked';
+  resourceState.textContent = hasPassedVerifier(ev, ['aws_tagged_run_resources', 'aws_ecs_run_services', 'gcp_cloud_run_services', 'aws_amplify_list_apps']) ? 'Checked' : 'Not checked';
+  liveState.textContent = hasPassedVerifier(ev, ['http_live_url', 'playwright_render']) ? 'Checked' : 'No URL yet';
+  if (hasFailedVerifier(ev, ['public_app_url', 'http_live_url', 'playwright_render', 'aws_ecs_run_services'])) liveState.textContent = 'Failed';
+}
+function verifierResults(ev) {
+  return ev
+    .filter(e => e.source === 'verifier')
+    .flatMap(e => Array.isArray(e.evidence?.results) ? e.evidence.results : (e.evidence?.result ? [e.evidence.result] : []));
+}
+function hasPassedVerifier(ev, names) {
+  return verifierResults(ev).some(result => names.includes(result.name) && result.status === 'passed');
+}
+function hasFailedVerifier(ev, names) {
+  return verifierResults(ev).some(result => names.includes(result.name) && result.status === 'failed');
 }
 function titleForStatus(status) {
   return ({created:'Preparing run', waiting_for_login:'Waiting for cloud login', running:'Deployment running', paused:'Paused', verifying:'Verifying deployment', completed:'Deployment complete', blocked:'Needs attention', failed:'Failed'}[status] || 'Deployment status');

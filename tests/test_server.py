@@ -98,7 +98,7 @@ def test_frontend_aws_deploy_requires_approval(tmp_path):
 
 def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     client = TestClient(create_app())
-    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
     store = RunStore(tmp_path)
     saved = store.load_run(run["run_id"])
@@ -167,7 +167,7 @@ def test_aws_deploy_does_not_start_duplicate_work(tmp_path):
 
 def test_general_aws_deploy_blocks_over_budget(tmp_path):
     client = TestClient(create_app())
-    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
     store = RunStore(tmp_path)
     saved = store.load_run(run["run_id"])

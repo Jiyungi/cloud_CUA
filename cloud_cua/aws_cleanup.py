@@ -135,6 +135,13 @@ def _tagged_resource_actions(run_id: str | None) -> list[CleanupAction]:
 
 
 def _action_from_arn(arn: str) -> CleanupAction | None:
+    if ":ecs:" in arn and ":service/" in arn:
+        parsed = _parse_ecs_service_arn(arn)
+        if parsed:
+            cluster, service = parsed
+            if _is_express_gateway_service(cluster, service):
+                return CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))
+            return CleanupAction("ecs", service, aws_command(["ecs", "delete-service", "--cluster", cluster, "--service", service, "--force"]))
     if ":lambda:" in arn and ":function:" in arn:
         name = arn.rsplit(":function:", 1)[-1]
         return CleanupAction("lambda", name, aws_command(["lambda", "delete-function", "--function-name", name]))
@@ -185,6 +192,24 @@ def _cloud_cua_named(name: str) -> bool:
     return name.startswith(f"{RESOURCE_PREFIX}-") or name.startswith("cloud-cua-")
 
 
+def _parse_ecs_service_arn(arn: str) -> tuple[str, str] | None:
+    try:
+        tail = arn.split(":service/", 1)[1]
+        cluster, service = tail.split("/", 1)
+        return cluster, service
+    except Exception:
+        return None
+
+
+def _is_express_gateway_service(cluster: str, service: str) -> bool:
+    data = _aws_json(aws_command(["ecs", "describe-services", "--cluster", cluster, "--services", service]))
+    services = data.get("services", []) if isinstance(data, dict) else []
+    if not services:
+        return False
+    item = services[0]
+    return "resourceManagementType" in item or bool(item.get("currentServiceRevisions"))
+
+
 def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:
     seen: set[tuple[str, str]] = set()
     deduped: list[CleanupAction] = []
@@ -194,4 +219,5 @@ def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:
             continue
         seen.add(key)
         deduped.append(action)
-    return deduped
+    priority = {"ecs-express": 0, "ecs": 0, "apprunner": 1, "amplify": 1, "lambda": 1, "cloudformation": 2, "s3": 3, "ecr": 9}
+    return sorted(deduped, key=lambda action: (priority.get(action.service, 5), action.service, action.resource))

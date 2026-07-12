@@ -12,6 +12,7 @@ from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
 from .container_image import prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
+from .deployment_contract import build_deployment_contract
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
@@ -25,17 +26,20 @@ from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
 from .run_store import RunStore
 from .safety import approval_reason, detect_approval_triggers, risk_level
+from .supervisor import review_h_result
 from .verifier.aws import (
     verify_amplify_apps,
     verify_app_runner_services,
     verify_aws_identity,
     verify_cloudformation_stacks,
     verify_ecs_clusters,
+    verify_ecs_run_services,
     verify_ecr_repositories,
     verify_lambda_functions,
     verify_s3_buckets,
     verify_tagged_resources,
 )
+from .verifier.base import VerifierResult
 from .verifier.gcp import verify_gcp_cloud_run_services, verify_gcp_identity, verify_gcp_project
 from .verifier.http import verify_http_url
 from .verifier.playwright_check import verify_playwright_url
@@ -179,6 +183,15 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
+        contract = build_deployment_contract(self.repo_path, ctx, option.target)
+        self.store.append_event(run_id, "codex", "contract", "Prepared deployment contract from repo facts.", {"contract": contract.to_dict()})
+        if contract.missing_facts:
+            run.status = "blocked"
+            run.current_step = "deployment_contract_incomplete"
+            run.target = option.target
+            self.store.save_run(run)
+            self.store.append_event(run_id, "codex", "objection", "Deployment contract is incomplete; stopping before cloud changes.", {"missing_facts": contract.missing_facts})
+            return {"status": "blocked", "summary": "Deployment contract is incomplete; Cloud CUA needs clarification before creating resources.", "contract": contract.to_dict(), "aws_plan": plan.to_dict()}
         action = f"Run AWS deployment task: {option.label}"
         triggers = detect_approval_triggers(action, option.label, option.h_task_goal, " ".join(option.risks), task or "")
         if not approval_is_approved(self.store.run_dir(run_id), action):
@@ -232,6 +245,9 @@ class Orchestrator:
                     "aws_region": plan.region,
                     "instruction": "Use this exact image URI in ECS Express Mode. Do not ask for GitHub source or App Runner.",
                 }
+                if contract.selected_container_port is not None:
+                    prepared_inputs["container_port"] = str(contract.selected_container_port)
+                    prepared_inputs["health_check_path"] = contract.health_check_path
 
             task_text = build_general_aws_h_task(
                 self.repo_path.name,
@@ -241,6 +257,7 @@ class Orchestrator:
                 user_task=task,
                 run_id=run_id,
                 prepared_inputs=prepared_inputs,
+                contract=contract,
             )
             run = self.store.load_run(run_id)
             run.status = "running"
@@ -250,12 +267,15 @@ class Orchestrator:
             self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd})
             result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
+            review = review_h_result(result, contract)
+            self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
             if result.status == "completed":
                 self._record_resource_summary(run_id, run.cloud, option.target, result.summary)
                 run.status = "verifying"
                 run.current_step = "h_cua_completed_run_verifier_next"
                 self.store.save_run(run)
                 self.run_verifier(run_id, "default")
+                self.write_report(run_id)
             else:
                 run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
                 run.current_step = "h_cua_aws_task_blocked"
@@ -443,7 +463,7 @@ class Orchestrator:
         for result in [verify_git_diff(self.repo_path)]:
             results.append(asdict(result.save(out_dir)))
         if run.cloud == "aws":
-            for result in [
+            aws_results = [
                 verify_aws_identity(),
                 verify_tagged_resources(run_id),
                 verify_amplify_apps(),
@@ -453,14 +473,25 @@ class Orchestrator:
                 verify_lambda_functions(),
                 verify_s3_buckets(),
                 verify_cloudformation_stacks(),
-            ]:
+            ]
+            if run.target in {"aws_ecs_express", "aws_ecs_fargate"}:
+                aws_results.append(verify_ecs_run_services(run_id))
+            for result in aws_results:
                 results.append(asdict(result.save(out_dir)))
         else:
             for result in [verify_gcp_identity(), verify_gcp_project(), verify_gcp_cloud_run_services()]:
                 results.append(asdict(result.save(out_dir)))
         urls = [url] if url else []
         for record in load_resource_records(self.store.run_dir(run_id) / "resources.json"):
-            urls.extend(record.urls)
+            urls.extend(record.app_urls)
+        if run.cloud == "aws" and run.target in {"aws_ecs_express", "aws_ecs_fargate", "aws_amplify", "aws_s3_static_site"} and not urls:
+            result = VerifierResult(
+                "public_app_url",
+                "failed",
+                "resource_records.app_urls",
+                "No public application URL was found. Console URLs do not count as live app proof.",
+            )
+            results.append(asdict(result.save(out_dir)))
         for item_url in sorted(set(item for item in urls if item)):
             for result in [verify_http_url(item_url), verify_playwright_url(item_url)]:
                 results.append(asdict(result.save(out_dir)))
