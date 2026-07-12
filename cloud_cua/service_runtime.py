@@ -92,6 +92,10 @@ def ensure_service(*, python_executable: str | None = None, preferred_port: int 
     save_service_state(state)
     for _ in range(150):
         if service_is_healthy(state, timeout=0.4):
+            listener_pid = _listener_pid(port)
+            if listener_pid and listener_pid != state.pid:
+                state = ServiceState(listener_pid, port, state.base_url, token, python, state.started_at)
+                save_service_state(state)
             return state
         if proc.poll() is not None:
             break
@@ -154,3 +158,25 @@ def _managed_runtime_python() -> str | None:
     runtime = user_config_dir() / "runtime-venv"
     candidate = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     return str(candidate) if candidate.is_file() else None
+
+
+def _listener_pid(port: int) -> int | None:
+    if os.name != "nt":
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"(Get-NetTCPConnection -LocalPort {port} -State Listen | Select-Object -First 1).OwningProcess",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        value = result.stdout.strip()
+        return int(value) if result.returncode == 0 and value.isdigit() else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
