@@ -40,8 +40,8 @@ def _event_excerpt(events: list[Any], limit: int = 8) -> str:
     return "\n".join(lines)
 
 
-def _inline_browser_agent(mode: Mode) -> dict[str, Any]:
-    return {
+def _inline_browser_agent(mode: Mode, skill_names: list[str] | None = None) -> dict[str, Any]:
+    agent = {
         "name": "cloud-cua-local-browser",
         "description": "Use the user's local browser to inspect or operate a cloud console under Cloud CUA supervision.",
         "instructions": (
@@ -63,9 +63,18 @@ def _inline_browser_agent(mode: Mode) -> dict[str, Any]:
             }
         ],
     }
+    if skill_names:
+        agent["skills"] = skill_names
+    return agent
 
 
-def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: int = 180) -> HTaskResult:
+def _run_h_task_sdk(
+    task: str,
+    mode: Mode = "vibe",
+    max_steps: int = 20,
+    max_time_s: int = 180,
+    skill_names: list[str] | None = None,
+) -> HTaskResult:
     if os.environ.get("CLOUD_CUA_CONTAINER") == "1":
         return HTaskResult(
             status="blocked",
@@ -107,7 +116,7 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
 
         client = Client(api_key=api_key)
         result = client.run_session(
-            agent=_inline_browser_agent(mode),
+            agent=_inline_browser_agent(mode, skill_names),
             messages=full_task,
             max_steps=max_steps,
             max_time_s=max_time_s,
@@ -156,8 +165,14 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
             pass
 
 
-def run_h_task(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: int = 180) -> HTaskResult:
-    payload = {"task": task, "mode": mode, "max_steps": max_steps, "max_time_s": max_time_s}
+def run_h_task(
+    task: str,
+    mode: Mode = "vibe",
+    max_steps: int = 20,
+    max_time_s: int = 180,
+    skill_names: list[str] | None = None,
+) -> HTaskResult:
+    payload = {"task": task, "mode": mode, "max_steps": max_steps, "max_time_s": max_time_s, "skill_names": skill_names or []}
     outer_timeout = max(45, max_time_s + 30)
     command = [sys.executable, "-m", "cloud_cua.h_runner_worker"]
     try:
@@ -199,5 +214,6 @@ def run_h_task_worker(payload: dict[str, Any]) -> str:
         payload.get("mode", "vibe"),
         int(payload.get("max_steps", 20)),
         int(payload.get("max_time_s", 180)),
+        list(payload.get("skill_names") or []),
     )
     return json.dumps(asdict(result))

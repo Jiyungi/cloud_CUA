@@ -291,6 +291,13 @@ def test_h_runner_blocks_browser_takeover_in_docker(monkeypatch):
     assert "host-local" in result.summary
 
 
+def test_h_agent_includes_active_skill_name():
+    from cloud_cua.h_runner import _inline_browser_agent
+
+    agent = _inline_browser_agent("vibe", ["cloud-cua/aws-ecs-express"])
+    assert agent["skills"] == ["cloud-cua/aws-ecs-express"]
+
+
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     result = VerifierResult(
         "secret_check",

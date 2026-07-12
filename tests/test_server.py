@@ -144,6 +144,10 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
             registry="123456789012.dkr.ecr.us-east-1.amazonaws.com",
         ),
     )
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.sync_h_skills",
+        lambda *args, **kwargs: type("Report", (), {"status": "passed", "message": "synced", "to_dict": lambda self: {"status": "passed", "skills": []}})(),
+    )
     approved = client.post(
         f"/runs/{run['run_id']}/approval-decision",
         json={"repo_path": str(tmp_path), "approval_id": result.json()["approval"]["approval_id"], "approved": True},

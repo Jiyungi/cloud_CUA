@@ -25,7 +25,7 @@ from .paths import resolve_repo_path
 from .repo_analyzer import analyze_repo
 from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
-from .skill_registry import load_skills
+from .skill_registry import load_skills, skill_for_target
 from .run_store import RunStore
 from .safety import approval_reason, detect_approval_triggers, risk_level
 from .supervisor import review_h_result
@@ -251,6 +251,29 @@ class Orchestrator:
                     prepared_inputs["container_port"] = str(contract.selected_container_port)
                     prepared_inputs["health_check_path"] = contract.health_check_path
 
+            skill = skill_for_target(option.target)
+            if skill is None:
+                run = self.store.load_run(run_id)
+                run.status = "blocked"
+                run.current_step = "deployment_skill_missing"
+                self.store.save_run(run)
+                self.store.append_event(run_id, "codex", "objection", f"No approved deployment skill exists for {option.target}.")
+                return {"status": "blocked", "summary": f"No approved deployment skill exists for {option.target}."}
+            skill_sync = sync_h_skills(self.repo_path, names=[skill.name])
+            self.store.append_event(
+                run_id,
+                "system",
+                "skill_sync",
+                skill_sync.message,
+                {"skill": skill.to_dict(include_body=False), "sync": skill_sync.to_dict()},
+            )
+            if skill_sync.status != "passed":
+                run = self.store.load_run(run_id)
+                run.status = "blocked"
+                run.current_step = "h_skill_sync_blocked"
+                self.store.save_run(run)
+                return {"status": "blocked", "summary": skill_sync.message, "skill_sync": skill_sync.to_dict()}
+
             task_text = build_general_aws_h_task(
                 self.repo_path.name,
                 ctx,
@@ -266,8 +289,8 @@ class Orchestrator:
             run.current_step = f"h_cua_{option.target}"
             run.target = option.target
             self.store.save_run(run)
-            self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd})
-            result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
+            self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name})
+            result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900, skill_names=[skill.name])
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             review = review_h_result(result, contract)
             self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
@@ -324,13 +347,24 @@ class Orchestrator:
             self.store.save_run(run)
             return {"status": "blocked", "summary": "Approval required before H CUA can run the GCP deployment task.", "approval": asdict(approval), "gcp_plan": plan.to_dict()}
 
+        skill = skill_for_target(plan.target)
+        if skill is None:
+            return {"status": "blocked", "summary": f"No approved deployment skill exists for {plan.target}."}
+        skill_sync = sync_h_skills(self.repo_path, names=[skill.name])
+        self.store.append_event(run_id, "system", "skill_sync", skill_sync.message, {"skill": skill.to_dict(include_body=False), "sync": skill_sync.to_dict()})
+        if skill_sync.status != "passed":
+            run.status = "blocked"
+            run.current_step = "h_skill_sync_blocked"
+            self.store.save_run(run)
+            return {"status": "blocked", "summary": skill_sync.message, "skill_sync": skill_sync.to_dict()}
+
         task_text = build_gcp_cloud_run_h_task(self.repo_path.name, ctx, plan, task)
         run.status = "running"
         run.current_step = "h_cua_gcp_cloud_run"
         run.target = plan.target
         self.store.save_run(run)
-        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "gcp_target": plan.target})
-        result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
+        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "gcp_target": plan.target, "skill_name": skill.name})
+        result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900, skill_names=[skill.name])
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
         if result.status == "completed":
             self._record_resource_summary(run_id, run.cloud, plan.target, result.summary)
