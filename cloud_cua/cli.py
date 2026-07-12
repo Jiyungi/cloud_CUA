@@ -5,6 +5,7 @@ import getpass
 import os
 import subprocess
 import sys
+import json
 
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .codex_config import install_cloud_cua_mcp
@@ -36,7 +37,10 @@ def cmd_start(args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, "-m", "uvicorn", "cloud_cua.server:app", "--host", host, "--port", str(port)])
 
 
-def cmd_mcp(_args: argparse.Namespace) -> int:
+def cmd_mcp(args: argparse.Namespace) -> int:
+    if args.self_check:
+        print(json.dumps({"status": "passed", "module": "cloud_cua.mcp_server", "python": sys.executable}))
+        return 0
     mcp_main()
     return 0
 
@@ -63,7 +67,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_install_mcp(args: argparse.Namespace) -> int:
-    result = install_cloud_cua_mcp(args.config, dry_run=args.dry_run)
+    result = install_cloud_cua_mcp(args.config, python_executable=args.python_executable, dry_run=args.dry_run)
     print(result.summary)
     print(f"Config: {result.config_path}")
     print(f"Command: {result.command}")
@@ -132,13 +136,16 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--host", default="127.0.0.1")
     start.add_argument("--port", type=int)
     start.set_defaults(func=cmd_start)
-    sub.add_parser("mcp").set_defaults(func=cmd_mcp)
+    mcp = sub.add_parser("mcp")
+    mcp.add_argument("--self-check", action="store_true", help="Validate that this configured interpreter can load the MCP server, then exit.")
+    mcp.set_defaults(func=cmd_mcp)
     sub.add_parser("check").set_defaults(func=cmd_check)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--offline", action="store_true", help="Skip network checks such as H quota.")
     doctor.set_defaults(func=cmd_doctor)
     install_mcp = sub.add_parser("install-mcp")
     install_mcp.add_argument("--config", help="Path to Codex config.toml. Defaults to CODEX_HOME/config.toml or ~/.codex/config.toml.")
+    install_mcp.add_argument("--python-executable", help="Exact installed Python interpreter Codex should use.")
     install_mcp.add_argument("--dry-run", action="store_true")
     install_mcp.set_defaults(func=cmd_install_mcp)
     sub.add_parser("h-status").set_defaults(func=cmd_h_status)

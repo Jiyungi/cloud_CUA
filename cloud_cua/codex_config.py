@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def install_cloud_cua_mcp(
 ) -> MCPInstallResult:
     path = Path(config_path).expanduser() if config_path else codex_config_path()
     command = python_executable or sys.executable
-    args = ["-m", "cloud_cua.cli", "mcp"]
+    args = ["-I", "-m", "cloud_cua.cli", "mcp"]
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     updated = upsert_mcp_server(existing, SERVER_NAME, command, args)
     backup_path: Path | None = None
@@ -100,3 +101,28 @@ def _toml_string(value: str) -> str:
 
 def _toml_array(values: list[str]) -> str:
     return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def configured_mcp_command(text: str, name: str = SERVER_NAME) -> tuple[str, list[str]] | None:
+    """Read the command we write without requiring a third-party TOML writer."""
+    lines = text.splitlines()
+    start = _find_section(lines, f"[mcp_servers.{name}]")
+    if start is None:
+        return None
+    command: str | None = None
+    args: list[str] = []
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            break
+        if stripped.startswith("command"):
+            command = _parse_toml_string(stripped.split("=", 1)[1].strip())
+        elif stripped.startswith("args"):
+            args = [_parse_toml_string(item) for item in re.findall(r'"(?:\\.|[^"\\])*"', stripped)]
+    return (command, args) if command else None
+
+
+def _parse_toml_string(value: str) -> str:
+    import json
+
+    return str(json.loads(value))

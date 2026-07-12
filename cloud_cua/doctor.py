@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .aws_cli import aws_command, selected_aws_profile
 from .browser_profile import find_chrome
-from .codex_config import SERVER_NAME, codex_config_path
+from .codex_config import SERVER_NAME, codex_config_path, configured_mcp_command
 from .credentials import inspect_credentials
 from .h_admin import get_h_quota
 
@@ -157,6 +157,15 @@ def _codex_mcp_config_check(*, required: bool) -> DoctorCheck:
     if not path.exists():
         return DoctorCheck("codex_mcp_config", "failed" if required else "skipped", f"{path} does not exist.")
     text = path.read_text(encoding="utf-8", errors="replace")
-    if f"[mcp_servers.{SERVER_NAME}]" not in text:
+    configured = configured_mcp_command(text)
+    if configured is None:
         return DoctorCheck("codex_mcp_config", "failed" if required else "skipped", f"{SERVER_NAME} is not installed in {path}.")
-    return DoctorCheck("codex_mcp_config", "passed", f"{SERVER_NAME} is installed in {path}.")
+    command, args = configured
+    try:
+        proc = subprocess.run([command, *args, "--self-check"], text=True, capture_output=True, timeout=20)
+    except Exception as exc:
+        return DoctorCheck("codex_mcp_config", "failed", f"Configured MCP command cannot start: {type(exc).__name__}: {exc}")
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "MCP self-check failed.").strip()[:400]
+        return DoctorCheck("codex_mcp_config", "failed", detail)
+    return DoctorCheck("codex_mcp_config", "passed", f"Configured MCP command starts from {command}.")

@@ -507,6 +507,7 @@ def test_install_mcp_writes_config(tmp_path: Path):
     assert result.status == "passed"
     assert "[mcp_servers.cloud-cua]" in text
     assert 'command = "python"' in text
+    assert 'args = ["-I", "-m", "cloud_cua.cli", "mcp"]' in text
 
 
 def test_aws_cleanup_dry_run_uses_discovery(monkeypatch):
