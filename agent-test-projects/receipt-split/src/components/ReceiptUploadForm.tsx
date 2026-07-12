@@ -89,6 +89,7 @@ export function ReceiptUploadForm(): React.JSX.Element {
           type="file"
           accept="image/jpeg,image/png,application/pdf"
           onChange={handleFileChange}
+          aria-label="Choose a receipt"
           aria-describedby="receipt-file-help"
         />
       </div>
