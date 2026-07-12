@@ -167,6 +167,22 @@ def test_frontend_aws_deploy_requires_approval(tmp_path):
     assert body["approval"]["status"] == "pending"
 
 
+def test_non_primary_aws_target_is_persisted_for_approval_resume(tmp_path):
+    client = TestClient(create_app())
+    (tmp_path / "index.html").write_text("<h1>static</h1>", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
+    store = RunStore(tmp_path)
+    mark_aws_login_verified(store, run["run_id"])
+
+    result = client.post(
+        f"/runs/{run['run_id']}/aws-deploy",
+        json={"repo_path": str(tmp_path), "target": "aws_s3_static_site", "max_spend_usd": 5},
+    )
+
+    assert result.json()["approval"]["action"] == "Run AWS deployment task: S3 static website"
+    assert store.load_run(run["run_id"]).target == "aws_s3_static_site"
+
+
 def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     client = TestClient(create_app())
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")

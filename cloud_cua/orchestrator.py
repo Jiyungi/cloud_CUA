@@ -291,6 +291,9 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
+        if run.target != option.target:
+            run.target = option.target
+            self.store.save_run(run)
         amplify_plan = build_amplify_plan(self.repo_path.name, ctx) if option.target == "aws_amplify" else None
         resource_name = (
             s3_bucket_name(self.repo_path.name, run_id)
