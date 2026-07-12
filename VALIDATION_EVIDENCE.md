@@ -45,7 +45,7 @@ The later global audit also removed a retained ECS task definition and CloudWatc
 
 ## Dashboard And Tests
 
-- Development suite: 135 tests passed after asynchronous H control, runtime-secret, cost-monitor, Docker, and Amplify picker hardening.
+- Development suite: 453 tests passed after asynchronous H control, 150-case AWS conformance expansion, fixture-contract enforcement, runtime-secret, cost-monitor, Docker, and Amplify verifier hardening.
 - Browser smoke: 30 checks passed across desktop, mobile, login modal, runtime-secret modal, and cost-action modal.
 - Browser checks include JavaScript console errors and horizontal overflow.
 
@@ -80,3 +80,16 @@ The later global audit also removed a retained ECS task definition and CloudWatc
 ## Explicit Deferred Scope
 
 GCP is not production-ready. `gcloud` is not installed or authenticated on this machine, so Cloud Run remains planning-only until project identity, exact verification, a real deployment, and cleanup are proven.
+
+## Jiyun Evaluation And Fixture Validation
+
+- Imported Jiyun's seven agent-project commits with original authorship and imported the AWS evaluation catalog without replacing newer main tests.
+- Executed every one of the 150 AWS service cases with complete evidence and with an unknown-fact failure variant.
+- Materialized exactly 53 local skills and verified all 53 hashes are synced in H's hosted skill catalog.
+- ReceiptSplit passed 11 unit/component tests, its build, and one Playwright flow.
+- InvoiceOps passed 29 unit/component tests, its build, and three Playwright flows.
+- Managed MCP runs `20260712T131038Z-6881fd62` and `20260712T131040Z-a48ce9f0` attached to the exact child repositories and blocked frontend-only success because their backends are absent.
+- Frontend-only Amplify apps were published and exact tags/branches/jobs, HTTP, and root/deep-link Playwright rendering passed:
+  - ReceiptSplit: `https://jiyun-test.dlxrss6fqphr3.amplifyapp.com`
+  - InvoiceOps: `https://jiyun-test.d5mex5o827iae.amplifyapp.com`
+- The full authenticated AWS fixture workflows remain blocked because backend code/adapters are absent, H's dedicated AWS browser is logged out, and the AWS account has no verified SES sender identity.

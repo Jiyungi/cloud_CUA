@@ -144,6 +144,8 @@ Cloud CUA stores reviewed deployment recipes under `cloud_cua/skills/` and publi
 - `cloud-cua/aws-s3-static`
 - `cloud-cua/gcp-cloud-run`
 
+The AWS evaluation catalog expands this to exactly 53 local and hosted skills: 49 additional AWS service skills, the evaluation-enhanced Amplify skill, and the three other core skills. Regenerate the catalog-derived files with `cloud-cua aws-evals build-skills`.
+
 Inspect or synchronize them from the CLI:
 
 ```powershell
@@ -291,6 +293,7 @@ cloud-cua aws-evals build-skills
 ```
 
 See [the AWS H evaluation catalog guide](docs/aws-h-evaluation-catalog.md) for scoring and skill-promotion rules.
+See [agent test validation](docs/agent-test-validation.md) for the imported ReceiptSplit/InvoiceOps results and remaining backend boundary.
 
 ## Tests
 

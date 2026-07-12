@@ -680,6 +680,18 @@ Owner labels are suggested for parallel work.
   - Run `20260712T121251Z-41762fb7` stopped before submit on AWS source validation errors. The picker/ACL workflow was corrected and synced to H. Fresh run `20260712T122151Z-30d3fb6b` then stopped at the required account check because the dedicated H browser had logged out.
   - _Requirements: 7, 14, 17, 20, 21, 22_
 
+- [ ] 27. Complete Jiyun AWS agent fixtures (Owner: Both)
+  - [x] 27.1 Import Jiyun's evaluation catalog and both agent-test projects without deleting newer main tests
+  - [x] 27.2 Execute all 150 AWS contracts with pass and fail-closed evidence variants
+  - [x] 27.3 Materialize exactly 53 local skills and verify all 53 are synced in H's hosted catalog
+  - [x] 27.4 Pass ReceiptSplit and InvoiceOps unit, component, build, and Playwright suites
+  - [x] 27.5 Start exact child-repository runs through the managed MCP and show multi-service skill coverage in the dashboard
+  - [x] 27.6 Publish and independently verify frontend-only Amplify smokes for both fixtures
+  - [ ] 27.7 Implement the real Cognito/API/Lambda/S3/KMS/Textract/queue/database/workflow backends and frontend AWS adapters
+  - [ ] 27.8 Verify an SES sender, complete authenticated end-to-end AWS acceptance, and clean or intentionally retain every resource
+  - Static frontend publication is not a full fixture pass. See `docs/agent-test-validation.md`.
+  - _Requirements: 7, 14, 17, 20, 21, 22_
+
 ## Task Dependency Graph
 
 ```json
