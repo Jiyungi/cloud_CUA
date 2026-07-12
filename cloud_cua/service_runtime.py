@@ -83,7 +83,7 @@ def ensure_service(*, python_executable: str | None = None, preferred_port: int 
     else:
         kwargs["start_new_session"] = True
     proc = subprocess.Popen(
-        [python, "-I", "-m", "cloud_cua.cli", "start", "--host", "127.0.0.1", "--port", str(port)],
+        [python, "-I", "-m", "uvicorn", "cloud_cua.server:app", "--host", "127.0.0.1", "--port", str(port)],
         **kwargs,
     )
     stdout.close()
