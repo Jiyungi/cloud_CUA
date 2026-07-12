@@ -276,6 +276,7 @@ def _run_h_task_sdk(
             cleanup_h_sessions()
         except Exception:
             pass
+        cleanup_orphaned_chromedrivers()
 
 
 def run_h_task(
@@ -383,6 +384,7 @@ def _stream_worker(
     proc.stdin.write(json.dumps(payload))
     proc.stdin.close()
     lines: queue.Queue[str | None] = queue.Queue()
+    stderr_lines: list[str] = []
 
     def read_stdout() -> None:
         assert proc.stdout is not None
@@ -392,6 +394,14 @@ def _stream_worker(
 
     reader = threading.Thread(target=read_stdout, daemon=True)
     reader.start()
+
+    def read_stderr() -> None:
+        if proc.stderr is not None:
+            for line in proc.stderr:
+                stderr_lines.append(line)
+
+    stderr_reader = threading.Thread(target=read_stderr, daemon=True)
+    stderr_reader.start()
     deadline = time.monotonic() + timeout_seconds
     result_json = ""
     finished = False
@@ -401,7 +411,7 @@ def _stream_worker(
         try:
             line = lines.get(timeout=0.25)
         except queue.Empty:
-            if proc.poll() is not None and not reader.is_alive():
+            if proc.poll() is not None:
                 break
             continue
         if line is None:
@@ -416,18 +426,18 @@ def _stream_worker(
         elif message.get("kind") == "result":
             result_json = json.dumps(message.get("result") or {})
     proc.wait(timeout=5)
-    stderr = proc.stderr.read() if proc.stderr is not None else ""
-    return result_json, stderr
+    return result_json, "".join(stderr_lines)
 
 
 def cleanup_orphaned_chromedrivers() -> list[int]:
     if os.name != "nt":
         return []
+    worker_pid = os.getpid()
     script = (
         "$stopped=@(); "
         "Get-CimInstance Win32_Process -Filter \"Name='chromedriver.exe'\" | ForEach-Object { "
         "$parent=Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue; "
-        "if (-not $parent) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $stopped += $_.ProcessId } }; "
+        f"if ((-not $parent) -or ($_.ParentProcessId -eq {worker_pid})) {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $stopped += $_.ProcessId }} }}; "
         "$stopped -join ','"
     )
     try:
