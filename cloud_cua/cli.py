@@ -8,6 +8,7 @@ import sys
 import json
 
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
+from .aws_evals import build_h_eval_task, build_review_only_skill_seed, load_aws_eval_catalog
 from .codex_config import install_cloud_cua_mcp
 from .credentials import inspect_credentials, save_credentials
 from .doctor import run_doctor
@@ -133,6 +134,24 @@ def cmd_aws_cleanup(args: argparse.Namespace) -> int:
     return 0 if result.status == "passed" else 1
 
 
+def cmd_aws_evals(args: argparse.Namespace) -> int:
+    catalog = load_aws_eval_catalog()
+    if args.aws_evals_cmd == "list":
+        services = [service for service in catalog.services if not args.category or service.category == args.category]
+        print(f"{catalog.catalog_id}: {len(services)} services, {sum(len(service.cases) for service in services)} cases")
+        for service in services:
+            print(f"- {service.id}: {service.name} [{service.lifecycle}] ({len(service.cases)} cases)")
+        return 0
+    if args.aws_evals_cmd == "show":
+        print(build_h_eval_task(args.case))
+        return 0
+    if args.aws_evals_cmd == "skill-seed":
+        print(json.dumps(build_review_only_skill_seed(args.service), indent=2))
+        return 0
+    print(f"Catalog valid: {len(catalog.services)} services, {len(catalog.cases)} cases")
+    return 0
+
+
 def cmd_service(args: argparse.Namespace) -> int:
     if args.service_cmd == "start":
         state = ensure_service()
@@ -186,6 +205,18 @@ def build_parser() -> argparse.ArgumentParser:
     aws_cleanup.add_argument("--run-id", help="Only clean resources tagged with this Cloud CUA run id.")
     aws_cleanup.add_argument("--yes", action="store_true", help="Actually delete discovered Cloud CUA resources. Without this, only prints a dry run.")
     aws_cleanup.set_defaults(func=cmd_aws_cleanup)
+    aws_evals = sub.add_parser("aws-evals", help="Inspect the reviewed AWS H-agent evaluation catalog.")
+    aws_evals_sub = aws_evals.add_subparsers(dest="aws_evals_cmd", required=True)
+    aws_evals_list = aws_evals_sub.add_parser("list")
+    aws_evals_list.add_argument("--category")
+    aws_evals_list.set_defaults(func=cmd_aws_evals)
+    aws_evals_show = aws_evals_sub.add_parser("show")
+    aws_evals_show.add_argument("--case", required=True)
+    aws_evals_show.set_defaults(func=cmd_aws_evals)
+    aws_evals_seed = aws_evals_sub.add_parser("skill-seed")
+    aws_evals_seed.add_argument("--service", required=True)
+    aws_evals_seed.set_defaults(func=cmd_aws_evals)
+    aws_evals_sub.add_parser("validate").set_defaults(func=cmd_aws_evals)
     package = sub.add_parser("package")
     package.add_argument("--output")
     package.set_defaults(func=cmd_package)

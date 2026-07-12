@@ -278,6 +278,19 @@ Questions like `why this service?` route to Codex or the explanation path.
 
 Cloud operation requests become planned, approval-gated tasks. Raw voice is never sent directly to H CUA.
 
+## AWS H Console Evaluations
+
+`cloud_cua/aws_eval_catalog.yaml` defines 150 safety-focused H computer-use evaluations across 50 AWS services. Each service includes guided provisioning, a deliberate misconfiguration trap, and recovery/cleanup. These local commands validate and inspect cases or generate review-only skill candidates; they do not create AWS resources:
+
+```bash
+cloud-cua aws-evals validate
+cloud-cua aws-evals list
+cloud-cua aws-evals show --case ecr-misconfiguration-trap
+cloud-cua aws-evals skill-seed --service ecr
+```
+
+See [the AWS H evaluation catalog guide](docs/aws-h-evaluation-catalog.md) for scoring and skill-promotion rules.
+
 ## Tests
 
 Run tests from the activated project virtual environment:
