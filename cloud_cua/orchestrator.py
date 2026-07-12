@@ -13,7 +13,9 @@ from .browser_profile import launch_dedicated_browser
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
 from .deployment_contract import build_deployment_contract, load_contract, save_contract
+from .deployment_checkpoints import load_milestone_checkpoint, save_milestone_checkpoint
 from .deployment_milestones import (
+    MilestoneReview,
     build_ecs_inspection_task,
     build_ecs_prepare_form_task,
     build_ecs_submit_task,
@@ -329,25 +331,45 @@ class Orchestrator:
             save_contract(self.store.contract_path(run_id), contract)
 
             if option.target == "aws_ecs_express":
-                run = self.store.load_run(run_id)
-                run.status = "running"
-                run.current_step = "h_cua_inspect_ecs_form"
-                run.target = option.target
-                self.store.save_run(run)
-                inspect_task = build_ecs_inspection_task(contract)
-                self.store.append_event(run_id, "h_cua", "milestone", "H CUA is inspecting the ECS Express form without making changes.", {"milestone": "inspect_ecs_express_form", "skill_name": skill.name})
-                inspect_result = run_h_task(
-                    inspect_task,
-                    run.mode,
-                    max_steps=30,
-                    max_time_s=420,
-                    skill_names=[skill.name],
-                    event_callback=self._h_event_callback(run_id, "inspect_ecs_express_form"),
-                    answer_schema_name="ecs_inspection",
-                )
-                self.store.append_event(run_id, "h_cua", "observation", inspect_result.summary, {"status": inspect_result.status, "session_id": inspect_result.session_id, "milestone": "inspect_ecs_express_form"})
-                inspection_review = review_ecs_inspection(inspect_result, contract)
-                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed ECS form inspection: {inspection_review.status}.", inspection_review.to_dict())
+                checkpoint_path = self.store.milestones_path(run_id)
+                inspection_checkpoint = load_milestone_checkpoint(checkpoint_path, "inspect_ecs_express_form", contract)
+                if inspection_checkpoint:
+                    inspection_review = MilestoneReview(**inspection_checkpoint["review"])
+                    self.store.append_event(
+                        run_id,
+                        "codex",
+                        "milestone_reused",
+                        "Reused the contract-matching ECS inspection checkpoint.",
+                        {"milestone": "inspect_ecs_express_form", "review": inspection_review.to_dict()},
+                    )
+                else:
+                    run = self.store.load_run(run_id)
+                    run.status = "running"
+                    run.current_step = "h_cua_inspect_ecs_form"
+                    run.target = option.target
+                    self.store.save_run(run)
+                    inspect_task = build_ecs_inspection_task(contract)
+                    self.store.append_event(run_id, "h_cua", "milestone", "H CUA is inspecting the ECS Express form without making changes.", {"milestone": "inspect_ecs_express_form", "skill_name": skill.name})
+                    inspect_result = run_h_task(
+                        inspect_task,
+                        run.mode,
+                        max_steps=30,
+                        max_time_s=420,
+                        skill_names=[skill.name],
+                        event_callback=self._h_event_callback(run_id, "inspect_ecs_express_form"),
+                        answer_schema_name="ecs_inspection",
+                    )
+                    self.store.append_event(run_id, "h_cua", "observation", inspect_result.summary, {"status": inspect_result.status, "session_id": inspect_result.session_id, "milestone": "inspect_ecs_express_form"})
+                    inspection_review = review_ecs_inspection(inspect_result, contract)
+                    self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed ECS form inspection: {inspection_review.status}.", inspection_review.to_dict())
+                    if inspection_review.status == "clear":
+                        save_milestone_checkpoint(
+                            checkpoint_path,
+                            "inspect_ecs_express_form",
+                            contract,
+                            asdict(inspect_result),
+                            inspection_review.to_dict(),
+                        )
                 if inspection_review.status != "clear":
                     run = self.store.load_run(run_id)
                     run.status = "blocked"
@@ -368,23 +390,42 @@ class Orchestrator:
                         "contract": contract.to_dict(),
                     }
 
-                run = self.store.load_run(run_id)
-                run.current_step = "h_cua_prepare_ecs_form"
-                self.store.save_run(run)
-                prepare_task = build_ecs_prepare_form_task(contract, inspection_review.corrections)
-                self.store.append_event(run_id, "h_cua", "milestone", "H CUA is preparing the ECS form without submitting it.", {"milestone": "prepare_ecs_express_form", "skill_name": skill.name})
-                prepare_result = run_h_task(
-                    prepare_task,
-                    run.mode,
-                    max_steps=35,
-                    max_time_s=480,
-                    skill_names=[skill.name],
-                    event_callback=self._h_event_callback(run_id, "prepare_ecs_express_form"),
-                    answer_schema_name="ecs_prepared_form",
-                )
-                self.store.append_event(run_id, "h_cua", "observation", prepare_result.summary, {"status": prepare_result.status, "session_id": prepare_result.session_id, "milestone": "prepare_ecs_express_form"})
-                prepare_review = review_ecs_prepared_form(prepare_result, contract)
-                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed prepared ECS form: {prepare_review.status}.", prepare_review.to_dict())
+                prepare_checkpoint = load_milestone_checkpoint(checkpoint_path, "prepare_ecs_express_form", contract)
+                if prepare_checkpoint:
+                    prepare_review = MilestoneReview(**prepare_checkpoint["review"])
+                    self.store.append_event(
+                        run_id,
+                        "codex",
+                        "milestone_reused",
+                        "Reused the contract-matching prepared ECS form checkpoint; H must still visually recheck it before submit.",
+                        {"milestone": "prepare_ecs_express_form", "review": prepare_review.to_dict()},
+                    )
+                else:
+                    run = self.store.load_run(run_id)
+                    run.current_step = "h_cua_prepare_ecs_form"
+                    self.store.save_run(run)
+                    prepare_task = build_ecs_prepare_form_task(contract, inspection_review.corrections)
+                    self.store.append_event(run_id, "h_cua", "milestone", "H CUA is preparing the ECS form without submitting it.", {"milestone": "prepare_ecs_express_form", "skill_name": skill.name})
+                    prepare_result = run_h_task(
+                        prepare_task,
+                        run.mode,
+                        max_steps=35,
+                        max_time_s=480,
+                        skill_names=[skill.name],
+                        event_callback=self._h_event_callback(run_id, "prepare_ecs_express_form"),
+                        answer_schema_name="ecs_prepared_form",
+                    )
+                    self.store.append_event(run_id, "h_cua", "observation", prepare_result.summary, {"status": prepare_result.status, "session_id": prepare_result.session_id, "milestone": "prepare_ecs_express_form"})
+                    prepare_review = review_ecs_prepared_form(prepare_result, contract)
+                    self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed prepared ECS form: {prepare_review.status}.", prepare_review.to_dict())
+                    if prepare_review.status == "clear":
+                        save_milestone_checkpoint(
+                            checkpoint_path,
+                            "prepare_ecs_express_form",
+                            contract,
+                            asdict(prepare_result),
+                            prepare_review.to_dict(),
+                        )
                 if prepare_review.status != "clear":
                     run = self.store.load_run(run_id)
                     run.status = "blocked"
