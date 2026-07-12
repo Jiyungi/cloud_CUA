@@ -114,11 +114,17 @@ def _playwright_check(*, required: bool) -> DoctorCheck:
 
 
 def _docker_check(*, required: bool) -> DoctorCheck:
-    if not shutil.which("docker"):
+    executable = shutil.which("docker")
+    if not executable:
         return DoctorCheck("docker", "failed" if required else "skipped", "Docker is not installed or not in PATH.")
-    proc = subprocess.run(["docker", "--version"], text=True, capture_output=True, timeout=20)
-    status = "passed" if proc.returncode == 0 else ("failed" if required else "skipped")
-    return DoctorCheck("docker", status, (proc.stdout or proc.stderr or "Docker check finished.").strip())
+    version = subprocess.run([executable, "--version"], text=True, capture_output=True, timeout=20)
+    if version.returncode != 0:
+        return DoctorCheck("docker", "failed" if required else "skipped", (version.stdout or version.stderr or "Docker CLI check failed.").strip())
+    daemon = subprocess.run([executable, "info", "--format", "{{.ServerVersion}}"], text=True, capture_output=True, timeout=20)
+    if daemon.returncode != 0:
+        summary = (daemon.stderr or daemon.stdout or "Docker daemon is not reachable.").strip()
+        return DoctorCheck("docker", "failed" if required else "skipped", f"Docker CLI is installed, but the daemon is not running: {summary[:220]}")
+    return DoctorCheck("docker", "passed", f"{(version.stdout or '').strip()}; daemon {daemon.stdout.strip()}")
 
 
 def _credential_check(repo_path: str) -> DoctorCheck:
