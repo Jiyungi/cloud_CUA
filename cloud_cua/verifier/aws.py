@@ -18,6 +18,84 @@ def verify_amplify_apps() -> VerifierResult:
     return run_command("aws_amplify_list_apps", aws_command(["amplify", "list-apps"]), timeout=30)
 
 
+def verify_amplify_run(run_id: str, expected_app_name: str = "") -> VerifierResult:
+    apps = _aws_json(aws_command(["amplify", "list-apps"]), timeout=45).get("apps", [])
+    matched: list[dict] = []
+    failures: list[str] = []
+    for app in apps:
+        app_id = str(app.get("appId") or "")
+        arn = str(app.get("appArn") or "")
+        if not app_id:
+            continue
+        tags = _aws_json(aws_command(["amplify", "list-tags-for-resource", "--resource-arn", arn]), timeout=30).get("tags", {}) if arn else {}
+        if str(tags.get("cloud-cua-run")) != run_id:
+            continue
+        branches = _aws_json(aws_command(["amplify", "list-branches", "--app-id", app_id]), timeout=30).get("branches", [])
+        jobs: list[dict] = []
+        for branch in branches:
+            branch_name = str(branch.get("branchName") or "")
+            if branch_name:
+                summaries = _aws_json(aws_command(["amplify", "list-jobs", "--app-id", app_id, "--branch-name", branch_name, "--max-results", "10"]), timeout=30).get("jobSummaries", [])
+                jobs.extend({"branch": branch_name, **item} for item in summaries)
+        successful = [item for item in jobs if item.get("status") == "SUCCEED"]
+        default_domain = str(app.get("defaultDomain") or "")
+        urls = [f"https://{branch.get('branchName')}.{default_domain}" for branch in branches if branch.get("branchName") and default_domain]
+        matched.append({"appId": app_id, "name": app.get("name"), "tags": tags, "branches": branches, "jobs": jobs, "urls": urls})
+        if expected_app_name and app.get("name") != expected_app_name:
+            failures.append(f"Tagged Amplify app name mismatch: expected {expected_app_name}, found {app.get('name')}.")
+        if not branches:
+            failures.append(f"Amplify app {app_id} has no branch.")
+        if not successful:
+            failures.append(f"Amplify app {app_id} has no successful deployment job.")
+        if not urls:
+            failures.append(f"Amplify app {app_id} has no branch URL.")
+    if not matched:
+        failures.append(f"No Amplify app tagged cloud-cua-run={run_id} was found.")
+    return VerifierResult("aws_amplify_run", "failed" if failures else "passed", "aws amplify list/get branches/jobs/tags", json.dumps({"apps": matched, "failures": failures}, indent=2))
+
+
+def verify_s3_static_run(run_id: str, region: str = "us-east-1") -> VerifierResult:
+    buckets = _aws_json(aws_command(["s3api", "list-buckets"]), timeout=30).get("Buckets", [])
+    matched: list[dict] = []
+    failures: list[str] = []
+    for item in buckets:
+        name = str(item.get("Name") or "")
+        if not name.startswith("cloud-cua-"):
+            continue
+        tagging = _aws_json(aws_command(["s3api", "get-bucket-tagging", "--bucket", name]), timeout=30)
+        tags = {str(tag.get("Key")): str(tag.get("Value")) for tag in tagging.get("TagSet", [])}
+        if tags.get("cloud-cua-run") != run_id:
+            continue
+        website = _aws_json(aws_command(["s3api", "get-bucket-website", "--bucket", name]), timeout=30)
+        head = _aws_json(aws_command(["s3api", "head-object", "--bucket", name, "--key", "index.html"]), timeout=30)
+        endpoint = f"http://{name}.s3-website-{region}.amazonaws.com"
+        matched.append({"bucket": name, "tags": tags, "website": website, "index": head, "url": endpoint})
+        if website.get("IndexDocument", {}).get("Suffix") != "index.html":
+            failures.append(f"S3 bucket {name} does not use index.html as its website index.")
+        if not head:
+            failures.append(f"S3 bucket {name} does not contain index.html.")
+    if not matched:
+        failures.append(f"No S3 website bucket tagged cloud-cua-run={run_id} was found.")
+    return VerifierResult("aws_s3_static_run", "failed" if failures else "passed", "aws s3api tagging/website/head-object", json.dumps({"buckets": matched, "failures": failures}, indent=2))
+
+
+def verify_runtime_secret_references(contract: DeploymentContract) -> VerifierResult:
+    failures: list[str] = []
+    evidence: list[dict] = []
+    for env_name, arn in sorted(contract.runtime_secret_references.items()):
+        marker = ":parameter/"
+        if marker not in arn:
+            failures.append(f"{env_name} is not an SSM parameter ARN.")
+            continue
+        parameter_name = "/" + arn.split(marker, 1)[1]
+        result = _aws_json(aws_command(["ssm", "get-parameter", "--name", parameter_name]), timeout=30)
+        parameter = result.get("Parameter", {})
+        evidence.append({"name": env_name, "reference": arn, "type": parameter.get("Type"), "version": parameter.get("Version")})
+        if parameter.get("Type") != "SecureString":
+            failures.append(f"{env_name} parameter {parameter_name} is missing or is not SecureString.")
+    return VerifierResult("aws_runtime_secrets", "failed" if failures else "passed", "aws ssm get-parameter without decryption", json.dumps({"references": evidence, "failures": failures}, indent=2))
+
+
 def verify_app_runner_services() -> VerifierResult:
     return run_command("aws_app_runner_services", aws_command(["apprunner", "list-services"]), timeout=30)
 
@@ -298,6 +376,30 @@ def verify_cloudtrail_event(event_name: str) -> VerifierResult:
         aws_command(["cloudtrail", "lookup-events", "--lookup-attributes", f"AttributeKey=EventName,AttributeValue={event_name}"]),
         timeout=30,
     )
+
+
+def verify_cloudtrail_run(run_id: str, event_names: list[str], start_time: str) -> VerifierResult:
+    found: list[dict] = []
+    for event_name in event_names:
+        command = aws_command(
+            [
+                "cloudtrail",
+                "lookup-events",
+                "--lookup-attributes",
+                f"AttributeKey=EventName,AttributeValue={event_name}",
+                "--start-time",
+                start_time,
+                "--max-results",
+                "50",
+            ]
+        )
+        for item in _aws_json(command, timeout=45).get("Events", []):
+            raw = str(item.get("CloudTrailEvent") or "")
+            if run_id in raw or any(run_id in str(resource) for resource in item.get("Resources", [])):
+                found.append({"eventName": item.get("EventName"), "eventTime": item.get("EventTime"), "resources": item.get("Resources", [])})
+    status = "passed" if found else "skipped"
+    summary = json.dumps({"run_id": run_id, "events": found, "note": "CloudTrail lookup can be delayed; exact resource verifiers remain authoritative."}, indent=2)
+    return VerifierResult("aws_cloudtrail_run", status, "aws cloudtrail lookup-events", summary)
 
 
 def _parse_ecs_service_arn(arn: str) -> tuple[str, str] | None:

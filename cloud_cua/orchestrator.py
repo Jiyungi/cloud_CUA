@@ -46,6 +46,7 @@ from .safety import approval_reason, detect_approval_triggers, risk_level
 from .supervisor import review_h_result
 from .verifier.aws import (
     verify_amplify_apps,
+    verify_amplify_run,
     verify_app_runner_services,
     verify_aws_identity,
     verify_cloudformation_stacks,
@@ -55,6 +56,9 @@ from .verifier.aws import (
     verify_ecr_repositories,
     verify_lambda_functions,
     verify_s3_buckets,
+    verify_s3_static_run,
+    verify_runtime_secret_references,
+    verify_cloudtrail_run,
     verify_tagged_resources,
 )
 from .verifier.base import VerifierResult
@@ -918,6 +922,36 @@ class Orchestrator:
                         pass
                 else:
                     aws_results.append(VerifierResult("aws_ecs_contract", "failed", "contract.json", "Saved deployment contract is missing."))
+            if run.target == "aws_amplify":
+                amplify_plan = build_amplify_plan(self.repo_path.name, repo_context)
+                exact = verify_amplify_run(run_id, amplify_plan.app_name)
+                aws_results.append(exact)
+                try:
+                    exact_data = json.loads(exact.summary)
+                    for app in exact_data.get("apps", []):
+                        verifier_urls.extend(app.get("urls", []))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if run.target == "aws_s3_static_site":
+                exact = verify_s3_static_run(run_id)
+                aws_results.append(exact)
+                try:
+                    exact_data = json.loads(exact.summary)
+                    verifier_urls.extend(item.get("url") for item in exact_data.get("buckets", []) if item.get("url"))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if self.store.contract_path(run_id).exists():
+                contract = load_contract(self.store.contract_path(run_id))
+                if contract.runtime_secret_references:
+                    aws_results.append(verify_runtime_secret_references(contract))
+            event_names = {
+                "aws_ecs_express": ["CreateService", "CreateTaskSet"],
+                "aws_amplify": ["CreateApp", "CreateBranch", "StartDeployment"],
+                "aws_s3_static_site": ["CreateBucket", "PutBucketWebsite", "PutObject"],
+            }.get(run.target, [])
+            if event_names:
+                aws_results.append(verify_cloudtrail_run(run_id, event_names, run.created_at))
+            if run.target in {"aws_ecs_express", "aws_ecs_fargate", "aws_amplify", "aws_s3_static_site"}:
                 cleanup = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=True)
                 cleanup_status = "passed" if cleanup.status == "passed" and cleanup.actions else "failed"
                 aws_results.append(
