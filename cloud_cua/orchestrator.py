@@ -9,6 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .approvals import approved as approval_is_approved
+from .agent_test_contract import load_agent_test_contract
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock, start_run_cost_clock, stop_run_cost_clock
@@ -98,11 +99,38 @@ class Orchestrator:
         cloud_v: Cloud = "gcp" if cloud.lower() == "gcp" else "aws"
         run = self.store.create_run(cloud_v, mode_v)
         ctx = analyze_repo(self.repo_path)
+        fixture = load_agent_test_contract(self.repo_path)
         run.target = ctx.recommendation
         run.current_step = "repo_analyzed"
         run.status = "waiting_for_login"
+        if fixture and fixture.requires_backend_implementation:
+            run.target = "aws_multi_service_application"
+            run.current_step = "backend_implementation_required"
+            run.status = "blocked"
         self.store.save_run(run)
         self.store.append_event(run.run_id, "system", "result", "Analyzed repo.", {"repo_context": asdict(ctx)})
+        if fixture:
+            fixture_path = self.store.run_dir(run.run_id) / "agent-test-contract.json"
+            fixture_path.write_text(json.dumps(fixture.to_dict(), indent=2), encoding="utf-8")
+            self.store.append_event(
+                run.run_id,
+                "codex",
+                "contract",
+                "Loaded the repository's multi-service agent test contract.",
+                {"fixture": fixture.to_dict(), "path": str(fixture_path)},
+            )
+            if fixture.requires_backend_implementation:
+                self.store.append_event(
+                    run.run_id,
+                    "codex",
+                    "objection",
+                    "Frontend-only deployment is blocked because the required AWS backend is absent.",
+                    {
+                        "required_services": list(fixture.required_aws_services),
+                        "matched_skills": list(fixture.matched_skill_names),
+                        "unmatched_services": list(fixture.unmatched_services),
+                    },
+                )
         if cloud_v == "aws":
             aws_plan = build_aws_deployment_plan(self.repo_path.name, ctx)
             self.store.append_event(run.run_id, "system", "plan", "Prepared generalized AWS deployment plan.", {"aws_plan": aws_plan.to_dict()})
@@ -149,12 +177,14 @@ class Orchestrator:
         report = self.repo_path / "DEPLOYMENT_REPORT.md"
         cleanup_events = [event for event in self.store.read_events(run_id, 1000) if event.get("message") == "Ran AWS cleanup workflow."]
         cleanup_state = cleanup_events[-1].get("evidence", {}) if cleanup_events else {"status": "not_run"}
+        fixture = load_agent_test_contract(self.repo_path)
         return {
             **asdict(self.store.load_run(run_id)),
             "h_job": self.h_sessions.get(self.repo_path, run_id),
             "live_urls": urls,
             "report_path": str(report) if report.exists() else None,
             "cleanup_state": cleanup_state,
+            "agent_test_contract": fixture.to_dict() if fixture else None,
         }
 
     def set_dashboard_url(self, run_id: str, dashboard_url: str) -> dict:
@@ -307,6 +337,14 @@ class Orchestrator:
         max_spend_usd: float = DEFAULT_MAX_SPEND_USD,
     ) -> dict:
         run = self.store.load_run(run_id)
+        fixture = load_agent_test_contract(self.repo_path)
+        if fixture and fixture.requires_backend_implementation:
+            return {
+                "status": "blocked",
+                "summary": "This fixture requires a real multi-service AWS backend; deploying only its frontend would be a false success.",
+                "current_step": "backend_implementation_required",
+                "fixture": fixture.to_dict(),
+            }
         active_steps = ("h_cua_", "container_image_")
         if run.status == "running" and run.current_step.startswith(active_steps):
             return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
@@ -1442,6 +1480,7 @@ class Orchestrator:
             matching = next((item for item in sync_items if not skill or item.get("name") == skill.name), None)
             sync_status = matching.get("status", "unknown") if matching else sync_event.get("evidence", {}).get("sync", {}).get("status", "unknown")
         contract_data = contract.to_dict() if contract else {}
+        fixture = load_agent_test_contract(self.repo_path)
         present_facts = _present_contract_facts(contract_data)
         required_facts = skill.required_facts if skill else []
         missing_facts = [fact for fact in required_facts if fact not in present_facts]
@@ -1456,6 +1495,8 @@ class Orchestrator:
             "missing_facts": missing_facts,
             "verifier_gates": skill.required_verifiers if skill else [],
             "lesson_candidate": load_lesson_candidate(self.store.run_dir(run_id)),
+            "required_skills": list(fixture.matched_skill_names) if fixture else [],
+            "unmatched_services": list(fixture.unmatched_services) if fixture else [],
         }
 
     def sync_h_skills(self, names: list[str] | None = None, dry_run: bool = False) -> dict:
