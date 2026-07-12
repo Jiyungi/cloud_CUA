@@ -74,8 +74,9 @@
   ],
   "aws_success_checks": [
     "Amplify jiyun-test branch deployment succeeds",
-    "Cognito test user authenticates",
-    "protected API rejects unauthenticated requests",
+    "Cognito test user authenticates and authenticated health succeeds",
+    "health and business APIs reject unauthenticated requests",
+    "second Cognito user cannot read or mutate the first user's receipt",
     "private presigned S3 upload succeeds",
     "Textract expense job completes through queues",
     "DynamoDB receipt reaches ready or needs-review state",

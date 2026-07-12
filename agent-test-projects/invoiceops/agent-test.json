@@ -87,8 +87,9 @@
   ],
   "aws_success_checks": [
     "Amplify jiyun-test branch deployment succeeds",
-    "Cognito groups and test users are verified",
-    "protected API rejects unauthenticated and unauthorized requests",
+    "Cognito groups, test users, and authenticated health are verified",
+    "health and business APIs reject unauthenticated requests",
+    "role-action matrix rejects every unauthorized upload correction and decision",
     "private versioned SSE-KMS invoice upload succeeds",
     "Textract job reaches pending review",
     "authorized approval completes the Step Functions execution",

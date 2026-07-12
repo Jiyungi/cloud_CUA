@@ -44,7 +44,7 @@ The fixture contains no server, AWS SDK initialization, infrastructure-as-code, 
 
 ## Frontend API Contract
 
-Every route except `/health` requires a valid Cognito JWT.
+Every API route, including `/health`, requires a valid Cognito JWT. Cognito sign-in must complete before the frontend calls `/health` or considers AWS mode connected.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ The target implementation must use AWS directly. A Vercel-only or third-party ba
 
 1. **Amplify Hosting**: connect the parent Git repository, deploy `jiyun-test`, configure `agent-test-projects/receipt-split` as the monorepo app root, run `npm ci` and `npm run build`, publish `dist`, add an SPA rewrite, and set only public `VITE_*` variables.
 2. **Cognito**: create a user pool with email verification, a public SPA client without a secret, authorization-code flow with PKCE, callback/logout URLs, and an API Gateway JWT authorizer.
-3. **API Gateway HTTP API**: create the listed routes, restrict CORS to localhost and the Amplify origin, and attach the JWT authorizer to protected routes.
+3. **API Gateway HTTP API**: create the listed routes, restrict CORS to localhost and the Amplify origin, and attach the JWT authorizer to every route, including `/health`.
 4. **Lambda**: separate the API handler, extraction starter, extraction result normalizer, and reminder sender; give each a least-privilege role.
 5. **S3**: create a private receipt bucket with Block Public Access, bucket-owner-enforced ownership, SSE-KMS, presigned PUT uploads, exact-origin CORS, an `incoming/{user-sub}/{receipt-id}/` key layout, and a short test-data lifecycle.
 6. **Textract**: use asynchronous `StartExpenseAnalysis` for the S3 object, publish completion to SNS, call paginated `GetExpenseAnalysis`, and retain confidence scores and model version.
@@ -81,7 +81,7 @@ Step Functions is intentionally omitted from ReceiptSplit so InvoiceOps owns the
 
 ## Security and Failure Requirements
 
-- Unauthenticated protected API requests return `401`.
+- Unauthenticated `/health` and business API requests return `401`.
 - One user cannot read or modify another user's receipt.
 - Unsupported formats and files above 10 MiB are rejected before upload.
 - S3 objects are private, encrypted with the intended KMS key, and unavailable through public URLs.
@@ -103,7 +103,8 @@ Local fixture checks:
 Full AWS checks:
 
 - Amplify branch deployment succeeds, the live URL returns `200`, and deep links render.
-- A dedicated Cognito test user completes the real upload flow.
+- A dedicated Cognito test user signs in, receives an authenticated `/health` success, and completes the real upload flow.
+- A second Cognito user receives `403` or ownership-hiding `404` for the first user's receipt GET, PATCH, confirm, split, reminder, and mark-paid requests.
 - A known synthetic receipt traverses S3 -> SQS -> Lambda -> Textract -> SNS/SQS -> DynamoDB.
 - Extracted merchant and total match the fixture's documented expected values within the stated tolerance.
 - Replaying the same event produces no duplicate line items.

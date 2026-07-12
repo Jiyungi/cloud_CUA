@@ -23,6 +23,18 @@ npm run fixture:generate
 
 The generator lives in `scripts/generate-invoice-fixture.py`. Generated render previews belong under ignored `tmp/pdfs/`, not in source control.
 
+## Local verification
+
+```bash
+npm ci
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+The Playwright scenarios cover upload, manual extraction review, AP correction, approval and rejection, every fixture role, and failure states. They also fail on application `fetch`/XHR calls, browser console errors, or uncaught page errors.
+
 ## Test contract
 
 Read `AGENT_TEST_SPEC.md` before running Cloud CUA. A rendered mock frontend is not a successful AWS deployment.
