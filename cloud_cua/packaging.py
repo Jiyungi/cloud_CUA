@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
-EXCLUDED_DIRS = {".git", ".venv", "venv", "node_modules", ".cloud-cua", ".kiro", ".pytest_cache", "cloud_cua.egg-info", "readme files", "dist"}
+EXCLUDED_DIRS = {".git", ".venv", "venv", "node_modules", ".cloud-cua", ".kiro", ".pytest_cache", "cloud_cua.egg-info", "readme files", "dist", "artifacts"}
 EXCLUDED_SUFFIXES = {".pyc", ".log"}
 EXCLUDED_FILES = {".env", "Conversation.md", "DEPLOYMENT_REPORT.md"}
 

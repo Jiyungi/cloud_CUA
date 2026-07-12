@@ -6,6 +6,7 @@
 # Cloud CUA local artifacts
 .cloud-cua/
 cloud-cua-server.*.log
+artifacts/
 
 # Python
 __pycache__/
