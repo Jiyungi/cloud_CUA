@@ -5,11 +5,12 @@ import subprocess
 from pathlib import Path
 
 from cloud_cua.aws_cli import aws_command
-from cloud_cua.h_runner import run_h_task
+from cloud_cua.h_runner import HTaskResult, run_h_task
 from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
 from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
-from cloud_cua.deployment_contract import build_deployment_contract
+from cloud_cua.deployment_contract import build_deployment_contract, load_contract, save_contract
+from cloud_cua.deployment_milestones import review_ecs_inspection
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
 from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
@@ -117,6 +118,56 @@ def test_deployment_contract_blocks_unknown_container_port(tmp_path: Path):
     contract = build_deployment_contract(tmp_path, ctx, "aws_ecs_express")
     assert contract.selected_container_port is None
     assert contract.missing_facts
+
+
+def test_deployment_contract_round_trips_runtime_inputs(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    contract = build_deployment_contract(tmp_path, ctx, "aws_ecs_express").with_runtime_inputs(
+        run_id="run-1",
+        skill_name="cloud-cua/aws-ecs-express",
+        skill_hash="abc",
+        autonomy_level=2,
+        cloud_region="us-east-1",
+        container_image_uri="123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+        ecr_repository="app",
+        repo_name="demo",
+    )
+    path = save_contract(tmp_path / "contract.json", contract)
+    loaded = load_contract(path)
+    assert loaded.selected_container_port == 8080
+    assert loaded.container_image_uri == contract.container_image_uri
+    assert loaded.required_tags["cloud-cua-run"] == "run-1"
+
+
+def test_ecs_inspection_wrong_port_blocks_creation(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
+    contract = build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(
+        run_id="run-1",
+        skill_name="cloud-cua/aws-ecs-express",
+        skill_hash="abc",
+        autonomy_level=2,
+        cloud_region="us-east-1",
+        container_image_uri="example/image:tag",
+        repo_name="demo",
+    )
+    result = HTaskResult(
+        "completed",
+        json.dumps(
+            {
+                "milestone": "inspect_ecs_express_form",
+                "status": "observed",
+                "service_target": "aws_ecs_express",
+                "region": "us-east-1",
+                "visible_defaults": {"container_port": 80},
+                "can_apply_contract": True,
+                "blockers": [],
+            }
+        ),
+    )
+    review = review_ecs_inspection(result, contract)
+    assert review.status == "blocked"
+    assert "container port" in review.objections[0]
 
 
 def test_resource_record_separates_console_and_app_urls():

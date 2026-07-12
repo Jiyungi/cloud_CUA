@@ -12,7 +12,8 @@ from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
 from .container_image import prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
-from .deployment_contract import build_deployment_contract
+from .deployment_contract import build_deployment_contract, save_contract
+from .deployment_milestones import build_ecs_creation_task, build_ecs_inspection_task, review_ecs_inspection
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
@@ -186,7 +187,18 @@ class Orchestrator:
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
         contract = build_deployment_contract(self.repo_path, ctx, option.target)
-        self.store.append_event(run_id, "codex", "contract", "Prepared deployment contract from repo facts.", {"contract": contract.to_dict()})
+        skill = skill_for_target(option.target)
+        if skill is not None:
+            contract = contract.with_runtime_inputs(
+                run_id=run_id,
+                skill_name=skill.name,
+                skill_hash=skill.content_hash,
+                autonomy_level=skill.autonomy_level,
+                cloud_region=plan.region,
+                repo_name=self.repo_path.name,
+            )
+        contract_path = save_contract(self.store.contract_path(run_id), contract)
+        self.store.append_event(run_id, "codex", "contract", "Prepared and saved deployment contract from repo facts.", {"contract": contract.to_dict(), "path": str(contract_path)})
         if contract.missing_facts:
             run.status = "blocked"
             run.current_step = "deployment_contract_incomplete"
@@ -274,22 +286,60 @@ class Orchestrator:
                 self.store.save_run(run)
                 return {"status": "blocked", "summary": skill_sync.message, "skill_sync": skill_sync.to_dict()}
 
-            task_text = build_general_aws_h_task(
-                self.repo_path.name,
-                ctx,
-                plan,
-                target=option.target,
-                user_task=task,
+            contract = contract.with_runtime_inputs(
                 run_id=run_id,
-                prepared_inputs=prepared_inputs,
-                contract=contract,
+                skill_name=skill.name,
+                skill_hash=skill.content_hash,
+                autonomy_level=skill.autonomy_level,
+                cloud_region=plan.region,
+                container_image_uri=prepared_inputs.get("container_image_uri", ""),
+                ecr_repository=prepared_inputs.get("ecr_repository", ""),
+                repo_name=self.repo_path.name,
             )
+            save_contract(self.store.contract_path(run_id), contract)
+
+            if option.target == "aws_ecs_express":
+                run = self.store.load_run(run_id)
+                run.status = "running"
+                run.current_step = "h_cua_inspect_ecs_form"
+                run.target = option.target
+                self.store.save_run(run)
+                inspect_task = build_ecs_inspection_task(contract)
+                self.store.append_event(run_id, "h_cua", "milestone", "H CUA is inspecting the ECS Express form without making changes.", {"milestone": "inspect_ecs_express_form", "skill_name": skill.name})
+                inspect_result = run_h_task(inspect_task, run.mode, max_steps=30, max_time_s=420, skill_names=[skill.name])
+                self.store.append_event(run_id, "h_cua", "observation", inspect_result.summary, {"status": inspect_result.status, "session_id": inspect_result.session_id, "milestone": "inspect_ecs_express_form"})
+                inspection_review = review_ecs_inspection(inspect_result, contract)
+                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed ECS form inspection: {inspection_review.status}.", inspection_review.to_dict())
+                if inspection_review.status != "clear":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "ecs_form_contract_mismatch"
+                    self.store.save_run(run)
+                    return {
+                        "status": "blocked",
+                        "summary": "The ECS form inspection did not match the saved deployment contract.",
+                        "review": inspection_review.to_dict(),
+                        "contract": contract.to_dict(),
+                    }
+
+                task_text = build_ecs_creation_task(contract)
+            else:
+                task_text = build_general_aws_h_task(
+                    self.repo_path.name,
+                    ctx,
+                    plan,
+                    target=option.target,
+                    user_task=task,
+                    run_id=run_id,
+                    prepared_inputs=prepared_inputs,
+                    contract=contract,
+                )
             run = self.store.load_run(run_id)
             run.status = "running"
-            run.current_step = f"h_cua_{option.target}"
+            run.current_step = "h_cua_create_ecs_service" if option.target == "aws_ecs_express" else f"h_cua_{option.target}"
             run.target = option.target
             self.store.save_run(run)
-            self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name})
+            self.store.append_event(run_id, "h_cua", "milestone", "H CUA is executing the approved deployment milestone.", {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name, "milestone": "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"})
             result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900, skill_names=[skill.name])
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             review = review_h_result(result, contract)

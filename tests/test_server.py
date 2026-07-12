@@ -155,9 +155,10 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     assert approved.status_code == 200
     status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
     assert status["status"] == "blocked"
-    assert status["current_step"] == "h_cua_aws_task_blocked"
+    assert status["current_step"] == "ecs_form_contract_mismatch"
+    assert (store.run_dir(run["run_id"]) / "contract.json").exists()
     events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
-    assert any(event["source"] == "h_cua" and event["type"] == "command" for event in events)
+    assert any(event["source"] == "h_cua" and event["type"] == "milestone" for event in events)
 
 
 def test_aws_deploy_does_not_start_duplicate_work(tmp_path):

@@ -64,6 +64,9 @@ class RunStore:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def contract_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "contract.json"
+
     def acquire_lock(self, run_id: str, name: str) -> bool:
         path = self.run_dir(run_id) / "locks" / f"{name}.lock"
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from .models import RepoContext
@@ -18,6 +18,15 @@ class ContainerPortFact:
 @dataclass(frozen=True)
 class DeploymentContract:
     target: str
+    schema_version: int = 1
+    run_id: str = ""
+    skill_name: str = ""
+    skill_hash: str = ""
+    autonomy_level: int = 1
+    cloud_region: str = ""
+    container_image_uri: str = ""
+    ecr_repository: str = ""
+    required_tags: dict[str, str] = field(default_factory=dict)
     container_ports: list[ContainerPortFact] = field(default_factory=list)
     selected_container_port: int | None = None
     health_check_path: str = "/"
@@ -35,12 +44,19 @@ class DeploymentContract:
         lines = [
             "Deployment contract from Codex/local repo analysis:",
             f"- target: {self.target}",
+            f"- run_id: {self.run_id or 'not assigned'}",
+            f"- cloud_region: {self.cloud_region or 'not assigned'}",
             f"- health_check_path: {self.health_check_path}",
             f"- required_public_app_url: {self.required_public_app_url}",
         ]
         if self.selected_container_port is not None:
             lines.append(f"- selected_container_port: {self.selected_container_port}")
             lines.append("- use this exact container/listener/target-group port unless AWS proves it is impossible")
+        if self.container_image_uri:
+            lines.append(f"- container_image_uri: {self.container_image_uri}")
+        if self.required_tags:
+            lines.append("- required_tags:")
+            lines.extend(f"  - {key}={value}" for key, value in sorted(self.required_tags.items()))
         if self.container_ports:
             lines.append("- detected_container_port_candidates:")
             for fact in self.container_ports:
@@ -56,6 +72,46 @@ class DeploymentContract:
             lines.append("- completion_checks:")
             lines.extend(f"  - {item}" for item in self.completion_checks)
         return "\n".join(lines)
+
+    def with_runtime_inputs(
+        self,
+        *,
+        run_id: str,
+        skill_name: str,
+        skill_hash: str,
+        autonomy_level: int,
+        cloud_region: str,
+        container_image_uri: str = "",
+        ecr_repository: str = "",
+        repo_name: str = "",
+    ) -> "DeploymentContract":
+        return replace(
+            self,
+            run_id=run_id,
+            skill_name=skill_name,
+            skill_hash=skill_hash,
+            autonomy_level=autonomy_level,
+            cloud_region=cloud_region,
+            container_image_uri=container_image_uri,
+            ecr_repository=ecr_repository,
+            required_tags={
+                "cloud-cua": "true",
+                "cloud-cua-repo": repo_name,
+                "cloud-cua-run": run_id,
+            },
+        )
+
+
+def save_contract(path: Path, contract: DeploymentContract) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(contract.to_dict(), indent=2), encoding="utf-8")
+    return path
+
+
+def load_contract(path: Path) -> DeploymentContract:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["container_ports"] = [ContainerPortFact(**item) for item in data.get("container_ports", [])]
+    return DeploymentContract(**data)
 
 
 def build_deployment_contract(repo_path: str | Path, ctx: RepoContext, target: str) -> DeploymentContract:
