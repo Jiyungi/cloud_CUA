@@ -63,7 +63,12 @@ def stage_amplify_artifact(
                 ]
             },
         )
-        client.upload_file(str(archive), bucket, key, ExtraArgs={"ContentType": "application/zip"})
+        client.upload_file(
+            str(archive),
+            bucket,
+            key,
+            ExtraArgs={"ContentType": "application/zip", "ACL": "bucket-owner-full-control"},
+        )
     except Exception as exc:
         return AmplifyArtifactResult("blocked", f"Could not stage Amplify artifact: {type(exc).__name__}: {exc}", str(archive), bucket, key)
     return AmplifyArtifactResult("passed", f"Staged Amplify artifact at s3://{bucket}/{key}.", str(archive), bucket, key, f"s3://{bucket}/{key}")

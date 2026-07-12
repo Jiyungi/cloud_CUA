@@ -5,7 +5,7 @@ import zipfile
 
 from cloud_cua.amplify_artifact import stage_amplify_artifact
 from cloud_cua.deployment_contract import DeploymentContract
-from cloud_cua.deployments.amplify import review_amplify_creation, review_amplify_inspection, review_amplify_prepared
+from cloud_cua.deployments.amplify import build_amplify_prepare_task, review_amplify_creation, review_amplify_inspection, review_amplify_prepared
 from cloud_cua.h_runner import HTaskResult
 
 
@@ -47,7 +47,16 @@ def test_amplify_artifact_zips_output_contents_and_stages_private_object(tmp_pat
     with zipfile.ZipFile(result.archive_path) as bundle:
         assert bundle.namelist() == ["index.html"]
     assert client.uploaded
+    assert client.uploaded[0][1]["ExtraArgs"]["ACL"] == "bucket-owner-full-control"
     assert client.tags["Tagging"]["TagSet"][1] == {"Key": "cloud-cua-run", "Value": "run-123"}
+
+
+def test_amplify_prepare_uses_s3_picker_with_contract_values():
+    task = build_amplify_prepare_task(amplify_contract())
+    assert "Click Browse S3" in task
+    assert "'cloud-cua-stage-demo'" in task
+    assert "'artifact.zip'" in task
+    assert "Do not type or paste an s3:// URI" in task
 
 
 def test_amplify_three_milestones_require_contract_evidence():

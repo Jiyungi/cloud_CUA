@@ -37,6 +37,6 @@ cleanup_strategy: Delete only the run-tagged Amplify app after explicit cleanup 
 body: |
   # Deploy with AWS Amplify Hosting
 
-  Use the Cloud CUA contract as the source of truth. Use Deploy without Git and the exact staged Amazon S3 zip reference. Inspect first and report app name, branch, source method, build artifact, domain choice, and price-impacting choices.
+  Use the Cloud CUA contract as the source of truth. Use Deploy without Git and the exact staged Amazon S3 zip reference. Select the source with the AWS Browse S3 picker: choose the contract's bucket, choose its zip object, and confirm the selection. Do not type or paste the s3:// URI into the location field. Inspect first and report app name, branch, source method, build artifact, domain choice, and price-impacting choices.
 
   Do not connect GitHub, reveal secrets, change billing, or create resources until the prompt confirms approval. Prepare the form without submitting, then submit exactly once only after the supervisor checkpoint. Report structured evidence with the app ID, branch, deployment status, public app URL, console URL, tags, and blockers. Independent verifiers decide success.

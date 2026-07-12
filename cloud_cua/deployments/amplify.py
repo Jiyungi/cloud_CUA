@@ -100,15 +100,29 @@ def review_amplify_inspection(result: HTaskResult, contract: DeploymentContract)
 
 
 def build_amplify_prepare_task(contract: DeploymentContract) -> str:
+    artifact = _parse_s3_artifact(contract.artifact_reference)
+    source_steps = (
+        f"Click Browse S3. In the AWS picker, select bucket {artifact[0]!r}, then select object {artifact[1]!r}, "
+        "and confirm the selection. Do not type or paste an s3:// URI into the location field."
+        if artifact
+        else "Stop because the contract does not contain a valid s3:// bucket/object artifact reference."
+    )
     return f"""Milestone: prepare_amplify_manual_deploy
 
-Use the loaded cloud-cua/aws-amplify skill. User approval is granted to prepare, but not submit, this manual deployment. Choose Deploy without Git and Amazon S3. Fill the exact app name, branch, bucket, and zip object from the contract. Apply every required tag if the form exposes tags. Do not connect GitHub and do not click Save and deploy.
+Use the loaded cloud-cua/aws-amplify skill. User approval is granted to prepare, but not submit, this manual deployment. Choose Deploy without Git and Amazon S3. Fill the exact app name and branch from the contract. {source_steps} Apply every required tag if the form exposes tags. Do not connect GitHub and do not click Save and deploy.
 
 Contract:
 {contract.h_instructions()}
 
 Return structured evidence. Set ready_to_submit=true only when every value matches and the form remains unsubmitted.
 """
+
+
+def _parse_s3_artifact(reference: str) -> tuple[str, str] | None:
+    match = re.fullmatch(r"s3://([^/]+)/(.+)", reference.strip())
+    if not match:
+        return None
+    return match.group(1), match.group(2)
 
 
 def review_amplify_prepared(result: HTaskResult, contract: DeploymentContract) -> AmplifyMilestoneReview:
