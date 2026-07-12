@@ -11,6 +11,7 @@ from .codex_config import install_cloud_cua_mcp
 from .credentials import inspect_credentials, save_credentials
 from .doctor import run_doctor
 from .h_admin import cleanup_h_sessions, get_h_quota
+from .h_skills import get_h_skill_status, sync_h_skills
 from .mcp_server import main as mcp_main
 from .packaging import build_shareable_package
 from .paths import default_dashboard_port
@@ -91,6 +92,18 @@ def cmd_h_cleanup(_args: argparse.Namespace) -> int:
     return 0 if result.status in {"passed", "skipped"} else 1
 
 
+def cmd_h_skills(args: argparse.Namespace) -> int:
+    if args.h_skills_cmd == "list":
+        report = get_h_skill_status(os.getcwd())
+    else:
+        report = sync_h_skills(os.getcwd(), names=args.name or None, dry_run=args.dry_run)
+    print(report.message)
+    for item in report.skills:
+        suffix = f" - {item.message}" if item.message else ""
+        print(f"- {item.name}: {item.status}{suffix}")
+    return 0 if report.status == "passed" else 1
+
+
 def cmd_package(args: argparse.Namespace) -> int:
     result = build_shareable_package(os.getcwd(), args.output)
     print(result.summary)
@@ -130,6 +143,13 @@ def build_parser() -> argparse.ArgumentParser:
     install_mcp.set_defaults(func=cmd_install_mcp)
     sub.add_parser("h-status").set_defaults(func=cmd_h_status)
     sub.add_parser("h-cleanup").set_defaults(func=cmd_h_cleanup)
+    h_skills = sub.add_parser("h-skills", help="List or sync Cloud CUA deployment skills with H.")
+    h_skills_sub = h_skills.add_subparsers(dest="h_skills_cmd", required=True)
+    h_skills_sub.add_parser("list").set_defaults(func=cmd_h_skills)
+    h_skills_sync = h_skills_sub.add_parser("sync")
+    h_skills_sync.add_argument("--dry-run", action="store_true")
+    h_skills_sync.add_argument("--name", action="append", help="Sync only this H skill name. May be repeated.")
+    h_skills_sync.set_defaults(func=cmd_h_skills)
     aws_cleanup = sub.add_parser("aws-cleanup")
     aws_cleanup.add_argument("--run-id", help="Only clean resources tagged with this Cloud CUA run id.")
     aws_cleanup.add_argument("--yes", action="store_true", help="Actually delete discovered Cloud CUA resources. Without this, only prints a dry run.")

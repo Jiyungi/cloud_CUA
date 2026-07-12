@@ -78,6 +78,12 @@ class CleanupRequest(BaseModel):
     dry_run: bool = True
 
 
+class SkillSyncRequest(BaseModel):
+    repo_path: str
+    names: list[str] | None = None
+    dry_run: bool = False
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
 
@@ -92,6 +98,14 @@ def create_app() -> FastAPI:
     @app.get("/capabilities")
     def capabilities(repo_path: str):
         return Orchestrator(repo_path).capabilities()
+
+    @app.get("/skills")
+    def skills(repo_path: str):
+        return Orchestrator(repo_path).get_skill_status()
+
+    @app.post("/skills/sync")
+    def sync_skills(req: SkillSyncRequest):
+        return Orchestrator(req.repo_path).sync_h_skills(req.names, req.dry_run)
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard():

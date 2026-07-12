@@ -17,6 +17,17 @@ def test_dashboard_health():
     assert "Log into AWS in this browser window. Click Continue when done." in page.text
 
 
+def test_skill_api_lists_and_syncs(tmp_path, monkeypatch):
+    report = {"status": "passed", "dry_run": False, "skills": [], "message": "synced"}
+    monkeypatch.setattr("cloud_cua.orchestrator.Orchestrator.get_skill_status", lambda self: {**report, "skills": [{"name": "cloud-cua/aws-ecs-express"}]})
+    monkeypatch.setattr("cloud_cua.orchestrator.Orchestrator.sync_h_skills", lambda self, names=None, dry_run=False: report)
+    client = TestClient(create_app())
+    listed = client.get("/skills", params={"repo_path": str(tmp_path)})
+    synced = client.post("/skills/sync", json={"repo_path": str(tmp_path), "dry_run": False})
+    assert listed.json()["skills"][0]["name"] == "cloud-cua/aws-ecs-express"
+    assert synced.json()["status"] == "passed"
+
+
 def test_start_mode_voice_report_flow(tmp_path):
     client = TestClient(create_app())
     (tmp_path / "package.json").write_text('{"scripts":{"build":"vite build"},"dependencies":{"vite":"^5.0.0"}}', encoding="utf-8")

@@ -112,6 +112,18 @@ def cloud_cua_cleanup_h_sessions(repo_path: str) -> Any:
 
 
 @mcp.tool()
+def cloud_cua_get_skill_status(repo_path: str) -> Any:
+    """List local deployment skills and whether their H-hosted copies are current."""
+    return Orchestrator(repo_path).get_skill_status()
+
+
+@mcp.tool()
+def cloud_cua_sync_h_skills(repo_path: str, names: list[str] | None = None, dry_run: bool = False) -> Any:
+    """Create or update Cloud CUA deployment skills in the user's H skill catalog."""
+    return Orchestrator(repo_path).sync_h_skills(names, dry_run)
+
+
+@mcp.tool()
 def cloud_cua_cleanup_aws_resources(repo_path: str, run_id: str | None = None, dry_run: bool = True) -> Any:
     """Clean up Cloud CUA tagged AWS resources. Defaults to dry-run."""
     return Orchestrator(repo_path).cleanup_aws_resources(run_id, dry_run)

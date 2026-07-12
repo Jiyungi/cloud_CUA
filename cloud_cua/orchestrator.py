@@ -18,12 +18,14 @@ from .deployments.amplify import build_amplify_plan
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
 from .h_runner import run_h_task
+from .h_skills import get_h_skill_status, sync_h_skills
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
 from .paths import resolve_repo_path
 from .repo_analyzer import analyze_repo
 from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
+from .skill_registry import load_skills
 from .run_store import RunStore
 from .safety import approval_reason, detect_approval_triggers, risk_level
 from .supervisor import review_h_result
@@ -530,6 +532,25 @@ class Orchestrator:
             "credentials_source": creds.source,
             "container_mode": os.environ.get("CLOUD_CUA_CONTAINER") == "1",
         }
+
+    def get_skill_status(self) -> dict:
+        remote = get_h_skill_status(self.repo_path).to_dict()
+        remote_by_name = {item["name"]: item for item in remote["skills"]}
+        return {
+            **remote,
+            "skills": [
+                {
+                    **skill.to_dict(include_body=False),
+                    "h_status": remote_by_name.get(skill.name, {}).get("status", "unknown"),
+                    "h_message": remote_by_name.get(skill.name, {}).get("message", ""),
+                    "remote_hash": remote_by_name.get(skill.name, {}).get("remote_hash"),
+                }
+                for skill in load_skills()
+            ],
+        }
+
+    def sync_h_skills(self, names: list[str] | None = None, dry_run: bool = False) -> dict:
+        return sync_h_skills(self.repo_path, names=names, dry_run=dry_run).to_dict()
 
     def _record_resource_summary(self, run_id: str, cloud: str, target: str, summary: str) -> None:
         record = extract_resource_record(run_id, cloud, target, summary)

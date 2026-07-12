@@ -6,11 +6,13 @@ from cloud_cua.mcp_server import (
     cloud_cua_get_aws_plan,
     cloud_cua_get_gcp_plan,
     cloud_cua_get_recent_events,
+    cloud_cua_get_skill_status,
     cloud_cua_get_status,
     cloud_cua_run_aws_deployment_task,
     cloud_cua_run_gcp_cloud_run_task,
     cloud_cua_set_mode,
     cloud_cua_start_deployment,
+    cloud_cua_sync_h_skills,
 )
 
 
@@ -43,3 +45,19 @@ def test_mcp_gcp_tools(tmp_path):
 
     assert plan["supported"] is True
     assert blocked["status"] == "blocked"
+
+
+def test_mcp_skill_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.get_h_skill_status",
+        lambda *_args, **_kwargs: type("Report", (), {"to_dict": lambda self: {"status": "passed", "skills": [], "message": "ok", "dry_run": True}})(),
+    )
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.sync_h_skills",
+        lambda *_args, **_kwargs: type("Report", (), {"to_dict": lambda self: {"status": "passed", "skills": [], "message": "synced", "dry_run": False}})(),
+    )
+    status = cloud_cua_get_skill_status(str(tmp_path))
+    synced = cloud_cua_sync_h_skills(str(tmp_path))
+    assert status["status"] == "passed"
+    assert len(status["skills"]) == 3
+    assert synced["status"] == "passed"
