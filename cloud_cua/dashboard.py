@@ -397,7 +397,6 @@ let voiceReady = false;
 let containerMode = false;
 let mediaRecorder = null;
 let audioChunks = [];
-const continuedApprovals = new Set();
 const repoInput = document.getElementById('repo');
 initDefaults();
 
@@ -459,12 +458,10 @@ async function loadApprovals() {
       ${a.status === 'pending' ? `<div class="row"><button onclick="decideApproval('${a.approval_id}', true)">Approve</button><button class="secondary" onclick="decideApproval('${a.approval_id}', false)">Deny</button></div>` : ''}
     </div>
   `).join('');
-  maybeContinueApprovedApproval(items);
 }
 async function decideApproval(id, approved) {
-  const approval = await post(`/runs/${currentRun.run_id}/approval-decision`, body({approval_id: id, approved}));
+  await post(`/runs/${currentRun.run_id}/approval-decision`, body({approval_id: id, approved}));
   await refresh();
-  if (approved) continueAfterApproval(approval);
 }
 async function setMode(m) { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/mode`, body({mode:m})); await refresh(); }
 async function openBrowser() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/open-browser`, body()); showLogin(); await refresh(); }
@@ -499,25 +496,6 @@ async function runVerifier() { if (!currentRun) return; await post(`/runs/${curr
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
 async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
 async function cleanupH() { await post('/h-cleanup', body()); await refresh(); }
-function continueAfterApproval(approval) {
-  if (!approval?.approval_id || continuedApprovals.has(approval.approval_id)) return;
-  continuedApprovals.add(approval.approval_id);
-  const action = String(approval?.action || '');
-  if (
-    action.startsWith('Run AWS deployment task:') ||
-    action === 'Run GCP Cloud Run deployment task'
-  ) {
-    post(`/runs/${currentRun.run_id}/resume-approved`, body()).then(refresh).catch(console.error);
-  }
-}
-function maybeContinueApprovedApproval(items) {
-  if (!currentRun || !['approval_required', 'approval_approved'].includes(currentRun.current_step)) return;
-  const approval = items.find(a => a.status === 'approved' && (
-    String(a.action || '').startsWith('Run AWS deployment task:') ||
-    a.action === 'Run GCP Cloud Run deployment task'
-  ));
-  if (approval) continueAfterApproval(approval);
-}
 async function awsCleanupDryRun() {
   const runId = currentRun ? currentRun.run_id : null;
   await post('/aws-cleanup', body({run_id: runId, dry_run: true}));

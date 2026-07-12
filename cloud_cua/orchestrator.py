@@ -10,7 +10,7 @@ from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
-from .container_image import prepare_ecr_image
+from .container_image import prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
@@ -166,8 +166,9 @@ class Orchestrator:
         max_spend_usd: float = DEFAULT_MAX_SPEND_USD,
     ) -> dict:
         run = self.store.load_run(run_id)
-        if run.status == "running" and run.current_step.startswith("h_cua_"):
-            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
+        active_steps = ("h_cua_", "container_image_")
+        if run.status == "running" and run.current_step.startswith(active_steps):
+            return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
         if run.status == "waiting_for_login":
             return {"status": "blocked", "summary": "Manual AWS login is required first."}
         if run.cloud != "aws":
@@ -200,51 +201,68 @@ class Orchestrator:
             self.store.save_run(run)
             return {"status": "blocked", "summary": "Approval required before H CUA can run the AWS deployment task.", "approval": asdict(approval), "aws_plan": plan.to_dict()}
 
-        prepared_inputs: dict[str, str] = {}
-        if option.target == "aws_ecs_express":
-            self.store.append_event(run_id, "system", "command", "Preparing local Docker image and ECR repository for ECS Express Mode.")
-            image_prep = prepare_ecr_image(self.repo_path, self.repo_path.name, run_id, plan.region)
-            self.store.append_event(run_id, "system", "result", image_prep.summary, image_prep.to_dict())
-            if image_prep.status != "passed":
-                run.status = "blocked"
-                run.current_step = "container_image_prep_failed"
-                run.target = option.target
-                self.store.save_run(run)
-                return {"status": "blocked", "summary": image_prep.summary, "image_prep": image_prep.to_dict(), "aws_target": option.target, "aws_plan": plan.to_dict()}
-            prepared_inputs = {
-                "container_image_uri": image_prep.image_uri,
-                "ecr_repository": image_prep.repository_name,
-                "aws_region": plan.region,
-                "instruction": "Use this exact image URI in ECS Express Mode. Do not ask for GitHub source or App Runner.",
-            }
+        if not self.store.acquire_lock(run_id, "deployment"):
+            run = self.store.load_run(run_id)
+            return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
 
-        task_text = build_general_aws_h_task(
-            self.repo_path.name,
-            ctx,
-            plan,
-            target=option.target,
-            user_task=task,
-            run_id=run_id,
-            prepared_inputs=prepared_inputs,
-        )
-        run.status = "running"
-        run.current_step = f"h_cua_{option.target}"
-        run.target = option.target
-        self.store.save_run(run)
-        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd})
-        result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
-        self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
-        if result.status == "completed":
-            self._record_resource_summary(run_id, run.cloud, option.target, result.summary)
-            run.status = "verifying"
-            run.current_step = "h_cua_completed_run_verifier_next"
+        prepared_inputs: dict[str, str] = {}
+        try:
+            if option.target == "aws_ecs_express":
+                def progress(step: str, message: str, evidence: dict) -> None:
+                    current = self.store.load_run(run_id)
+                    current.status = "running"
+                    current.current_step = step
+                    current.target = option.target
+                    self.store.save_run(current)
+                    self.store.append_event(run_id, "system", "command", message, evidence)
+
+                progress("container_image_preparing", "Preparing local Docker image and ECR repository for ECS Express Mode.", {})
+                image_prep = prepare_ecr_image_with_progress(self.repo_path, self.repo_path.name, run_id, plan.region, progress)
+                self.store.append_event(run_id, "system", "result", image_prep.summary, image_prep.to_dict())
+                if image_prep.status != "passed":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "container_image_prep_failed"
+                    run.target = option.target
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": image_prep.summary, "image_prep": image_prep.to_dict(), "aws_target": option.target, "aws_plan": plan.to_dict()}
+                prepared_inputs = {
+                    "container_image_uri": image_prep.image_uri,
+                    "ecr_repository": image_prep.repository_name,
+                    "aws_region": plan.region,
+                    "instruction": "Use this exact image URI in ECS Express Mode. Do not ask for GitHub source or App Runner.",
+                }
+
+            task_text = build_general_aws_h_task(
+                self.repo_path.name,
+                ctx,
+                plan,
+                target=option.target,
+                user_task=task,
+                run_id=run_id,
+                prepared_inputs=prepared_inputs,
+            )
+            run = self.store.load_run(run_id)
+            run.status = "running"
+            run.current_step = f"h_cua_{option.target}"
+            run.target = option.target
             self.store.save_run(run)
-            self.run_verifier(run_id, "default")
-        else:
-            run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
-            run.current_step = "h_cua_aws_task_blocked"
-            self.store.save_run(run)
-        return {**asdict(result), "aws_target": option.target, "aws_plan": plan.to_dict()}
+            self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd})
+            result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
+            self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
+            if result.status == "completed":
+                self._record_resource_summary(run_id, run.cloud, option.target, result.summary)
+                run.status = "verifying"
+                run.current_step = "h_cua_completed_run_verifier_next"
+                self.store.save_run(run)
+                self.run_verifier(run_id, "default")
+            else:
+                run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
+                run.current_step = "h_cua_aws_task_blocked"
+                self.store.save_run(run)
+            return {**asdict(result), "aws_target": option.target, "aws_plan": plan.to_dict()}
+        finally:
+            self.store.release_lock(run_id, "deployment")
 
     def run_gcp_deployment_task(
         self,
@@ -346,13 +364,15 @@ class Orchestrator:
             return {"status": "skipped", "summary": "No approved deployment gate is ready to resume."}
 
         run = self.store.load_run(run_id)
-        if run.status == "running" and run.current_step.startswith("h_cua_"):
-            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
+        if run.status == "running" and run.current_step.startswith(("h_cua_", "container_image_")):
+            return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
 
         if run.status == "blocked" and run.current_step == "approval_required":
             run.status = "running"
             run.current_step = "approval_approved"
             self.store.save_run(run)
+        elif run.current_step not in {"approval_required", "approval_approved"}:
+            return {"status": "skipped", "summary": f"Approved deployment gate is not resumable from step {run.current_step}.", "current_step": run.current_step}
 
         self.store.append_event(run_id, "system", "command", "Continuing approved deployment gate.", {"approval_id": approval.approval_id, "action": approval.action})
         if approval.action.startswith("Run AWS deployment task:"):

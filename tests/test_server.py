@@ -124,7 +124,7 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
         lambda *args, **kwargs: HTaskResult("blocked", "fake H handoff stopped for test"),
     )
     monkeypatch.setattr(
-        "cloud_cua.orchestrator.prepare_ecr_image",
+        "cloud_cua.orchestrator.prepare_ecr_image_with_progress",
         lambda *args, **kwargs: ContainerImagePrepResult(
             "passed",
             "fake image prepared",
@@ -143,6 +143,26 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     assert status["current_step"] == "h_cua_aws_task_blocked"
     events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
     assert any(event["source"] == "h_cua" and event["type"] == "command" for event in events)
+
+
+def test_aws_deploy_does_not_start_duplicate_work(tmp_path):
+    client = TestClient(create_app())
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
+    store = RunStore(tmp_path)
+    saved = store.load_run(run["run_id"])
+    saved.status = "running"
+    saved.current_step = "container_image_pushing"
+    store.save_run(saved)
+
+    result = client.post(
+        f"/runs/{run['run_id']}/aws-deploy",
+        json={"repo_path": str(tmp_path), "target": "aws_ecs_express", "max_spend_usd": 5},
+    )
+
+    assert result.status_code == 200
+    assert result.json()["status"] == "running"
+    assert result.json()["current_step"] == "container_image_pushing"
 
 
 def test_general_aws_deploy_blocks_over_budget(tmp_path):

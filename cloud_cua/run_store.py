@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -62,6 +63,24 @@ class RunStore:
         path = self.run_dir(run_id) / "verifier-results"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def acquire_lock(self, run_id: str, name: str) -> bool:
+        path = self.run_dir(run_id) / "locks" / f"{name}.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return False
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(now_iso())
+        return True
+
+    def release_lock(self, run_id: str, name: str) -> None:
+        path = self.run_dir(run_id) / "locks" / f"{name}.lock"
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
 
     def create_run(self, cloud: Cloud, mode: Mode, dashboard_url: str | None = None) -> Run:
         run_id = new_run_id()

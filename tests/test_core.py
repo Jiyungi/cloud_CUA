@@ -8,7 +8,7 @@ from cloud_cua.aws_cli import aws_command
 from cloud_cua.h_runner import run_h_task
 from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
-from cloud_cua.container_image import prepare_ecr_image
+from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
 from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
@@ -121,6 +121,13 @@ def test_ecs_h_task_includes_prepared_image_uri(tmp_path: Path):
 def test_prepare_ecr_image_skips_without_dockerfile(tmp_path: Path):
     result = prepare_ecr_image(tmp_path, "demo", "run-123")
     assert result.status == "skipped"
+
+
+def test_prepare_ecr_image_reports_progress_on_skip(tmp_path: Path):
+    steps = []
+    result = prepare_ecr_image_with_progress(tmp_path, "demo", "run-123", progress=lambda step, message, evidence: steps.append((step, message)))
+    assert result.status == "skipped"
+    assert steps[0][0] == "container_image_skipped"
 
 
 def test_gcp_cloud_run_plan_supports_docker_repo(tmp_path: Path):
