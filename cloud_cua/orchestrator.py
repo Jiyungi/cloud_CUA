@@ -471,7 +471,7 @@ class Orchestrator:
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             review = review_h_result(result, contract)
             self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
-            if result.status == "completed":
+            if result.status == "completed" and review.status != "blocked":
                 self._record_resource_summary(run_id, run.cloud, option.target, result.summary)
                 run.status = "verifying"
                 run.current_step = "h_cua_completed_run_verifier_next"
@@ -479,14 +479,14 @@ class Orchestrator:
                 self.run_verifier(run_id, "default")
                 self.write_report(run_id)
             else:
-                run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
+                run.status = "blocked" if result.status in {"blocked", "timed_out", "completed"} or review.status == "blocked" else "failed"
                 run.current_step = "h_cua_aws_task_blocked"
                 self.store.save_run(run)
                 self._write_lesson(
                     run_id,
                     skill.name,
-                    f"H CUA deployment milestone ended with status {result.status}.",
-                    {"summary": result.summary, "outcome": result.outcome, "error": result.error},
+                    f"H CUA deployment milestone ended with status {result.status} and supervisor review {review.status}.",
+                    {"summary": result.summary, "outcome": result.outcome, "error": result.error, "review": review.to_dict()},
                     "Stop the deployment when H cannot complete a skill milestone and preserve its blocker for review.",
                     "Test that blocked, timed-out, and failed H milestones cannot advance to verification.",
                 )

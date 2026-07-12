@@ -21,6 +21,7 @@ from cloud_cua.repo_analyzer import analyze_repo
 from cloud_cua.resource_tracking import extract_resource_record
 from cloud_cua.run_store import RunStore
 from cloud_cua.safety import detect_approval_triggers
+from cloud_cua.supervisor import review_h_result
 from cloud_cua.verifier.base import VerifierResult
 from cloud_cua.verifier.aws import verify_ecs_contract
 from cloud_cua.voice_router import classify_voice_command
@@ -589,6 +590,26 @@ def test_prepared_ecs_form_must_match_contract(tmp_path: Path):
     review = review_ecs_prepared_form(result, contract)
     assert review.status == "blocked"
     assert any("container port" in item for item in review.objections)
+
+
+def test_supervisor_blocks_structured_h_failure(tmp_path: Path):
+    contract = _ecs_contract_fixture(tmp_path)
+    result = HTaskResult(
+        "completed",
+        json.dumps(
+            {
+                "milestone": "create_ecs_express_service",
+                "status": "failed",
+                "container_port": contract.selected_container_port,
+                "public_app_url": None,
+                "blockers": ["AWS rejected the service"],
+            }
+        ),
+    )
+
+    review = review_h_result(result, contract)
+    assert review.status == "blocked"
+    assert any("structured answer" in finding.message for finding in review.findings)
 
 
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):

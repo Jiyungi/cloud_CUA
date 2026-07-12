@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import asdict, dataclass, field
 
 from .deployment_contract import DeploymentContract
@@ -27,6 +28,18 @@ class SupervisorReview:
 def review_h_result(result: HTaskResult, contract: DeploymentContract) -> SupervisorReview:
     text = f"{result.summary}\n{result.raw or ''}".lower()
     findings: list[SupervisorFinding] = []
+
+    try:
+        structured = json.loads(result.summary)
+    except (json.JSONDecodeError, TypeError):
+        structured = None
+    if isinstance(structured, dict):
+        reported_status = str(structured.get("status") or "").strip().lower()
+        if reported_status in {"blocked", "failed", "infeasible", "timed_out", "timeout"}:
+            findings.append(SupervisorFinding("blocked", f"H's structured answer reported status {reported_status}."))
+        target_health = str(structured.get("target_health") or "").strip().lower()
+        if target_health and target_health not in {"healthy", "passed"}:
+            findings.append(SupervisorFinding("needs_verification", f"H reported target health {target_health}."))
 
     patterns = [
         ("blocked", r"\baccessdenied\b|access denied|permission denied", "H observed an access/permission problem."),
