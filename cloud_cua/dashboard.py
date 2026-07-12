@@ -169,7 +169,7 @@ HTML = r"""
     .compact-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .lesson { border-left: 4px solid var(--warning); background: #fff8e8; padding: 12px; margin-top: 14px; }
     .lesson[hidden] { display: none; }
-    .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .proof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
     .safety-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
     .safety-item { border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius); padding: 13px; min-height: 92px; }
     .safety-item strong { display:block; margin-bottom:7px; }
@@ -399,7 +399,9 @@ HTML = r"""
         <div class="proof-grid">
           <div class="proof-item"><strong>Cloud identity</strong><span id="identityState">Not checked</span></div>
           <div class="proof-item"><strong>Resources</strong><span id="resourceState">Not checked</span></div>
-          <div class="proof-item"><strong>Live app</strong><span id="liveState">No URL yet</span></div>
+          <div class="proof-item"><strong>Live app</strong><span id="liveState">No URL yet</span><a id="liveLink" target="_blank" rel="noreferrer" hidden>Open app</a></div>
+          <div class="proof-item"><strong>Report</strong><span id="reportState">Not written</span></div>
+          <div class="proof-item"><strong>Cleanup</strong><span id="cleanupState">Not run</span></div>
         </div>
         <div class="row" style="margin-top:14px">
           <button class="secondary" onclick="runVerifier()">Run verifier</button>
@@ -540,6 +542,11 @@ function renderRun() {
   const hJob = currentRun.h_job;
   hJobLabel.textContent = hJob ? `${readableStatus(hJob.status)} / ${readableStatus(hJob.milestone)}` : 'Idle';
   runSummary.innerHTML = `Repo: <b>${shortPath(repoInput.value)}</b><br>Mode: <b>${currentRun.mode}</b>`;
+  const finalUrl = currentRun.live_urls?.[0];
+  liveLink.hidden = !finalUrl;
+  if (finalUrl) { liveLink.href = finalUrl; liveLink.textContent = 'Open app'; }
+  reportState.textContent = currentRun.report_path ? shortPath(currentRun.report_path) : 'Not written';
+  cleanupState.textContent = readableStatus(currentRun.cleanup_state?.status || 'not_run');
   for (const m of ['vibe', 'teach', 'expert']) document.getElementById('mode-' + m).classList.toggle('active', currentRun.mode === m);
 }
 function renderEvents(ev) {

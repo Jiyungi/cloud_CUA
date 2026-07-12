@@ -66,6 +66,10 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert started.status_code == 200
     run = started.json()
     assert run["target"] == "aws_amplify"
+    status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
+    assert status["live_urls"] == []
+    assert status["report_path"] is None
+    assert status["cleanup_state"]["status"] == "not_run"
 
     changed = client.post(f"/runs/{run['run_id']}/mode", json={"repo_path": str(tmp_path), "mode": "teach"})
     assert changed.status_code == 200

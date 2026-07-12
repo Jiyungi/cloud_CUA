@@ -139,7 +139,23 @@ class Orchestrator:
     def get_status(self, run_id: str) -> dict:
         if (self.store.run_dir(run_id) / "cost-policy.json").exists():
             self.cost_monitor.evaluate(self.repo_path, run_id)
-        return {**asdict(self.store.load_run(run_id)), "h_job": self.h_sessions.get(self.repo_path, run_id)}
+        urls = sorted(
+            {
+                url
+                for record in load_resource_records(self.store.run_dir(run_id) / "resources.json")
+                for url in record.app_urls
+            }
+        )
+        report = self.repo_path / "DEPLOYMENT_REPORT.md"
+        cleanup_events = [event for event in self.store.read_events(run_id, 1000) if event.get("message") == "Ran AWS cleanup workflow."]
+        cleanup_state = cleanup_events[-1].get("evidence", {}) if cleanup_events else {"status": "not_run"}
+        return {
+            **asdict(self.store.load_run(run_id)),
+            "h_job": self.h_sessions.get(self.repo_path, run_id),
+            "live_urls": urls,
+            "report_path": str(report) if report.exists() else None,
+            "cleanup_state": cleanup_state,
+        }
 
     def set_dashboard_url(self, run_id: str, dashboard_url: str) -> dict:
         run = self.store.load_run(run_id)
