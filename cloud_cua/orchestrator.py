@@ -112,6 +112,12 @@ class Orchestrator:
     def get_status(self, run_id: str) -> dict:
         return asdict(self.store.load_run(run_id))
 
+    def set_dashboard_url(self, run_id: str, dashboard_url: str) -> dict:
+        run = self.store.load_run(run_id)
+        run.dashboard_url = dashboard_url
+        self.store.save_run(run)
+        return asdict(run)
+
     def get_events(self, run_id: str, limit: int = 100) -> list[dict]:
         return self.store.read_events(run_id, limit)
 

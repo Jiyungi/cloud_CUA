@@ -16,6 +16,18 @@ def credentials_path() -> Path:
     return user_config_dir() / "credentials.env"
 
 
+def service_state_path() -> Path:
+    return user_config_dir() / "service.json"
+
+
+def service_stdout_path() -> Path:
+    return user_config_dir() / "service.out.log"
+
+
+def service_stderr_path() -> Path:
+    return user_config_dir() / "service.err.log"
+
+
 def browser_profile_dir() -> Path:
     return user_config_dir() / "chrome-profile"
 

@@ -11,7 +11,7 @@ from cloud_cua.verifier.base import VerifierResult
 
 def test_dashboard_health():
     client = TestClient(create_app())
-    assert client.get("/health").json() == {"ok": True}
+    assert client.get("/health").json() == {"ok": True, "service": "cloud-cua"}
     page = client.get("/")
     assert page.status_code == 200
     assert "Log into AWS in this browser window. Click Continue when done." in page.text

@@ -16,6 +16,7 @@ from .h_skills import get_h_skill_status, sync_h_skills
 from .mcp_server import main as mcp_main
 from .packaging import build_shareable_package
 from .paths import default_dashboard_port
+from .service_runtime import ensure_service, service_status, stop_service
 
 
 def cmd_init(_args: argparse.Namespace) -> int:
@@ -128,6 +129,26 @@ def cmd_aws_cleanup(args: argparse.Namespace) -> int:
     return 0 if result.status == "passed" else 1
 
 
+def cmd_service(args: argparse.Namespace) -> int:
+    if args.service_cmd == "start":
+        state = ensure_service()
+        print(f"Cloud CUA service is running at {state.base_url} (PID {state.pid}).")
+        return 0
+    if args.service_cmd == "stop":
+        print(stop_service()["summary"])
+        return 0
+    if args.service_cmd == "restart":
+        stop_service()
+        state = ensure_service()
+        print(f"Cloud CUA service restarted at {state.base_url} (PID {state.pid}).")
+        return 0
+    status = service_status()
+    print(status["summary"])
+    if status.get("base_url"):
+        print(status["base_url"])
+    return 0 if status["status"] in {"running", "stopped"} else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cloud-cua")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -164,6 +185,10 @@ def build_parser() -> argparse.ArgumentParser:
     package = sub.add_parser("package")
     package.add_argument("--output")
     package.set_defaults(func=cmd_package)
+    service = sub.add_parser("service", help="Manage the persistent host-local Cloud CUA backend.")
+    service_sub = service.add_subparsers(dest="service_cmd", required=True)
+    for action in ("status", "start", "stop", "restart"):
+        service_sub.add_parser(action).set_defaults(func=cmd_service)
     return parser
 
 

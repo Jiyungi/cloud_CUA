@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from fastapi.testclient import TestClient
+
+from cloud_cua.server import create_app
+
 from cloud_cua.mcp_server import (
     cloud_cua_get_aws_plan,
     cloud_cua_get_gcp_plan,
@@ -14,6 +19,36 @@ from cloud_cua.mcp_server import (
     cloud_cua_start_deployment,
     cloud_cua_sync_h_skills,
 )
+
+
+class InProcessClient:
+    def __init__(self):
+        self.client = TestClient(create_app())
+
+    def get(self, path, params=None):
+        response = self.client.get(path, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def post(self, path, payload=None, timeout=35):
+        response = self.client.post(path, json=payload or {})
+        response.raise_for_status()
+        return response.json()
+
+    def open_dashboard(self, repo_path, run_id, open_browser=True):
+        return {
+            "dashboard_url": f"http://127.0.0.1:3000/?repo_path={repo_path}&run_id={run_id}",
+            "repo_path": repo_path,
+            "run_id": run_id,
+            "opened": False,
+        }
+
+
+@pytest.fixture(autouse=True)
+def in_process_mcp(monkeypatch):
+    client = InProcessClient()
+    monkeypatch.setattr("cloud_cua.mcp_server._client", lambda: client)
+    return client
 
 
 def test_mcp_tools_share_orchestrator_flow(tmp_path):

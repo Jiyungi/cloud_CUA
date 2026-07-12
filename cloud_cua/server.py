@@ -84,12 +84,22 @@ class SkillSyncRequest(BaseModel):
     dry_run: bool = False
 
 
+class DashboardRequest(BaseModel):
+    repo_path: str
+    dashboard_url: str
+
+
+class CodexMessageRequest(BaseModel):
+    repo_path: str
+    message: str
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
 
     @app.get("/health")
     def health():
-        return {"ok": True}
+        return {"ok": True, "service": "cloud-cua"}
 
     @app.get("/defaults")
     def defaults():
@@ -122,6 +132,10 @@ def create_app() -> FastAPI:
     @app.get("/runs/{run_id}")
     def get_run(run_id: str, repo_path: str):
         return Orchestrator(repo_path).get_status(run_id)
+
+    @app.post("/runs/{run_id}/dashboard")
+    def set_dashboard(run_id: str, req: DashboardRequest):
+        return Orchestrator(req.repo_path).set_dashboard_url(run_id, req.dashboard_url)
 
     @app.get("/runs/{run_id}/events")
     def get_events(run_id: str, repo_path: str, limit: int = 100):
@@ -214,6 +228,14 @@ def create_app() -> FastAPI:
     @app.post("/runs/{run_id}/speak")
     def speak(run_id: str, req: VoiceRequest):
         return Orchestrator(req.repo_path).speak(run_id, req.text)
+
+    @app.post("/runs/{run_id}/codex-plan")
+    def codex_plan(run_id: str, req: CodexMessageRequest):
+        return Orchestrator(req.repo_path).submit_codex_plan(run_id, req.message)
+
+    @app.post("/runs/{run_id}/codex-objection")
+    def codex_objection(run_id: str, req: CodexMessageRequest):
+        return Orchestrator(req.repo_path).submit_objection(run_id, req.message)
 
     @app.post("/runs/{run_id}/verify")
     def verify(run_id: str, req: VerifierRequest):
