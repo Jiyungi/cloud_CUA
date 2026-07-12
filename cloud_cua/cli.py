@@ -10,6 +10,7 @@ import json
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .aws_evals import build_h_eval_task, build_review_only_skill_seed, load_aws_eval_catalog
 from .aws_skill_generation import materialize_aws_eval_skills
+from .api_client import CloudCUAClient
 from .codex_config import install_cloud_cua_mcp
 from .credentials import inspect_credentials, save_credentials
 from .doctor import run_doctor
@@ -82,6 +83,14 @@ def cmd_install_mcp(args: argparse.Namespace) -> int:
     if result.backup_path:
         print(f"Backup: {result.backup_path}")
     return 0 if result.status == "passed" else 1
+
+
+def cmd_open_dashboard(args: argparse.Namespace) -> int:
+    result = CloudCUAClient().open_dashboard(args.repo_path, args.run_id, open_browser=not args.no_browser)
+    print(f"Cloud CUA dashboard: {result['dashboard_url']}")
+    if not result["opened"]:
+        print(f"One-time launch URL: {result['launch_url']}")
+    return 0
 
 
 def cmd_h_status(_args: argparse.Namespace) -> int:
@@ -196,6 +205,11 @@ def build_parser() -> argparse.ArgumentParser:
     install_mcp.add_argument("--python-executable", help="Exact installed Python interpreter Codex should use.")
     install_mcp.add_argument("--dry-run", action="store_true")
     install_mcp.set_defaults(func=cmd_install_mcp)
+    open_dashboard = sub.add_parser("open-dashboard", help="Open an authorized dashboard for an existing local repository run.")
+    open_dashboard.add_argument("--repo-path", required=True)
+    open_dashboard.add_argument("--run-id", required=True)
+    open_dashboard.add_argument("--no-browser", action="store_true")
+    open_dashboard.set_defaults(func=cmd_open_dashboard)
     sub.add_parser("h-status").set_defaults(func=cmd_h_status)
     sub.add_parser("h-cleanup").set_defaults(func=cmd_h_cleanup)
     h_skills = sub.add_parser("h-skills", help="List or sync Cloud CUA deployment skills with H.")
