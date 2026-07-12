@@ -432,6 +432,8 @@ Owner labels are suggested for parallel work.
     - Live Gradium TTS-to-STT round trip transcribed `pause deployment.`
     - Real browser voice turn changed the InvoiceOps run to Teach mode with zero browser/server errors
     - Real spoken question reached a read-only Codex worker, returned a 34-word answer, and completed streamed TTS
+    - Real spoken `pause deployment` and `resume deployment` controlled one active hosted H session and confirmed remote `paused` and `running` states
+    - Real spoken cancellation exposed an already-finished H session race; cancellation is now idempotent when H returns session-not-found
     - Dead backend voice locks are reclaimed by process ownership instead of leaving the microphone stuck
     - _Requirements: 11, 11A_
 
@@ -641,12 +643,14 @@ Owner labels are suggested for parallel work.
     - One token-protected host-local backend owns orchestration
     - MCP starts the service, creates the run, and opens `?repo_path=...&run_id=...`
     - Dashboard loads that run and provides stale-link run recovery
+    - Dashboard can attach an exact absolute repository path, switch repositories before starting, and show the shared Codex/H/user/verifier owner and next action
     - _Requirements: 1, 13, 22_
 
   - [x] 24.3 Add durable asynchronous H jobs
     - Persist job/session/worker/heartbeat/milestone state
     - Real pause, resume, cancel, duplicate prevention, event spool, and restart reconciliation
     - Approved retries stay inside the H job manager
+    - Live H smoke navigated to Example Domain; a second live session was paused and resumed through real Gradium speech commands
     - _Requirements: 7, 8, 19, 22_
 
   - [x] 24.4 Add secure configuration and account matching
@@ -723,6 +727,6 @@ Owner labels are suggested for parallel work.
 - Update `design.md` before changing architecture.
 - Update `tasks.md` when implementation scope changes.
 - Do not add NemoClaw tasks.
-- Current H status: hosted skills sync and attach successfully; host-local H completed the three-milestone ECS Express workflow. The runner cleans stale local bridges, exposes session IDs, bounds stalled milestones, and blocks repeated submit intent. Docker mode intentionally blocks H browser takeover; use host-local `python -m cloud_cua.cli start` for real H CUA work.
+- Current H status: hosted skills sync and attach successfully; host-local H completed the three-milestone ECS Express workflow and a fresh public-page browser smoke. The runner correlates and cleans Cloud CUA orphan bridge channels, exposes session IDs, bounds stalled milestones, and blocks repeated submit intent. Docker mode intentionally blocks H browser takeover; use the host-local managed service for real H CUA work.
 - Current visual QA status: `npm run visual:dashboard` passes desktop/mobile/login-modal smoke checks and writes screenshots under `.cloud-cua/visual-checks/`, but this is not a full manual dashboard QA pass.
 - Current AWS smoke status: AWS CLI profile `cloud-cua-dev` has both the earlier S3 smoke and a real H-operated ECS Express smoke. The ECS run used exact run tags/image/port/health path, reached a healthy task, returned HTTP 200, rendered in Playwright, passed every verifier, and the final cleanup dry run found zero actions.
