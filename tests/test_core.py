@@ -56,6 +56,15 @@ def test_run_store_redacts_secret(tmp_path: Path):
     assert "abc" not in json.dumps(events)
 
 
+def test_run_store_writes_run_atomically(tmp_path: Path):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    run.status = "running"
+    store.save_run(run)
+    assert store.load_run(run.run_id).status == "running"
+    assert not store.run_path(run.run_id).with_suffix(".tmp").exists()
+
+
 def test_repo_analyzer_vite_recommends_amplify(tmp_path: Path):
     (tmp_path / "package.json").write_text(
         json.dumps({"scripts": {"build": "vite build"}, "dependencies": {"vite": "^5.0.0", "react": "^18.0.0"}}),

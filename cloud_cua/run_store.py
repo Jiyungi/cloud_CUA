@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,15 @@ SECRET_PATTERNS = [
     re.compile(r"(secret\s*[=:]\s*)[^\s,;]+", re.I),
     re.compile(r"(token\s*[=:]\s*)[^\s,;]+", re.I),
 ]
+
+_LOCKS_GUARD = threading.Lock()
+_PATH_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _path_lock(path: Path) -> threading.RLock:
+    key = str(path.resolve()).lower()
+    with _LOCKS_GUARD:
+        return _PATH_LOCKS.setdefault(key, threading.RLock())
 
 
 def now_iso() -> str:
@@ -49,6 +59,7 @@ class RunStore:
         self.repo_path = resolve_repo_path(repo_path)
         self.root = runs_dir(self.repo_path)
         self.root.mkdir(parents=True, exist_ok=True)
+        self._lock = _path_lock(self.root)
 
     def run_dir(self, run_id: str) -> Path:
         return self.root / run_id
@@ -106,13 +117,18 @@ class RunStore:
         return run
 
     def save_run(self, run: Run) -> None:
-        run.updated_at = now_iso()
-        self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
-        self.run_path(run.run_id).write_text(json.dumps(asdict(run), indent=2), encoding="utf-8")
+        with self._lock:
+            run.updated_at = now_iso()
+            self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
+            path = self.run_path(run.run_id)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(asdict(run), indent=2), encoding="utf-8")
+            temporary.replace(path)
 
     def load_run(self, run_id: str) -> Run:
-        data = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
-        return Run(**data)
+        with self._lock:
+            data = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
+            return Run(**data)
 
     def append_event(self, run_id: str, source: str, type_: str, message: str, evidence: dict | None = None) -> Event:
         event = Event(
@@ -123,24 +139,28 @@ class RunStore:
             evidence=sanitize_obj(evidence or {}),
         )
         path = self.events_path(run_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(asdict(event), ensure_ascii=False) + "\n")
+        with self._lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(event), ensure_ascii=False) + "\n")
+                f.flush()
         return event
 
     def read_events(self, run_id: str, limit: int = 100) -> list[dict]:
         path = self.events_path(run_id)
-        if not path.exists():
-            return []
-        lines = path.read_text(encoding="utf-8").splitlines()
+        with self._lock:
+            if not path.exists():
+                return []
+            lines = path.read_text(encoding="utf-8").splitlines()
         selected = lines[-limit:] if limit > 0 else lines
         return [json.loads(line) for line in selected if line.strip()]
 
     def list_runs(self) -> list[Run]:
         runs: list[Run] = []
-        for run_file in sorted(self.root.glob("*/run.json"), reverse=True):
-            try:
-                runs.append(Run(**json.loads(run_file.read_text(encoding="utf-8"))))
-            except Exception:
-                continue
+        with self._lock:
+            for run_file in sorted(self.root.glob("*/run.json"), reverse=True):
+                try:
+                    runs.append(Run(**json.loads(run_file.read_text(encoding="utf-8"))))
+                except Exception:
+                    continue
         return runs
