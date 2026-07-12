@@ -19,6 +19,7 @@ export interface Participant {
 
 export interface Receipt {
   id: string;
+  sourceFileName: string;
   merchant: string;
   purchasedAt: string;
   subtotalCents: number;
