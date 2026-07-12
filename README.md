@@ -223,3 +223,11 @@ Run tests from the activated project virtual environment:
 $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
 python -m pytest -q
 ```
+
+Run visual dashboard smoke checks against a running dashboard:
+
+```powershell
+npm run visual:dashboard
+```
+
+The visual smoke opens desktop and mobile Chromium viewports, verifies the main dashboard controls, checks for horizontal overflow, opens the login modal, and writes screenshots plus a JSON summary under `.cloud-cua/visual-checks/`.
