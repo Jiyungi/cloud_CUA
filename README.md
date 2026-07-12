@@ -21,6 +21,31 @@ The current build is the local MVP shell:
 - local YAML deployment skills that auto-sync to the user's H skill catalog
 - per-run deployment contracts, milestone supervision, and review-only lesson candidates
 
+## Install The Local Product
+
+From a source checkout on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+On macOS/Linux:
+
+```bash
+./scripts/install.sh
+```
+
+The installer creates `~/.cloud-cua/runtime-venv`, installs Cloud CUA and H's browser dependencies, and writes the Codex MCP entry with that environment's absolute Python path. Restart Codex after installation.
+
+Service controls:
+
+```powershell
+cloud-cua service status
+cloud-cua service start
+cloud-cua service stop
+cloud-cua service restart
+```
+
 ## Credentials
 
 For local development, this repo can read `.env`, but real product usage should store keys outside the repo:
@@ -81,7 +106,7 @@ That writes this server entry into `~/.codex/config.toml` and creates a backup i
 ```toml
 [mcp_servers.cloud-cua]
 command = "<this Python executable>"
-args = ["-m", "cloud_cua.cli", "mcp"]
+args = ["-I", "-m", "cloud_cua.cli", "mcp"]
 ```
 
 Then Codex can call tools such as:
@@ -89,6 +114,8 @@ Then Codex can call tools such as:
 - `cloud_cua_start_deployment`
 - `cloud_cua_get_status`
 - `cloud_cua_get_recent_events`
+- `cloud_cua_watch_run`
+- `cloud_cua_get_pending_actions`
 - `cloud_cua_set_mode`
 - `cloud_cua_send_user_message`
 - `cloud_cua_get_aws_plan`
@@ -99,6 +126,9 @@ Then Codex can call tools such as:
 - `cloud_cua_get_skill_status`
 - `cloud_cua_sync_h_skills`
 - `cloud_cua_get_lesson_candidate`
+- `cloud_cua_get_runtime_configuration_status`
+- `cloud_cua_get_cost_status`
+- `cloud_cua_cancel_h_cua`
 - `cloud_cua_cleanup_aws_resources`
 - `cloud_cua_run_verifier`
 - `cloud_cua_write_report`
@@ -111,6 +141,7 @@ Cloud CUA stores reviewed deployment recipes under `cloud_cua/skills/` and publi
 
 - `cloud-cua/aws-ecs-express`
 - `cloud-cua/aws-amplify`
+- `cloud-cua/aws-s3-static`
 - `cloud-cua/gcp-cloud-run`
 
 Inspect or synchronize them from the CLI:
@@ -145,10 +176,10 @@ Docker mounts your local `.aws`, `.config/gcloud`, `.cloud-cua`, and host Docker
 
 By default, Compose uses `AWS_PROFILE=cloud-cua-dev`, matching the setup profile in this repo. Override it before starting Docker if your AWS profile has another name.
 
-The Docker image keeps build time low and does not download Playwright browsers during image build. If you want container-side Playwright rendering checks, run:
+The Docker image keeps build time low and does not download a browser during image build. If you want container-side Playwright rendering checks, run:
 
 ```powershell
-docker compose run --rm cloud-cua npx playwright install chromium
+docker compose run --rm cloud-cua python -m playwright install --with-deps chromium
 ```
 
 ## AWS Deployment Scope
@@ -164,7 +195,11 @@ The AWS planner maps repo shape to deployment options:
 - Terraform/CDK/IaC repos: console inspection and verifier support, not blind console drift
 - unknown repos: CUA discovery, then stop with a recommendation
 
-The generalized AWS runner always uses a $5 maximum spend guard, asks for approval before H operates AWS, and tells H to stop before billing changes, broad IAM, deletion of non-Cloud-CUA resources, public exposure surprises, or GitHub OAuth/account linking.
+The generalized AWS runner uses a $5 default policy cap, asks for approval before H operates AWS, and tells H to stop before billing changes, broad IAM, deletion of non-Cloud-CUA resources, public exposure surprises, or GitHub OAuth/account linking. Required prices come from the AWS Price List API. Missing prices block the run. The dashboard warns at 50% and 80%; at 100%, cleanup or an approved extension is required. This is an estimate because AWS billing data is delayed, and Cloud CUA never automatically deletes a live deployment.
+
+Before modification, H reads the AWS account ID visible in Chrome. Cloud CUA compares it with `aws sts get-caller-identity` and blocks mismatches.
+
+Application secrets are entered only through the blocking dashboard configuration modal. New values go directly to tagged SSM Standard `SecureString` parameters; only parameter ARNs are retained in the contract. `VITE_*` and `NEXT_PUBLIC_*` names are treated as public build configuration, not secrets.
 
 Cloud CUA tells H to tag new resources with:
 
@@ -188,17 +223,17 @@ Without `--yes`, cleanup is a dry run.
 
 ## GCP Scope
 
-GCP is now a real planned path for Cloud Run, not just a note. The product can:
+GCP is planning-only in this release. The product can:
 
 - analyze whether the repo fits Cloud Run;
 - create an approval-gated GCP Cloud Run H task;
 - verify `gcloud auth`, selected project, and Cloud Run services.
 
-It still requires local `gcloud` auth and manual GCP browser login before H operates the console.
+It still requires `gcloud` installation/auth, browser/CLI project identity matching, a hardened exact verifier, a real deployment, and cleanup proof before it can be called production-ready.
 
 ## Current External Tool Status
 
-The ECS Express path has completed one real H-operated AWS deployment and passed exact-run AWS, HTTP, and Playwright verification. Real cloud operation still depends on external tools being installed and authenticated:
+The ECS Express and S3 static paths have completed real H-operated AWS deployments and passed exact-run AWS, HTTP, and Playwright verification. Real cloud operation still depends on external tools being installed and authenticated:
 
 - H Company Python SDK for real H CUA browser control
 - Chrome with remote debugging for local browser control
@@ -214,11 +249,12 @@ Current local validation:
 - H local browser control works after cleaning stale local bridge trajectories.
 - H hosted skills auto-sync and attach to the browser agent before skilled runs.
 - The verified ECS smoke used the exact ECR image, port, health path, and run tags, reached one healthy running task, returned HTTP 200, rendered in Playwright, and ended with zero remaining cleanup actions.
+- The verified S3 smoke used H for bucket creation/tags and website configuration, applied a generated bucket-scoped policy only after API checks, returned HTTP 200, rendered in managed Playwright, and ended with zero run-tagged resources.
 - If H returns HTTP 429, run `python -m cloud_cua.cli h-cleanup`; stale `surferh` bridge trajectories can consume concurrency.
 
 ## Shareable Package
 
-Create a zip that excludes local secrets, virtualenvs, node modules, Git metadata, `.kiro`, run artifacts, and local reference folders:
+Create a zip that includes an installable wheel and excludes local secrets, virtualenvs, node modules, Git metadata, `.kiro`, run artifacts, and local reference folders:
 
 ```powershell
 python -m cloud_cua.cli package
