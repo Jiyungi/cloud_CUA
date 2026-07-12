@@ -1,22 +1,30 @@
 interface AwsBackendRequiredProps {
   missingConfig: string[];
+  configurationError?: string;
 }
 
-export function AwsBackendRequired({ missingConfig }: AwsBackendRequiredProps): React.JSX.Element {
+export function AwsBackendRequired({
+  missingConfig,
+  configurationError,
+}: AwsBackendRequiredProps): React.JSX.Element {
   return (
     <main className="blocking-page">
       <section className="blocking-card" aria-labelledby="backend-required-title">
         <span className="blocking-card__icon" aria-hidden="true">
           !
         </span>
-        <p className="eyebrow">AWS deployment fixture</p>
-        <h1 id="backend-required-title">AWS backend required</h1>
-        <p>
-          ReceiptSplit is running in AWS mode, but this fixture intentionally contains no backend. Cloud CUA must
-          provision and verify the services defined in <code>AGENT_TEST_SPEC.md</code>.
-        </p>
+        <p className="eyebrow">{configurationError ? "Runtime configuration blocked" : "AWS deployment fixture"}</p>
+        <h1 id="backend-required-title">{configurationError ? "Invalid data mode" : "AWS backend required"}</h1>
+        {configurationError ? (
+          <p>{configurationError} ReceiptSplit will not fall back to demo data.</p>
+        ) : (
+          <p>
+            ReceiptSplit is running in AWS mode, but this fixture intentionally contains no backend. Cloud CUA must
+            provision and verify the services defined in <code>AGENT_TEST_SPEC.md</code>.
+          </p>
+        )}
 
-        {missingConfig.length > 0 ? (
+        {configurationError ? null : missingConfig.length > 0 ? (
           <div className="blocking-card__details">
             <strong>Missing public configuration</strong>
             <ul>

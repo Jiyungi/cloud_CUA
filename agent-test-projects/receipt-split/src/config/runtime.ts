@@ -1,7 +1,8 @@
-export type DataMode = "mock" | "aws";
+export type DataMode = "mock" | "aws" | "invalid";
 
 export interface RuntimeConfig {
   mode: DataMode;
+  configuredMode: string;
   awsRegion: string;
   apiBaseUrl: string;
   cognitoUserPoolId: string;
@@ -9,7 +10,7 @@ export interface RuntimeConfig {
   cognitoDomain: string;
 }
 
-const REQUIRED_AWS_CONFIG: Array<keyof Omit<RuntimeConfig, "mode">> = [
+const REQUIRED_AWS_CONFIG: Array<keyof Omit<RuntimeConfig, "mode" | "configuredMode">> = [
   "awsRegion",
   "apiBaseUrl",
   "cognitoUserPoolId",
@@ -17,8 +18,21 @@ const REQUIRED_AWS_CONFIG: Array<keyof Omit<RuntimeConfig, "mode">> = [
   "cognitoDomain",
 ];
 
+export function resolveMode(value: string | undefined): DataMode {
+  if (!value) {
+    return "mock";
+  }
+  if (value === "mock" || value === "aws") {
+    return value;
+  }
+  return "invalid";
+}
+
+const configuredMode = import.meta.env.VITE_DATA_MODE ?? "";
+
 export const runtimeConfig: RuntimeConfig = {
-  mode: import.meta.env.VITE_DATA_MODE === "aws" ? "aws" : "mock",
+  mode: resolveMode(configuredMode),
+  configuredMode,
   awsRegion: import.meta.env.VITE_AWS_REGION ?? "",
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL ?? "",
   cognitoUserPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID ?? "",

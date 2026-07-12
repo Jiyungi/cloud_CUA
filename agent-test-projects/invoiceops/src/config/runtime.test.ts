@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { missingAwsConfig, resolveMode, type RuntimeConfig } from "./runtime";
 
 describe("AWS runtime configuration", () => {
-  it("does not require AWS values in mock mode", () => {
+  it("does not require AWS values in explicit mock mode", () => {
     const config: RuntimeConfig = {
       mode: "mock",
       configuredMode: "mock",

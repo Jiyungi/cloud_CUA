@@ -58,7 +58,7 @@ UPLOADED -> EXTRACTING -> PENDING_REVIEW -> PENDING_APPROVAL -> APPROVED | REJEC
 
 ## Frontend API Contract
 
-Every route except `/health` requires a valid Cognito JWT. Lambda must enforce Cognito groups and record-level tenant/vendor/property ownership; hiding a button is not authorization.
+Every API route, including `/health`, requires a valid Cognito JWT. Cognito sign-in must complete before the frontend calls `/health` or considers AWS mode connected. Lambda must enforce Cognito groups and record-level tenant/vendor/property ownership; hiding a button is not authorization.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ The target implementation must use AWS directly. A Vercel-only or third-party ba
 
 1. **Amplify Hosting**: connect the parent Git repository, deploy `jiyun-test`, configure `agent-test-projects/invoiceops` as the monorepo app root, run `npm ci` and `npm run build`, publish `dist`, add an SPA rewrite, and set only public `VITE_*` variables.
 2. **Cognito**: create a user pool, public SPA client without a secret, authorization-code flow with PKCE, hosted domain, callback/logout URLs, the four role groups, and synthetic test users.
-3. **API Gateway HTTP API**: create the listed routes, JWT authorizer, and CORS restricted to the Amplify origin; Lambda must enforce group claims and record ownership.
+3. **API Gateway HTTP API**: create the listed routes, attach the JWT authorizer to every route including `/health`, and restrict CORS to the Amplify origin; Lambda must enforce group claims and record ownership.
 4. **Lambda**: separate API handling, extraction start, extraction result processing, approval request, workflow result, and overdue reminder responsibilities with least-privilege roles.
 5. **S3**: create a private invoice bucket with Block Public Access, bucket-owner-enforced ownership, versioning, exact-origin CORS, presigned PUT uploads, SSE-KMS, upload event notification, and a short test-data lifecycle.
 6. **KMS**: create a customer-managed key and alias with rotation enabled for invoice objects and sensitive workflow data.
@@ -93,7 +93,7 @@ The target implementation must use AWS directly. A Vercel-only or third-party ba
 
 ## Security and Failure Requirements
 
-- Unauthenticated protected API requests return `401`.
+- Unauthenticated `/health` and business API requests return `401`.
 - An authenticated but unauthorized decision returns `403`.
 - Vendors cannot read other vendors' invoices or approve any invoice.
 - Property managers can decide only invoices assigned to their properties.
@@ -117,8 +117,9 @@ Local fixture checks:
 Full AWS checks:
 
 - Amplify branch deployment succeeds, the live URL returns `200`, and deep links render.
-- Cognito role claims match the synthetic test users and the SPA client has no secret.
-- An unauthenticated upload request returns `401`; unauthorized read/decision requests return `403`.
+- Cognito role claims match the synthetic test users, the SPA client has no secret, and authenticated `/health` succeeds before `AWS CONNECTED` appears.
+- Unauthenticated health and upload requests return `401`.
+- Vendor upload, AP extracted-field correction, and assigned-manager decision succeed; every disallowed role/action combination returns `403`, while unauthorized record reads may return ownership-hiding `404`.
 - The synthetic invoice is privately uploaded, is versioned and SSE-KMS encrypted, and produces a real Textract job ID.
 - Extraction reaches `PENDING_REVIEW`, corrected fields persist, and AP submission starts a Standard Step Functions execution.
 - The workflow waits for approval and reaches `SUCCEEDED` after an authorized decision.

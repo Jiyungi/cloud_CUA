@@ -19,6 +19,15 @@ const SplitPage = lazy(async () => ({
 }));
 
 export function App(): React.JSX.Element {
+  if (runtimeConfig.mode === "invalid") {
+    return (
+      <AwsBackendRequired
+        missingConfig={[]}
+        configurationError={`VITE_DATA_MODE must be "mock" or "aws"; received ${JSON.stringify(runtimeConfig.configuredMode)}.`}
+      />
+    );
+  }
+
   if (runtimeConfig.mode === "aws") {
     return <AwsBackendRequired missingConfig={missingAwsConfig(runtimeConfig)} />;
   }

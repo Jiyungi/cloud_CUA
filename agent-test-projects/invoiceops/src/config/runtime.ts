@@ -18,7 +18,7 @@ const REQUIRED_AWS_CONFIG: Array<keyof Omit<RuntimeConfig, "mode" | "configuredM
   "cognitoDomain",
 ];
 
-function resolveMode(value: string | undefined): DataMode {
+export function resolveMode(value: string | undefined): DataMode {
   if (!value) {
     return "mock";
   }
