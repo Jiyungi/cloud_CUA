@@ -176,6 +176,14 @@ HTML = r"""
     }
     .approval.approved { border-color: #a7d7c5; background: #effaf5; }
     .approval.denied { border-color: #f3b8b3; background: #fff2f1; }
+    .voice-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .voice-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .recording { background: var(--danger) !important; border-color: var(--danger) !important; }
     .activity {
       height: calc(100vh - 112px);
       min-height: 560px;
@@ -279,6 +287,27 @@ HTML = r"""
       </section>
 
       <section class="panel pad">
+        <div class="split">
+          <div>
+            <h2>Voice</h2>
+            <p id="voiceState" class="summary">Checking Gradium voice availability.</p>
+          </div>
+          <span id="voiceKeyChip" class="chip">Voice unknown</span>
+        </div>
+        <div class="voice-strip">
+          <div>
+            <label for="voiceText">Command or question</label>
+            <textarea id="voiceText" rows="2" placeholder="pause, switch to Teach mode, why this service?"></textarea>
+          </div>
+          <div class="voice-actions">
+            <button id="micButton" class="secondary" onclick="toggleRecording()">Start mic</button>
+            <button class="secondary" onclick="sendVoice()">Route text</button>
+            <button class="quiet" onclick="speakLatest()">Speak latest</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel pad">
         <h2>Control Loop</h2>
         <p class="summary">Each part has a different job. The dashboard should make it obvious who acted and what proof exists.</p>
         <div class="lanes">
@@ -306,6 +335,7 @@ HTML = r"""
         </div>
         <div class="row" style="margin-top:14px">
           <button class="secondary" onclick="runVerifier()">Run verifier</button>
+          <button class="secondary" onclick="awsCleanupDryRun()">AWS cleanup dry run</button>
           <button class="secondary" onclick="writeReport()">Write report</button>
         </div>
       </section>
@@ -320,10 +350,6 @@ HTML = r"""
               <label for="cloud">Cloud</label>
               <select id="cloud"><option value="aws">AWS</option><option value="gcp">GCP</option></select>
             </div>
-            <div style="min-width:160px; flex:1">
-              <label for="voiceText">Voice/text command</label>
-              <textarea id="voiceText" rows="2" placeholder="pause, switch to Teach mode, why Amplify?"></textarea>
-            </div>
             <div style="min-width:180px; flex:1">
               <label for="awsTask">AWS deployment task</label>
               <textarea id="awsTask" rows="2" placeholder="Deploy this repo safely on AWS under $5"></textarea>
@@ -333,8 +359,8 @@ HTML = r"""
             <button class="secondary" onclick="showLogin()">Show login gate</button>
             <button class="secondary" onclick="hInspect()">H inspect</button>
             <button class="secondary" onclick="runAwsTask()">Run AWS task</button>
+            <button class="secondary" onclick="runGcpTask()">Run GCP task</button>
             <button class="secondary" onclick="cleanupH()">Clean H sessions</button>
-            <button class="secondary" onclick="sendVoice()">Route command</button>
           </div>
         </div>
       </details>
@@ -366,6 +392,9 @@ HTML = r"""
 <script>
 let currentRun = null;
 let lastEvents = [];
+let voiceReady = false;
+let mediaRecorder = null;
+let audioChunks = [];
 const repoInput = document.getElementById('repo');
 initDefaults();
 
@@ -390,6 +419,7 @@ async function refresh() {
   renderEvents(ev);
   renderProof(ev);
   await loadApprovals();
+  await loadCapabilities();
 }
 function renderRun() {
   statusTitle.textContent = titleForStatus(currentRun.status);
@@ -447,11 +477,78 @@ async function runAwsTask() {
   await post(`/runs/${currentRun.run_id}/aws-deploy`, body({task: awsTask.value || null, max_spend_usd: 5}));
   await refresh();
 }
+async function runGcpTask() {
+  if (!currentRun) return;
+  await post(`/runs/${currentRun.run_id}/gcp-deploy`, body({task: awsTask.value || null}));
+  await refresh();
+}
 async function runAmplify() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/amplify-deploy`, body()); await refresh(); }
 async function runVerifier() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/verify`, body()); await refresh(); }
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
 async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
 async function cleanupH() { await post('/h-cleanup', body()); await refresh(); }
+async function awsCleanupDryRun() {
+  const runId = currentRun ? currentRun.run_id : null;
+  await post('/aws-cleanup', body({run_id: runId, dry_run: true}));
+  await refresh();
+}
+async function loadCapabilities() {
+  if (!repoInput.value) return;
+  try {
+    const caps = await (await fetch(`/capabilities?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
+    voiceReady = Boolean(caps.gradium_api_key_present);
+    micButton.disabled = !voiceReady || !currentRun;
+    voiceKeyChip.textContent = voiceReady ? 'Gradium ready' : 'Voice disabled';
+    voiceState.textContent = voiceReady ? 'Mic commands use Gradium STT, then the same router as typed commands.' : 'Add GRADIUM_API_KEY to enable microphone and speech playback. Typed commands still work.';
+  } catch {
+    voiceReady = false;
+    micButton.disabled = true;
+    voiceKeyChip.textContent = 'Voice unavailable';
+  }
+}
+async function toggleRecording() {
+  if (!currentRun || !voiceReady) return;
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  mediaRecorder = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
+  audioChunks = [];
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    stream.getTracks().forEach(track => track.stop());
+    micButton.textContent = 'Start mic';
+    micButton.classList.remove('recording');
+    const blob = new Blob(audioChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+    const base64 = await blobToBase64(blob);
+    const inputFormat = blob.type.includes('wav') ? 'wav' : 'webm';
+    await post(`/runs/${currentRun.run_id}/voice-transcribe`, body({audio_base64: base64, input_format: inputFormat}));
+    await refresh();
+  };
+  mediaRecorder.start();
+  micButton.textContent = 'Stop mic';
+  micButton.classList.add('recording');
+}
+async function speakLatest() {
+  if (!currentRun || !voiceReady) return;
+  const latestText = latest('h_cua') || latest('verifier') || latest('system') || 'No Cloud CUA update is available yet.';
+  const result = await post(`/runs/${currentRun.run_id}/speak`, body({text: latestText.slice(0, 500)}));
+  if (result.audio_base64) {
+    const audio = new Audio(`data:audio/wav;base64,${result.audio_base64}`);
+    await audio.play();
+  }
+  await refresh();
+}
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
 function latest(source) {
   const event = lastEvents.slice().reverse().find(e => e.source === source);
   return event ? event.message : '';
@@ -459,7 +556,7 @@ function latest(source) {
 function renderProof(ev) {
   const evidence = JSON.stringify(ev.filter(e => e.source === 'verifier').map(e => e.evidence || {}));
   identityState.textContent = evidence.includes('aws_identity') || evidence.includes('gcp_auth_list') ? 'Checked' : 'Not checked';
-  resourceState.textContent = evidence.includes('aws_amplify_list_apps') ? 'Checked' : 'Not checked';
+  resourceState.textContent = evidence.includes('aws_tagged_run_resources') || evidence.includes('gcp_cloud_run_services') || evidence.includes('aws_amplify_list_apps') ? 'Checked' : 'Not checked';
   liveState.textContent = evidence.includes('http_live_url') || evidence.includes('playwright_render') ? 'Checked' : 'No URL yet';
 }
 function titleForStatus(status) {
@@ -478,9 +575,11 @@ function escapeHtml(value) {
 }
 async function initDefaults() {
   const saved = localStorage.getItem('cloud_cua_repo');
-  if (saved) { repoInput.value = saved; return; }
+  if (saved) { repoInput.value = saved; await loadCapabilities(); return; }
   try { repoInput.value = (await (await fetch('/defaults')).json()).repo_path || ''; } catch {}
+  await loadCapabilities();
 }
+repoInput.addEventListener('change', loadCapabilities);
 setInterval(refresh, 3500);
 </script>
 </body>
