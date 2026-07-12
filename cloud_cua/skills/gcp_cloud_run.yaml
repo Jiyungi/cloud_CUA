@@ -1,0 +1,40 @@
+name: cloud-cua/gcp-cloud-run
+description: Use for deploying a containerized web application through Google Cloud Run when Cloud CUA provides a complete run contract and approval state.
+target: gcp_cloud_run
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA
+url_pattern: "https://console\\.cloud\\.google\\.com/run/.*"
+required_facts:
+  - container_image_uri
+  - selected_container_port
+  - health_check_path
+  - google_cloud_project
+  - google_cloud_region
+  - cloud_cua_run_tag
+unknowns_that_block:
+  - Project, region, image URI, or container port is missing.
+  - Required APIs, IAM roles, or Artifact Registry access are unclear.
+h_cua_allowed_actions:
+  - Inspect Cloud Run creation forms.
+  - Report visible defaults, required APIs, IAM choices, ingress, scaling, and estimated cost.
+  - Create a service only after approval and only from contract values.
+h_cua_stop_conditions:
+  - Login, OAuth, secrets, broad IAM, billing activation, or a contract mismatch requires attention.
+  - The service would be public when public exposure was not approved.
+required_verifiers:
+  - gcp_identity
+  - gcp_cloud_run_contract
+  - public_app_url
+  - http_live_url
+  - playwright_render
+  - cleanup_discovery
+success_conditions:
+  - The exact run-labeled Cloud Run service uses the contracted image and port.
+  - Its ready condition is true and its public URL passes HTTP and browser rendering checks.
+cleanup_strategy: Delete only resources carrying the exact Cloud CUA run label after explicit cleanup approval.
+body: |
+  # Deploy with Google Cloud Run
+
+  Treat the Cloud CUA contract as the source of truth. Inspect first and report the project, region, image, port, ingress, authentication, scaling, service account, labels, required APIs, and estimated cost.
+
+  Stop when any required fact is missing or a visible default conflicts with the contract. Do not enable billing, grant broad IAM, expose a service publicly, connect accounts, or enter secrets unless the prompt states the exact approval. Return structured JSON after each milestone. Independent verifiers decide success.
