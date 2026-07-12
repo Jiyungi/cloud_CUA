@@ -71,7 +71,7 @@ def ensure_service(*, python_executable: str | None = None, preferred_port: int 
     user_config_dir().mkdir(parents=True, exist_ok=True)
     port = _available_port(preferred_port or default_dashboard_port())
     token = secrets.token_urlsafe(32)
-    python = python_executable or sys.executable
+    python = python_executable or _managed_runtime_python() or sys.executable
     environment = os.environ.copy()
     environment["CLOUD_CUA_SERVICE_TOKEN"] = token
     environment["CLOUD_CUA_DASHBOARD_PORT"] = str(port)
@@ -148,3 +148,9 @@ def _available_port(preferred: int) -> int:
                 continue
             return port
     raise RuntimeError(f"No available loopback port found from {preferred} through {preferred + 24}.")
+
+
+def _managed_runtime_python() -> str | None:
+    runtime = user_config_dir() / "runtime-venv"
+    candidate = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return str(candidate) if candidate.is_file() else None
