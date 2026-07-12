@@ -612,7 +612,7 @@ def test_h_event_summary_keeps_action_without_large_payload():
 
 
 def test_h_supervisor_detects_agent_observation_errors():
-    from cloud_cua.h_runner import _is_agent_error_event, _supervisor_event
+    from cloud_cua.h_runner import _is_agent_error_event, _is_repeat_submit_intent, _is_submit_click_event, _supervisor_event
 
     event = {"type": "AgentEvent", "data": {"kind": "error_event", "error": "observation timed out"}}
     assert _is_agent_error_event(event) is True
@@ -620,6 +620,16 @@ def test_h_supervisor_detects_agent_observation_errors():
     intervention = _supervisor_event("session-1", "stalled", "forcing_answer")
     assert intervention["data"]["session_id"] == "session-1"
     assert intervention["data"]["status"] == "forcing_answer"
+    click = {
+        "type": "AgentEvent",
+        "data": {"kind": "tool_result", "tool_req": {"tool_name": "click_web", "args": {"element": "Create button"}}},
+    }
+    retry = {
+        "type": "AgentEvent",
+        "data": {"kind": "policy_event", "reasoning_content": "The previous click may not have registered. Click Create again."},
+    }
+    assert _is_submit_click_event(click) is True
+    assert _is_repeat_submit_intent(retry) is True
 
 
 def test_h_session_identity_is_saved_in_timeline(tmp_path: Path):

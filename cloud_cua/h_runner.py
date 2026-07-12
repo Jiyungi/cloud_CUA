@@ -417,6 +417,8 @@ def _stream_worker(
     last_event_at = time.monotonic()
     session_id: str | None = None
     intervention_at: float | None = None
+    submit_clicked = False
+    duplicate_guard_sent = False
     structured_milestone = bool(payload.get("answer_schema_name"))
     result_json = ""
     finished = False
@@ -452,6 +454,17 @@ def _stream_worker(
                 data = event.get("data") or {}
                 session_id = str(data.get("session_id") or "") or None
             event_callback(event)
+            if _is_submit_click_event(event):
+                submit_clicked = True
+            if submit_clicked and not duplicate_guard_sent and session_id and _is_repeat_submit_intent(event):
+                reason = "H proposed repeating a Create/Submit click after one submission attempt."
+                event_callback(_supervisor_event(session_id, reason, "duplicate_submit_blocked"))
+                _send_h_supervisor_message(
+                    session_id,
+                    "Cloud CUA supervisor: a Create/Submit click was already attempted in this milestone. "
+                    "Do not click it again. Wait for or inspect the existing AWS response, then return the resource receipt or a precise blocker.",
+                )
+                duplicate_guard_sent = True
             if structured_milestone and session_id and intervention_at is None and _is_agent_error_event(event):
                 reason = "H reported an agent/tool observation error during a bounded milestone."
                 event_callback(_supervisor_event(session_id, reason, "forcing_answer"))
@@ -470,6 +483,26 @@ def _is_agent_error_event(event: dict[str, Any]) -> bool:
     return str(event.get("type", "")).lower() == "errorevent"
 
 
+def _is_submit_click_event(event: dict[str, Any]) -> bool:
+    data = event.get("data")
+    if not isinstance(data, dict) or data.get("kind") != "tool_result":
+        return False
+    request = data.get("tool_req")
+    if not isinstance(request, dict) or request.get("tool_name") != "click_web":
+        return False
+    args = request.get("args") if isinstance(request.get("args"), dict) else {}
+    label = str(args.get("element") or "").lower()
+    return "create" in label or "submit" in label
+
+
+def _is_repeat_submit_intent(event: dict[str, Any]) -> bool:
+    data = event.get("data")
+    if not isinstance(data, dict) or data.get("kind") != "policy_event":
+        return False
+    text = f"{data.get('reasoning_content', '')} {data.get('content', '')}".lower()
+    return ("click" in text and ("create" in text or "submit" in text) and any(word in text for word in ("again", "retry", "previous click")))
+
+
 def _supervisor_event(session_id: str, reason: str, status: str) -> dict[str, Any]:
     return {
         "type": "SupervisorIntervention",
@@ -478,6 +511,16 @@ def _supervisor_event(session_id: str, reason: str, status: str) -> dict[str, An
 
 
 def _intervene_h_session(session_id: str, reason: str) -> None:
+    _send_h_supervisor_message(
+        session_id,
+        "Cloud CUA supervisor: stop the current action loop. "
+        f"Reason: {reason} Return the required structured answer now using only directly observed facts. "
+        "Report missing facts or blockers instead of guessing, and do not perform another browser action.",
+        force_answer=True,
+    )
+
+
+def _send_h_supervisor_message(session_id: str, message: str, force_answer: bool = False) -> None:
     values = load_secret_values()
     api_key = values.get("HAI_API_KEY")
     if not api_key:
@@ -486,12 +529,9 @@ def _intervene_h_session(session_id: str, reason: str) -> None:
         from hai_agents import Client
 
         handle = Client(api_key=api_key).session(session_id)
-        handle.send_message(
-            "Cloud CUA supervisor: stop the current action loop. "
-            f"Reason: {reason} Return the required structured answer now using only directly observed facts. "
-            "Report missing facts or blockers instead of guessing, and do not perform another browser action."
-        )
-        handle.force_answer()
+        handle.send_message(message)
+        if force_answer:
+            handle.force_answer()
     except Exception:
         return
 
