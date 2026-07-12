@@ -6,7 +6,10 @@ import os
 import subprocess
 import sys
 
+from .aws_cleanup import cleanup_cloud_cua_aws_resources
+from .codex_config import install_cloud_cua_mcp
 from .credentials import inspect_credentials, save_credentials
+from .doctor import run_doctor
 from .h_admin import cleanup_h_sessions, get_h_quota
 from .mcp_server import main as mcp_main
 from .packaging import build_shareable_package
@@ -46,6 +49,29 @@ def cmd_check(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    checks = run_doctor(os.getcwd(), include_network=not args.offline)
+    failed = 0
+    print("Cloud CUA doctor")
+    for check in checks:
+        marker = "OK" if check.status == "passed" else ("SKIP" if check.status == "skipped" else "FAIL")
+        print(f"[{marker}] {check.name}: {check.summary}")
+        if check.status == "failed":
+            failed += 1
+    return 1 if failed else 0
+
+
+def cmd_install_mcp(args: argparse.Namespace) -> int:
+    result = install_cloud_cua_mcp(args.config, dry_run=args.dry_run)
+    print(result.summary)
+    print(f"Config: {result.config_path}")
+    print(f"Command: {result.command}")
+    print(f"Args: {' '.join(result.args)}")
+    if result.backup_path:
+        print(f"Backup: {result.backup_path}")
+    return 0 if result.status == "passed" else 1
+
+
 def cmd_h_status(_args: argparse.Namespace) -> int:
     quota = get_h_quota(os.getcwd())
     if quota is None:
@@ -72,6 +98,19 @@ def cmd_package(args: argparse.Namespace) -> int:
     return 0 if result.status == "passed" else 1
 
 
+def cmd_aws_cleanup(args: argparse.Namespace) -> int:
+    result = cleanup_cloud_cua_aws_resources(run_id=args.run_id, dry_run=not args.yes)
+    print(result.summary)
+    for action in result.actions:
+        prefix = "would run" if result.dry_run else action.status
+        print(f"- {prefix}: {action.service} {action.resource} :: {' '.join(action.command)}")
+        if action.summary:
+            print(f"  {action.summary}")
+    if result.dry_run:
+        print("Run again with --yes to delete only discovered Cloud CUA resources.")
+    return 0 if result.status == "passed" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cloud-cua")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -82,8 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
     start.set_defaults(func=cmd_start)
     sub.add_parser("mcp").set_defaults(func=cmd_mcp)
     sub.add_parser("check").set_defaults(func=cmd_check)
+    doctor = sub.add_parser("doctor")
+    doctor.add_argument("--offline", action="store_true", help="Skip network checks such as H quota.")
+    doctor.set_defaults(func=cmd_doctor)
+    install_mcp = sub.add_parser("install-mcp")
+    install_mcp.add_argument("--config", help="Path to Codex config.toml. Defaults to CODEX_HOME/config.toml or ~/.codex/config.toml.")
+    install_mcp.add_argument("--dry-run", action="store_true")
+    install_mcp.set_defaults(func=cmd_install_mcp)
     sub.add_parser("h-status").set_defaults(func=cmd_h_status)
     sub.add_parser("h-cleanup").set_defaults(func=cmd_h_cleanup)
+    aws_cleanup = sub.add_parser("aws-cleanup")
+    aws_cleanup.add_argument("--run-id", help="Only clean resources tagged with this Cloud CUA run id.")
+    aws_cleanup.add_argument("--yes", action="store_true", help="Actually delete discovered Cloud CUA resources. Without this, only prints a dry run.")
+    aws_cleanup.set_defaults(func=cmd_aws_cleanup)
     package = sub.add_parser("package")
     package.add_argument("--output")
     package.set_defaults(func=cmd_package)
