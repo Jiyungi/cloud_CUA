@@ -24,10 +24,10 @@ class CloudCUAClient:
         response.raise_for_status()
         return response.json()
 
-    def dashboard_url(self, repo_path: str, run_id: str) -> str:
+    def dashboard_url(self, repo_path: str, run_id: str = "") -> str:
         return f"{self.state.base_url}/?{urlencode({'repo_path': repo_path, 'run_id': run_id})}"
 
-    def open_dashboard(self, repo_path: str, run_id: str, *, open_browser: bool = True) -> dict:
+    def open_dashboard(self, repo_path: str, run_id: str = "", *, open_browser: bool = True) -> dict:
         launch = self.post(f"/dashboard-launch?{urlencode({'run_id': run_id})}", {"repo_path": repo_path})
         url = launch["dashboard_url"]
         opened = False

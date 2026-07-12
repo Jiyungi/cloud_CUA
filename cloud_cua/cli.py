@@ -86,7 +86,7 @@ def cmd_install_mcp(args: argparse.Namespace) -> int:
 
 
 def cmd_open_dashboard(args: argparse.Namespace) -> int:
-    result = CloudCUAClient().open_dashboard(args.repo_path, args.run_id, open_browser=not args.no_browser)
+    result = CloudCUAClient().open_dashboard(args.repo_path, args.run_id or "", open_browser=not args.no_browser)
     print(f"Cloud CUA dashboard: {result['dashboard_url']}")
     if not result["opened"]:
         print(f"One-time launch URL: {result['launch_url']}")
@@ -207,9 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
     install_mcp.set_defaults(func=cmd_install_mcp)
     open_dashboard = sub.add_parser("open-dashboard", help="Open an authorized dashboard for an existing local repository run.")
     open_dashboard.add_argument("--repo-path", required=True)
-    open_dashboard.add_argument("--run-id", required=True)
+    open_dashboard.add_argument("--run-id")
     open_dashboard.add_argument("--no-browser", action="store_true")
     open_dashboard.set_defaults(func=cmd_open_dashboard)
+    dashboard = sub.add_parser("dashboard", help="Open an authorized dashboard and attach a local repository.")
+    dashboard.add_argument("--repo-path", default=os.getcwd())
+    dashboard.add_argument("--run-id")
+    dashboard.add_argument("--no-browser", action="store_true")
+    dashboard.set_defaults(func=cmd_open_dashboard)
     sub.add_parser("h-status").set_defaults(func=cmd_h_status)
     sub.add_parser("h-cleanup").set_defaults(func=cmd_h_cleanup)
     h_skills = sub.add_parser("h-skills", help="List or sync Cloud CUA deployment skills with H.")

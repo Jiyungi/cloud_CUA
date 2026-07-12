@@ -37,6 +37,7 @@ def test_service_auth_and_one_time_dashboard_launch(tmp_path, monkeypatch):
     monkeypatch.setenv("CLOUD_CUA_SERVICE_TOKEN", "local-test-token")
     client = TestClient(create_app())
     assert client.get("/defaults").status_code == 401
+    assert client.get("/").status_code == 401
     launch = client.post(
         "/dashboard-launch?run_id=run-1",
         headers={"X-Cloud-CUA-Token": "local-test-token"},
@@ -46,6 +47,20 @@ def test_service_auth_and_one_time_dashboard_launch(tmp_path, monkeypatch):
     opened = client.get(launch.json()["launch_url"], follow_redirects=True)
     assert opened.status_code == 200
     assert client.get("/defaults").status_code == 200
+
+
+def test_service_can_launch_authorized_dashboard_without_existing_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLOUD_CUA_SERVICE_TOKEN", "local-test-token")
+    client = TestClient(create_app())
+    launch = client.post(
+        "/dashboard-launch",
+        headers={"X-Cloud-CUA-Token": "local-test-token"},
+        json={"repo_path": str(tmp_path)},
+    ).json()
+
+    assert "run_id=" in launch["launch_url"]
+    opened = client.get(launch["launch_url"], follow_redirects=True)
+    assert opened.status_code == 200
 
 
 def test_dashboard_launch_uses_container_public_url(tmp_path, monkeypatch):

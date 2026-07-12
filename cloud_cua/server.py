@@ -170,6 +170,16 @@ def create_app() -> FastAPI:
             response = RedirectResponse(f"/?{clean_query}", status_code=303)
             response.set_cookie("cloud_cua_session", service_token, httponly=True, samesite="strict")
             return response
+        if service_token and not secrets.compare_digest(request.cookies.get("cloud_cua_session") or "", service_token):
+            return HTMLResponse(
+                "<!doctype html><title>Reconnect Cloud CUA</title>"
+                "<main style='max-width:560px;margin:80px auto;font:16px system-ui;line-height:1.5'>"
+                "<h1>Dashboard connection expired</h1>"
+                "<p>This page is not authorized to control the local Cloud CUA backend.</p>"
+                "<p>Ask Codex to open Cloud CUA again, or run <code>cloud-cua dashboard --repo-path &quot;C:\\path\\to\\repo&quot;</code>.</p>"
+                "</main>",
+                status_code=401,
+            )
         return render_dashboard()
 
     @app.post("/runs")
