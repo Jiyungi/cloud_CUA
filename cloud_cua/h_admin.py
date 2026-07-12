@@ -59,18 +59,24 @@ def cleanup_h_sessions(repo_path: str | None = None) -> HCleanupResult:
         sessions = client.get("/api/v2/sessions", params={"size": 50})
         sessions.raise_for_status()
         cloud_cua_ids: set[str] = set()
+        bridge_ids: set[str] = set()
         for item in sessions.json().get("items", []):
-            if item.get("agent") == "cloud-cua-local-browser" and item.get("status") in NON_TERMINAL:
-                sid = item.get("id")
-                if sid:
-                    cloud_cua_ids.add(sid)
-                if sid and _delete_ok(client, f"/api/v2/sessions/{sid}"):
-                    cancelled.append(sid)
+            if item.get("agent") != "cloud-cua-local-browser":
+                continue
+            sid = item.get("id")
+            if not sid:
+                continue
+            cloud_cua_ids.add(sid)
+            detail = client.get(f"/api/v2/sessions/{sid}")
+            if detail.status_code == 200:
+                bridge_ids.update(_session_bridge_ids(detail.json()))
+            if item.get("status") in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{sid}"):
+                cancelled.append(sid)
 
         trajectories = client.get("/api/v1/trajectories/")
         trajectories.raise_for_status()
         for item in trajectories.json().get("items", []):
-            if item.get("status") in NON_TERMINAL and item.get("id") in cloud_cua_ids:
+            if item.get("status") in NON_TERMINAL and item.get("id") in (cloud_cua_ids | bridge_ids):
                 tid = item.get("id")
                 if tid and _delete_ok(client, f"/api/v1/trajectories/{tid}"):
                     deleted.append(tid)
@@ -102,8 +108,12 @@ def cleanup_h_session(session_id: str, repo_path: str | None = None) -> HCleanup
                 return HCleanupResult("failed", before, before, [], [], "Refused to clean a session not owned by Cloud CUA.")
             if _session_status(item) in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{session_id}"):
                 cancelled.append(session_id)
-        if _delete_ok(client, f"/api/v1/trajectories/{session_id}", allow_not_found=True):
-            deleted.append(session_id)
+            bridge_ids = _session_bridge_ids(item) | {session_id}
+        else:
+            bridge_ids = {session_id}
+        for bridge_id in bridge_ids:
+            if _delete_ok(client, f"/api/v1/trajectories/{bridge_id}", allow_not_found=True):
+                deleted.append(bridge_id)
         after = _quota(client)
     return HCleanupResult(
         "passed",
@@ -147,3 +157,14 @@ def _session_status(item: dict) -> str:
     if isinstance(status, dict):
         return str(status.get("status") or "")
     return ""
+
+
+def _session_bridge_ids(item: dict) -> set[str]:
+    request = item.get("request") if isinstance(item.get("request"), dict) else {}
+    agent = request.get("agent") if isinstance(request.get("agent"), dict) else {}
+    environments = agent.get("environments") if isinstance(agent.get("environments"), list) else []
+    return {
+        str(environment.get("session_id"))
+        for environment in environments
+        if isinstance(environment, dict) and environment.get("session_id")
+    }

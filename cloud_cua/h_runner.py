@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .credentials import load_secret_values
-from .h_admin import get_h_quota
+from .h_admin import cleanup_h_session, get_h_quota
 from .mode_policy import policy_for
 from .models import Mode
 from .paths import user_config_dir
@@ -212,6 +212,7 @@ def _run_h_task_sdk(
             status="blocked",
             summary="HAI_API_KEY is not configured. Add it before running H browser control.",
         )
+    owned_session_id: str | None = None
     try:
         orphaned_drivers = cleanup_orphaned_chromedrivers()
         if orphaned_drivers and event_callback:
@@ -256,6 +257,7 @@ def _run_h_task_sdk(
                 answer_schema = _answer_schema_for(answer_schema_name)
                 if event_callback:
                     handle = client.start_session(**create_params, answer_schema=answer_schema)
+                    owned_session_id = handle.id
                     event_callback(
                         {
                             "type": "HSessionStarted",
@@ -295,6 +297,7 @@ def _run_h_task_sdk(
                 raise
         if result is None:
             raise RuntimeError("H session did not return a result after local bridge retry.")
+        owned_session_id = result.id
         if result.outcome in {"blocked", "infeasible"}:
             status = "blocked"
         elif result.status in {"completed", "idle"}:
@@ -339,6 +342,11 @@ def _run_h_task_sdk(
             error=str(exc),
         )
     finally:
+        if owned_session_id:
+            try:
+                cleanup_h_session(owned_session_id)
+            except Exception:
+                pass
         cleanup_orphaned_chromedrivers()
 
 

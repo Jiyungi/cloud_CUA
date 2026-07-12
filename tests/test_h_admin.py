@@ -40,12 +40,12 @@ class FakeHClient:
                 }
             )
         if path == "/api/v1/trajectories/":
-            return FakeResponse(payload={"items": [{"id": "cloud-1", "status": "running"}, {"id": "other-1", "status": "running"}]})
+            return FakeResponse(payload={"items": [{"id": "bridge-cloud-1", "status": "running"}, {"id": "bridge-other-1", "status": "running"}]})
         if path == "/api/v2/sessions/other-1":
             return FakeResponse(
                 payload={
                     "id": "other-1",
-                    "request": {"agent": {"name": "another-product"}},
+                    "request": {"agent": {"name": "another-product", "environments": [{"session_id": "bridge-other-1"}]}},
                     "status": {"status": "running"},
                 }
             )
@@ -53,7 +53,12 @@ class FakeHClient:
             return FakeResponse(
                 payload={
                     "id": "cloud-1",
-                    "request": {"agent": {"name": "cloud-cua-local-browser"}},
+                    "request": {
+                        "agent": {
+                            "name": "cloud-cua-local-browser",
+                            "environments": [{"session_id": "bridge-cloud-1"}],
+                        }
+                    },
                     "status": {"status": "running"},
                 }
             )
@@ -73,7 +78,7 @@ def test_cleanup_only_deletes_cloud_cua_sessions(monkeypatch):
 
     assert result.status == "passed"
     assert "/api/v2/sessions/cloud-1" in client.deleted
-    assert "/api/v1/trajectories/cloud-1" in client.deleted
+    assert "/api/v1/trajectories/bridge-cloud-1" in client.deleted
     assert all("other-1" not in path for path in client.deleted)
 
 
@@ -97,7 +102,7 @@ def test_targeted_cleanup_accepts_nested_cloud_cua_agent(monkeypatch):
 
     assert result.status == "passed"
     assert "/api/v2/sessions/cloud-1" in client.deleted
-    assert "/api/v1/trajectories/cloud-1" in client.deleted
+    assert "/api/v1/trajectories/bridge-cloud-1" in client.deleted
 
 
 def test_local_browser_lock_has_one_owner(tmp_path, monkeypatch):
