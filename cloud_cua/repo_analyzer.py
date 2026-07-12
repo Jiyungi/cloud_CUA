@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from .models import RepoContext
+from .paths import resolve_repo_path
 
 
 def _read_json(path: Path) -> dict:
@@ -55,7 +56,7 @@ def _env_vars(root: Path) -> list[str]:
 
 
 def analyze_repo(repo_path: str | Path) -> RepoContext:
-    root = Path(repo_path).resolve()
+    root = resolve_repo_path(repo_path)
     pkg = _read_json(root / "package.json")
     deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
     scripts = pkg.get("scripts", {})
@@ -86,6 +87,24 @@ def analyze_repo(repo_path: str | Path) -> RepoContext:
     elif dockerfile:
         framework = "container"
         category = "containerized_web"
+    elif any(name in deps for name in ["express", "fastify", "@nestjs/core", "hono"]):
+        framework = "node_api"
+        category = "node_api"
+    elif (root / "requirements.txt").exists() or (root / "pyproject.toml").exists():
+        text = ""
+        for candidate in ["requirements.txt", "pyproject.toml"]:
+            path = root / candidate
+            if path.exists():
+                text += path.read_text(encoding="utf-8", errors="ignore").lower()
+        if any(name in text for name in ["fastapi", "flask", "django", "uvicorn", "gunicorn"]):
+            framework = "python_api"
+            category = "python_api"
+    if any((root / name).exists() for name in ["serverless.yml", "serverless.yaml", "template.yaml", "samconfig.toml"]):
+        framework = "serverless"
+        category = "serverless"
+    if any((root / name).exists() for name in ["main.tf", "cdk.json"]) or (root / "infra").exists():
+        framework = "iac"
+        category = "iac"
 
     build_command = _script_cmd(pm, "build") if "build" in scripts else None
     start_command = _script_cmd(pm, "start") if "start" in scripts else None
@@ -100,7 +119,13 @@ def analyze_repo(repo_path: str | Path) -> RepoContext:
     if category in {"frontend_static", "nextjs"}:
         recommendation = "aws_amplify"
     elif category == "containerized_web":
-        recommendation = "aws_ecs_express_planned"
+        recommendation = "aws_ecs_express"
+    elif category in {"node_api", "python_api"}:
+        recommendation = "aws_lambda"
+    elif category == "serverless":
+        recommendation = "aws_lambda"
+    elif category == "iac":
+        recommendation = "aws_iac_review"
     else:
         recommendation = "blocked_unknown_repo"
 

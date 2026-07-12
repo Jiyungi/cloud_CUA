@@ -1,32 +1,61 @@
 from __future__ import annotations
 
 import json
+import base64
+import os
 from dataclasses import asdict
 from pathlib import Path
 
 from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
+from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
+from .container_image import prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
+from .deployment_contract import build_deployment_contract, load_contract, save_contract
+from .deployment_milestones import build_ecs_creation_task, build_ecs_inspection_task, review_ecs_inspection
+from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
-from .h_runner import run_h_task
+from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
+from .h_admin import cleanup_h_sessions
+from .h_runner import run_h_task, summarize_h_event
+from .h_skills import get_h_skill_status, sync_h_skills
+from .lessons import load_lesson_candidate, write_lesson_candidate
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
+from .paths import resolve_repo_path
 from .repo_analyzer import analyze_repo
 from .reports import write_report
+from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
+from .skill_registry import get_skill, load_skills, skill_for_target
 from .run_store import RunStore
-from .verifier.aws import verify_amplify_apps, verify_aws_identity
-from .verifier.gcp import verify_gcp_identity, verify_gcp_project
+from .safety import approval_reason, detect_approval_triggers, risk_level
+from .supervisor import review_h_result
+from .verifier.aws import (
+    verify_amplify_apps,
+    verify_app_runner_services,
+    verify_aws_identity,
+    verify_cloudformation_stacks,
+    verify_ecs_clusters,
+    verify_ecs_contract,
+    verify_ecs_run_services,
+    verify_ecr_repositories,
+    verify_lambda_functions,
+    verify_s3_buckets,
+    verify_tagged_resources,
+)
+from .verifier.base import VerifierResult
+from .verifier.gcp import verify_gcp_cloud_run_services, verify_gcp_identity, verify_gcp_project
 from .verifier.http import verify_http_url
 from .verifier.playwright_check import verify_playwright_url
 from .verifier.repo import verify_git_diff
-from .voice_gradium import synthesize_tts
+from .voice_gradium import synthesize_tts, transcribe_stt
 from .voice_router import classify_voice_command
 
 
 class Orchestrator:
     def __init__(self, repo_path: str | Path):
-        self.repo_path = Path(repo_path).resolve()
+        self.repo_path = resolve_repo_path(repo_path)
         self.store = RunStore(self.repo_path)
 
     def start_deployment(self, cloud: str = "aws", mode: str = "vibe") -> dict:
@@ -39,7 +68,15 @@ class Orchestrator:
         run.status = "waiting_for_login"
         self.store.save_run(run)
         self.store.append_event(run.run_id, "system", "result", "Analyzed repo.", {"repo_context": asdict(ctx)})
-        if ctx.recommendation == "aws_amplify":
+        if cloud_v == "aws":
+            aws_plan = build_aws_deployment_plan(self.repo_path.name, ctx)
+            self.store.append_event(run.run_id, "system", "plan", "Prepared generalized AWS deployment plan.", {"aws_plan": aws_plan.to_dict()})
+        if cloud_v == "gcp":
+            gcp_plan = build_gcp_cloud_run_plan(self.repo_path.name, ctx)
+            run.target = gcp_plan.target if gcp_plan.supported else "gcp_cloud_run_blocked"
+            self.store.save_run(run)
+            self.store.append_event(run.run_id, "system", "plan", "Prepared GCP Cloud Run deployment plan.", {"gcp_plan": gcp_plan.to_dict()})
+        if cloud_v == "aws" and ctx.recommendation == "aws_amplify":
             plan = build_amplify_plan(self.repo_path.name, ctx)
             self.store.append_event(run.run_id, "system", "plan", "Prepared AWS Amplify deployment plan.", {"amplify_plan": plan.to_dict()})
         creds = inspect_credentials(self.repo_path)
@@ -52,10 +89,16 @@ class Orchestrator:
         )
         return asdict(run)
 
-    def get_amplify_plan(self, run_id: str) -> dict:
+    def get_aws_plan(self, run_id: str) -> dict:
         ctx = analyze_repo(self.repo_path)
-        plan = build_amplify_plan(self.repo_path.name, ctx)
-        self.store.append_event(run_id, "system", "plan", "Generated AWS Amplify plan.", {"amplify_plan": plan.to_dict()})
+        plan = build_aws_deployment_plan(self.repo_path.name, ctx)
+        self.store.append_event(run_id, "system", "plan", "Generated generalized AWS deployment plan.", {"aws_plan": plan.to_dict()})
+        return plan.to_dict()
+
+    def get_gcp_plan(self, run_id: str) -> dict:
+        ctx = analyze_repo(self.repo_path)
+        plan = build_gcp_cloud_run_plan(self.repo_path.name, ctx)
+        self.store.append_event(run_id, "system", "plan", "Generated GCP Cloud Run plan.", {"gcp_plan": plan.to_dict()})
         return plan.to_dict()
 
     def get_status(self, run_id: str) -> dict:
@@ -116,7 +159,7 @@ class Orchestrator:
             return {"status": "blocked", "summary": "Manual cloud login is required before H CUA can run."}
         task_text = task or "Inspect the visible cloud console page and report what page is visible. Do not create, edit, or delete anything."
         self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode})
-        result = run_h_task(task_text, run.mode)
+        result = run_h_task(task_text, run.mode, event_callback=self._h_event_callback(run_id, "inspect"))
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status})
         if result.status in {"blocked", "failed", "timed_out"}:
             run.status = "blocked" if result.status == "blocked" else "failed"
@@ -124,53 +167,305 @@ class Orchestrator:
             self.store.save_run(run)
         return asdict(result)
 
-    def run_amplify_deployment(self, run_id: str) -> dict:
+    def run_aws_deployment_task(
+        self,
+        run_id: str,
+        task: str | None = None,
+        target: str | None = None,
+        max_spend_usd: float = DEFAULT_MAX_SPEND_USD,
+    ) -> dict:
         run = self.store.load_run(run_id)
+        active_steps = ("h_cua_", "container_image_")
+        if run.status == "running" and run.current_step.startswith(active_steps):
+            return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
         if run.status == "waiting_for_login":
             return {"status": "blocked", "summary": "Manual AWS login is required first."}
-        if run.cloud != "aws" or run.target != "aws_amplify":
-            return {"status": "blocked", "summary": f"Amplify deployment is not supported for target {run.target} on {run.cloud}."}
+        if run.cloud != "aws":
+            return {"status": "blocked", "summary": "General AWS deployment tasks require an AWS run."}
+        if max_spend_usd > DEFAULT_MAX_SPEND_USD:
+            return {"status": "blocked", "summary": f"Requested max spend ${max_spend_usd:.2f} exceeds the configured ${DEFAULT_MAX_SPEND_USD:.2f} limit."}
 
-        action = "Create or update AWS Amplify app"
+        ctx = analyze_repo(self.repo_path)
+        plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
+        option = plan.option(target)
+        contract = build_deployment_contract(self.repo_path, ctx, option.target)
+        skill = skill_for_target(option.target)
+        if skill is not None:
+            contract = contract.with_runtime_inputs(
+                run_id=run_id,
+                skill_name=skill.name,
+                skill_hash=skill.content_hash,
+                autonomy_level=skill.autonomy_level,
+                cloud_region=plan.region,
+                repo_name=self.repo_path.name,
+            )
+        contract_path = save_contract(self.store.contract_path(run_id), contract)
+        self.store.append_event(run_id, "codex", "contract", "Prepared and saved deployment contract from repo facts.", {"contract": contract.to_dict(), "path": str(contract_path)})
+        if contract.missing_facts:
+            run.status = "blocked"
+            run.current_step = "deployment_contract_incomplete"
+            run.target = option.target
+            self.store.save_run(run)
+            self.store.append_event(run_id, "codex", "objection", "Deployment contract is incomplete; stopping before cloud changes.", {"missing_facts": contract.missing_facts})
+            return {"status": "blocked", "summary": "Deployment contract is incomplete; Cloud CUA needs clarification before creating resources.", "contract": contract.to_dict(), "aws_plan": plan.to_dict()}
+        action = f"Run AWS deployment task: {option.label}"
+        triggers = detect_approval_triggers(action, option.label, option.h_task_goal, " ".join(option.risks), task or "")
         if not approval_is_approved(self.store.run_dir(run_id), action):
             approval = create_approval(
                 self.store.run_dir(run_id),
                 action,
-                "This can create cloud resources, connect GitHub, expose a public URL, and may incur AWS costs.",
-                "high",
+                approval_reason(
+                    f"This lets H CUA operate AWS Console for {option.label}. "
+                    f"The task can create cloud resources, public URLs, IAM/service roles, or service connections. "
+                    "Cloud CUA will stop at new unapproved prompts and will verify with AWS CLI after H finishes.",
+                    triggers,
+                    budget_usd=max_spend_usd,
+                ),
+                risk_level(triggers),
+                [trigger.code for trigger in triggers],
             )
-            self.store.append_event(run_id, "system", "approval", "Approval required before AWS Amplify modification.", asdict(approval))
+            self.store.append_event(run_id, "system", "approval", "Approval required before generalized AWS deployment task.", asdict(approval))
             run.status = "blocked"
             run.current_step = "approval_required"
             self.store.save_run(run)
-            return {"status": "blocked", "summary": "Approval required before creating or changing AWS Amplify resources.", "approval": asdict(approval)}
+            return {"status": "blocked", "summary": "Approval required before H CUA can run the AWS deployment task.", "approval": asdict(approval), "aws_plan": plan.to_dict()}
 
-        plan = self.get_amplify_plan(run_id)
-        if not plan.get("supported"):
-            return {"status": "blocked", "summary": "Repo is not supported by the AWS Amplify adapter.", "plan": plan}
-        task_text = (
-            f"Approval was granted for this action: {action}.\n"
-            f"Use the currently open AWS Console to create or configure an AWS Amplify app named {plan['app_name']} "
-            f"for branch {plan['branch']}. Build command: {plan.get('build_command')}. Output directory: {plan.get('output_directory')}. "
-            "Stop and report before GitHub OAuth, billing, broad IAM permissions, deletion, replacement, or any unclear prompt. "
-            "When complete, report the app name, branch, and any visible live/deployment URL."
-        )
+        if not self.store.acquire_lock(run_id, "deployment"):
+            run = self.store.load_run(run_id)
+            return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
+
+        prepared_inputs: dict[str, str] = {}
+        try:
+            if option.target == "aws_ecs_express":
+                def progress(step: str, message: str, evidence: dict) -> None:
+                    current = self.store.load_run(run_id)
+                    current.status = "running"
+                    current.current_step = step
+                    current.target = option.target
+                    self.store.save_run(current)
+                    self.store.append_event(run_id, "system", "command", message, evidence)
+
+                progress("container_image_preparing", "Preparing local Docker image and ECR repository for ECS Express Mode.", {})
+                image_prep = prepare_ecr_image_with_progress(self.repo_path, self.repo_path.name, run_id, plan.region, progress)
+                self.store.append_event(run_id, "system", "result", image_prep.summary, image_prep.to_dict())
+                if image_prep.status != "passed":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "container_image_prep_failed"
+                    run.target = option.target
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": image_prep.summary, "image_prep": image_prep.to_dict(), "aws_target": option.target, "aws_plan": plan.to_dict()}
+                prepared_inputs = {
+                    "container_image_uri": image_prep.image_uri,
+                    "ecr_repository": image_prep.repository_name,
+                    "aws_region": plan.region,
+                    "instruction": "Use this exact image URI in ECS Express Mode. Do not ask for GitHub source or App Runner.",
+                }
+                if contract.selected_container_port is not None:
+                    prepared_inputs["container_port"] = str(contract.selected_container_port)
+                    prepared_inputs["health_check_path"] = contract.health_check_path
+
+            skill = skill_for_target(option.target)
+            if skill is None:
+                run = self.store.load_run(run_id)
+                run.status = "blocked"
+                run.current_step = "deployment_skill_missing"
+                self.store.save_run(run)
+                self.store.append_event(run_id, "codex", "objection", f"No approved deployment skill exists for {option.target}.")
+                return {"status": "blocked", "summary": f"No approved deployment skill exists for {option.target}."}
+            skill_sync = sync_h_skills(self.repo_path, names=[skill.name])
+            self.store.append_event(
+                run_id,
+                "system",
+                "skill_sync",
+                skill_sync.message,
+                {"skill": skill.to_dict(include_body=False), "sync": skill_sync.to_dict()},
+            )
+            if skill_sync.status != "passed":
+                run = self.store.load_run(run_id)
+                run.status = "blocked"
+                run.current_step = "h_skill_sync_blocked"
+                self.store.save_run(run)
+                return {"status": "blocked", "summary": skill_sync.message, "skill_sync": skill_sync.to_dict()}
+
+            contract = contract.with_runtime_inputs(
+                run_id=run_id,
+                skill_name=skill.name,
+                skill_hash=skill.content_hash,
+                autonomy_level=skill.autonomy_level,
+                cloud_region=plan.region,
+                container_image_uri=prepared_inputs.get("container_image_uri", ""),
+                ecr_repository=prepared_inputs.get("ecr_repository", ""),
+                repo_name=self.repo_path.name,
+            )
+            save_contract(self.store.contract_path(run_id), contract)
+
+            if option.target == "aws_ecs_express":
+                run = self.store.load_run(run_id)
+                run.status = "running"
+                run.current_step = "h_cua_inspect_ecs_form"
+                run.target = option.target
+                self.store.save_run(run)
+                inspect_task = build_ecs_inspection_task(contract)
+                self.store.append_event(run_id, "h_cua", "milestone", "H CUA is inspecting the ECS Express form without making changes.", {"milestone": "inspect_ecs_express_form", "skill_name": skill.name})
+                inspect_result = run_h_task(
+                    inspect_task,
+                    run.mode,
+                    max_steps=30,
+                    max_time_s=420,
+                    skill_names=[skill.name],
+                    event_callback=self._h_event_callback(run_id, "inspect_ecs_express_form"),
+                )
+                self.store.append_event(run_id, "h_cua", "observation", inspect_result.summary, {"status": inspect_result.status, "session_id": inspect_result.session_id, "milestone": "inspect_ecs_express_form"})
+                inspection_review = review_ecs_inspection(inspect_result, contract)
+                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed ECS form inspection: {inspection_review.status}.", inspection_review.to_dict())
+                if inspection_review.status != "clear":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "ecs_form_contract_mismatch"
+                    self.store.save_run(run)
+                    self._write_lesson(
+                        run_id,
+                        skill.name,
+                        "H CUA's ECS form inspection conflicted with the deployment contract.",
+                        inspection_review.to_dict(),
+                        "Require a structured, contract-matching ECS form inspection before any mutation milestone.",
+                        "Test that any visible image, port, region, health path, or service-target mismatch blocks creation.",
+                    )
+                    return {
+                        "status": "blocked",
+                        "summary": "The ECS form inspection did not match the saved deployment contract.",
+                        "review": inspection_review.to_dict(),
+                        "contract": contract.to_dict(),
+                    }
+
+                task_text = build_ecs_creation_task(contract)
+            else:
+                task_text = build_general_aws_h_task(
+                    self.repo_path.name,
+                    ctx,
+                    plan,
+                    target=option.target,
+                    user_task=task,
+                    run_id=run_id,
+                    prepared_inputs=prepared_inputs,
+                    contract=contract,
+                )
+            run = self.store.load_run(run_id)
+            run.status = "running"
+            run.current_step = "h_cua_create_ecs_service" if option.target == "aws_ecs_express" else f"h_cua_{option.target}"
+            run.target = option.target
+            self.store.save_run(run)
+            self.store.append_event(run_id, "h_cua", "milestone", "H CUA is executing the approved deployment milestone.", {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name, "milestone": "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"})
+            result = run_h_task(
+                task_text,
+                run.mode,
+                max_steps=60,
+                max_time_s=900,
+                skill_names=[skill.name],
+                event_callback=self._h_event_callback(run_id, "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"),
+            )
+            self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
+            review = review_h_result(result, contract)
+            self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
+            if result.status == "completed":
+                self._record_resource_summary(run_id, run.cloud, option.target, result.summary)
+                run.status = "verifying"
+                run.current_step = "h_cua_completed_run_verifier_next"
+                self.store.save_run(run)
+                self.run_verifier(run_id, "default")
+                self.write_report(run_id)
+            else:
+                run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
+                run.current_step = "h_cua_aws_task_blocked"
+                self.store.save_run(run)
+                self._write_lesson(
+                    run_id,
+                    skill.name,
+                    f"H CUA deployment milestone ended with status {result.status}.",
+                    {"summary": result.summary, "outcome": result.outcome, "error": result.error},
+                    "Stop the deployment when H cannot complete a skill milestone and preserve its blocker for review.",
+                    "Test that blocked, timed-out, and failed H milestones cannot advance to verification.",
+                )
+            return {**asdict(result), "aws_target": option.target, "aws_plan": plan.to_dict()}
+        finally:
+            self.store.release_lock(run_id, "deployment")
+
+    def run_gcp_deployment_task(
+        self,
+        run_id: str,
+        task: str | None = None,
+    ) -> dict:
+        run = self.store.load_run(run_id)
+        if run.status == "running" and run.current_step.startswith("h_cua_"):
+            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
+        if run.status == "waiting_for_login":
+            return {"status": "blocked", "summary": "Manual GCP login is required first."}
+        if run.cloud != "gcp":
+            return {"status": "blocked", "summary": "GCP deployment tasks require a GCP run."}
+
+        ctx = analyze_repo(self.repo_path)
+        plan = build_gcp_cloud_run_plan(self.repo_path.name, ctx)
+        if not plan.supported:
+            return {"status": "blocked", "summary": plan.reason, "gcp_plan": plan.to_dict()}
+
+        action = "Run GCP Cloud Run deployment task"
+        triggers = detect_approval_triggers(action, plan.reason, " ".join(plan.risks), task or "")
+        if not approval_is_approved(self.store.run_dir(run_id), action):
+            approval = create_approval(
+                self.store.run_dir(run_id),
+                action,
+                approval_reason(
+                    "This lets H CUA operate GCP Console for Cloud Run. It may create billable services, public URLs, Artifact Registry, Cloud Build, or IAM changes.",
+                    triggers,
+                    budget_usd=DEFAULT_MAX_SPEND_USD,
+                ),
+                risk_level(triggers),
+                [trigger.code for trigger in triggers],
+            )
+            self.store.append_event(run_id, "system", "approval", "Approval required before GCP Cloud Run task.", asdict(approval))
+            run.status = "blocked"
+            run.current_step = "approval_required"
+            self.store.save_run(run)
+            return {"status": "blocked", "summary": "Approval required before H CUA can run the GCP deployment task.", "approval": asdict(approval), "gcp_plan": plan.to_dict()}
+
+        skill = skill_for_target(plan.target)
+        if skill is None:
+            return {"status": "blocked", "summary": f"No approved deployment skill exists for {plan.target}."}
+        skill_sync = sync_h_skills(self.repo_path, names=[skill.name])
+        self.store.append_event(run_id, "system", "skill_sync", skill_sync.message, {"skill": skill.to_dict(include_body=False), "sync": skill_sync.to_dict()})
+        if skill_sync.status != "passed":
+            run.status = "blocked"
+            run.current_step = "h_skill_sync_blocked"
+            self.store.save_run(run)
+            return {"status": "blocked", "summary": skill_sync.message, "skill_sync": skill_sync.to_dict()}
+
+        task_text = build_gcp_cloud_run_h_task(self.repo_path.name, ctx, plan, task)
         run.status = "running"
-        run.current_step = "h_cua_amplify_modify"
+        run.current_step = "h_cua_gcp_cloud_run"
+        run.target = plan.target
         self.store.save_run(run)
-        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "approval": action})
-        result = run_h_task(task_text, run.mode, max_steps=35, max_time_s=420)
+        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "gcp_target": plan.target, "skill_name": skill.name})
+        result = run_h_task(
+            task_text,
+            run.mode,
+            max_steps=60,
+            max_time_s=900,
+            skill_names=[skill.name],
+            event_callback=self._h_event_callback(run_id, "gcp_cloud_run"),
+        )
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
         if result.status == "completed":
-            run.current_step = "h_cua_completed_run_verifier_next"
+            self._record_resource_summary(run_id, run.cloud, plan.target, result.summary)
             run.status = "verifying"
+            run.current_step = "h_cua_completed_run_verifier_next"
             self.store.save_run(run)
             self.run_verifier(run_id, "default")
         else:
             run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
-            run.current_step = "h_cua_amplify_blocked"
+            run.current_step = "h_cua_gcp_task_blocked"
             self.store.save_run(run)
-        return asdict(result)
+        return {**asdict(result), "gcp_plan": plan.to_dict()}
 
     def submit_codex_plan(self, run_id: str, plan: str) -> dict:
         event = self.store.append_event(run_id, "codex", "plan", plan)
@@ -188,7 +483,49 @@ class Orchestrator:
     def decide_approval(self, run_id: str, approval_id: str, approved: bool) -> dict:
         approval = decide_approval(self.store.run_dir(run_id), approval_id, approved)
         self.store.append_event(run_id, "user", "approval", f"Approval {approval.status}: {approval.action}", asdict(approval))
+        if approved:
+            run = self.store.load_run(run_id)
+            if run.status == "blocked" and run.current_step == "approval_required":
+                run.status = "running"
+                run.current_step = "approval_approved"
+                self.store.save_run(run)
         return asdict(approval)
+
+    def resume_approved_deployment(self, run_id: str) -> dict:
+        approvals = load_approvals(self.store.run_dir(run_id))
+        approval = next(
+            (
+                item
+                for item in approvals
+                if item.status == "approved"
+                and (
+                    item.action.startswith("Run AWS deployment task:")
+                    or item.action == "Run GCP Cloud Run deployment task"
+                )
+            ),
+            None,
+        )
+        if approval is None:
+            return {"status": "skipped", "summary": "No approved deployment gate is ready to resume."}
+
+        run = self.store.load_run(run_id)
+        if run.status == "running" and run.current_step.startswith(("h_cua_", "container_image_")):
+            return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
+
+        if run.status == "blocked" and run.current_step == "approval_required":
+            run.status = "running"
+            run.current_step = "approval_approved"
+            self.store.save_run(run)
+        elif run.current_step not in {"approval_required", "approval_approved"}:
+            return {"status": "skipped", "summary": f"Approved deployment gate is not resumable from step {run.current_step}.", "current_step": run.current_step}
+
+        self.store.append_event(run_id, "system", "command", "Continuing approved deployment gate.", {"approval_id": approval.approval_id, "action": approval.action})
+        if approval.action.startswith("Run AWS deployment task:"):
+            target = run.target if run.cloud == "aws" and run.target else None
+            return self.run_aws_deployment_task(run_id, target=target)
+        if approval.action == "Run GCP Cloud Run deployment task":
+            return self.run_gcp_deployment_task(run_id)
+        return {"status": "skipped", "summary": f"Approved action is not resumable: {approval.action}"}
 
     def list_approvals(self, run_id: str) -> list[dict]:
         return [asdict(item) for item in load_approvals(self.store.run_dir(run_id))]
@@ -213,22 +550,106 @@ class Orchestrator:
         self.store.append_event(run_id, "system", "result", "Gradium TTS completed.", {"status": result.status, "summary": result.summary, "audio_bytes_base64_length": len(result.audio_base64)})
         return asdict(result)
 
+    def transcribe_voice(self, run_id: str, audio_base64: str, input_format: str = "webm") -> dict:
+        try:
+            audio = base64.b64decode(audio_base64.split(",", 1)[-1])
+        except Exception as exc:
+            return {"status": "failed", "summary": f"Invalid audio payload: {exc}", "transcript": ""}
+        stt = transcribe_stt(audio, str(self.repo_path), input_format)
+        transcript = stt.transcript.strip()
+        message = "Gradium STT completed."
+        if stt.status == "passed":
+            message = f"Gradium STT heard: {transcript or '[no speech detected]'}"
+        self.store.append_event(
+            run_id,
+            "system",
+            "result",
+            message,
+            {"status": stt.status, "summary": stt.summary, "transcript": transcript, "input_format": input_format},
+        )
+        route = None
+        if stt.status == "passed" and transcript:
+            route = self.voice_command(run_id, transcript)
+            self.store.append_event(
+                run_id,
+                "system",
+                "result",
+                f"STT routed to {route['route']} as {route['classification']}.",
+                {"route": route},
+            )
+        return {"stt": asdict(stt), "route": route}
+
     def run_verifier(self, run_id: str, verifier_name: str = "default", url: str | None = None) -> list[dict]:
         run = self.store.load_run(run_id)
         run.current_step = "verifier_running"
         self.store.save_run(run)
+        report_path = write_report(self.repo_path, run_id)
         out_dir = self.store.verifier_dir(run_id)
         results = []
+        verifier_urls: list[str] = []
+        report_result = VerifierResult(
+            "report_written",
+            "passed" if report_path.exists() else "failed",
+            "DEPLOYMENT_REPORT.md",
+            f"Deployment report exists at {report_path}." if report_path.exists() else "Deployment report was not written.",
+        )
+        results.append(asdict(report_result.save(out_dir)))
         for result in [verify_git_diff(self.repo_path)]:
             results.append(asdict(result.save(out_dir)))
         if run.cloud == "aws":
-            for result in [verify_aws_identity(), verify_amplify_apps()]:
+            aws_results = [
+                verify_aws_identity(),
+                verify_tagged_resources(run_id),
+                verify_amplify_apps(),
+                verify_app_runner_services(),
+                verify_ecs_clusters(),
+                verify_ecr_repositories(),
+                verify_lambda_functions(),
+                verify_s3_buckets(),
+                verify_cloudformation_stacks(),
+            ]
+            if run.target in {"aws_ecs_express", "aws_ecs_fargate"}:
+                aws_results.append(verify_ecs_run_services(run_id))
+                if self.store.contract_path(run_id).exists():
+                    ecs_contract_result = verify_ecs_contract(run_id, load_contract(self.store.contract_path(run_id)))
+                    aws_results.append(ecs_contract_result)
+                    try:
+                        contract_evidence = json.loads(ecs_contract_result.summary)
+                        for service in contract_evidence.get("services", []):
+                            for endpoint in service.get("endpoints", []):
+                                verifier_urls.append(endpoint if str(endpoint).startswith("http") else f"https://{endpoint}")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                else:
+                    aws_results.append(VerifierResult("aws_ecs_contract", "failed", "contract.json", "Saved deployment contract is missing."))
+                cleanup = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=True)
+                cleanup_status = "passed" if cleanup.status == "passed" and cleanup.actions else "failed"
+                aws_results.append(
+                    VerifierResult(
+                        "cleanup_discovery",
+                        cleanup_status,
+                        "cloud-cua aws-cleanup --run-id <run-id>",
+                        cleanup.summary if cleanup.actions else "Cleanup could not discover any resource belonging to this run.",
+                    )
+                )
+            for result in aws_results:
                 results.append(asdict(result.save(out_dir)))
         else:
-            for result in [verify_gcp_identity(), verify_gcp_project()]:
+            for result in [verify_gcp_identity(), verify_gcp_project(), verify_gcp_cloud_run_services()]:
                 results.append(asdict(result.save(out_dir)))
-        if url:
-            for result in [verify_http_url(url), verify_playwright_url(url)]:
+        urls = ([url] if url else []) + verifier_urls
+        for record in load_resource_records(self.store.run_dir(run_id) / "resources.json"):
+            urls.extend(record.app_urls)
+        if run.cloud == "aws" and run.target in {"aws_ecs_express", "aws_ecs_fargate", "aws_amplify", "aws_s3_static_site"} and not urls:
+            result = VerifierResult(
+                "public_app_url",
+                "failed",
+                "resource_records.app_urls",
+                "No public application URL was found. Console URLs do not count as live app proof.",
+            )
+            results.append(asdict(result.save(out_dir)))
+        for item_url in sorted(set(item for item in urls if item)):
+            for result in [verify_http_url(item_url), verify_playwright_url(item_url)]:
                 results.append(asdict(result.save(out_dir)))
         self.store.append_event(run_id, "verifier", "result", "Ran verifier stack.", {"results": results})
         run = self.store.load_run(run_id)
@@ -238,7 +659,31 @@ class Orchestrator:
         else:
             run.status = "blocked"
         self.store.save_run(run)
+        failed_results = [item for item in results if item["status"] == "failed"]
+        if failed_results:
+            skill_name = ""
+            if self.store.contract_path(run_id).exists():
+                skill_name = load_contract(self.store.contract_path(run_id)).skill_name
+            self._write_lesson(
+                run_id,
+                skill_name or f"cloud-cua/{run.target.replace('_', '-')}",
+                "Independent deployment verification failed.",
+                {"failed_verifiers": failed_results},
+                "Do not mark a deployment complete until every verifier required by the active skill passes.",
+                "Reproduce each failed verifier with a fixture and prove the run remains blocked.",
+            )
+        write_report(self.repo_path, run_id)
         return results
+
+    def cleanup_h_sessions(self) -> dict:
+        result = cleanup_h_sessions(str(self.repo_path))
+        return result.to_dict()
+
+    def cleanup_aws_resources(self, run_id: str | None = None, dry_run: bool = True) -> dict:
+        result = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=dry_run)
+        if run_id:
+            self.store.append_event(run_id, "system", "command", "Ran AWS cleanup workflow.", result.to_dict())
+        return result.to_dict()
 
     def write_report(self, run_id: str) -> dict:
         path = write_report(self.repo_path, run_id)
@@ -246,3 +691,122 @@ class Orchestrator:
 
     def list_runs(self) -> list[dict]:
         return [asdict(run) for run in self.store.list_runs()]
+
+    def capabilities(self) -> dict:
+        creds = inspect_credentials(self.repo_path)
+        return {
+            "hai_api_key_present": creds.hai_api_key_present,
+            "gradium_api_key_present": creds.gradium_api_key_present,
+            "credentials_source": creds.source,
+            "container_mode": os.environ.get("CLOUD_CUA_CONTAINER") == "1",
+        }
+
+    def get_skill_status(self) -> dict:
+        remote = get_h_skill_status(self.repo_path).to_dict()
+        remote_by_name = {item["name"]: item for item in remote["skills"]}
+        return {
+            **remote,
+            "skills": [
+                {
+                    **skill.to_dict(include_body=False),
+                    "h_status": remote_by_name.get(skill.name, {}).get("status", "unknown"),
+                    "h_message": remote_by_name.get(skill.name, {}).get("message", ""),
+                    "remote_hash": remote_by_name.get(skill.name, {}).get("remote_hash"),
+                }
+                for skill in load_skills()
+            ],
+        }
+
+    def get_lesson_candidate(self, run_id: str) -> dict:
+        lesson = load_lesson_candidate(self.store.run_dir(run_id))
+        return lesson or {"status": "none", "run_id": run_id}
+
+    def get_run_skill_state(self, run_id: str) -> dict:
+        run = self.store.load_run(run_id)
+        contract = load_contract(self.store.contract_path(run_id)) if self.store.contract_path(run_id).exists() else None
+        skill = None
+        if contract and contract.skill_name:
+            try:
+                skill = get_skill(contract.skill_name)
+            except KeyError:
+                skill = None
+        if skill is None:
+            skill = skill_for_target(run.target)
+        events = self.store.read_events(run_id, limit=500)
+        sync_event = next((event for event in reversed(events) if event["type"] == "skill_sync"), None)
+        sync_status = "not_synced"
+        if sync_event:
+            sync_items = sync_event.get("evidence", {}).get("sync", {}).get("skills", [])
+            matching = next((item for item in sync_items if not skill or item.get("name") == skill.name), None)
+            sync_status = matching.get("status", "unknown") if matching else sync_event.get("evidence", {}).get("sync", {}).get("status", "unknown")
+        contract_data = contract.to_dict() if contract else {}
+        present_facts = _present_contract_facts(contract_data)
+        required_facts = skill.required_facts if skill else []
+        missing_facts = [fact for fact in required_facts if fact not in present_facts]
+        if contract:
+            missing_facts.extend(item for item in contract.missing_facts if item not in missing_facts)
+        return {
+            "run_id": run_id,
+            "active_skill": skill.to_dict(include_body=False) if skill else None,
+            "h_sync_status": sync_status,
+            "contract": contract_data or None,
+            "present_facts": sorted(present_facts),
+            "missing_facts": missing_facts,
+            "verifier_gates": skill.required_verifiers if skill else [],
+            "lesson_candidate": load_lesson_candidate(self.store.run_dir(run_id)),
+        }
+
+    def sync_h_skills(self, names: list[str] | None = None, dry_run: bool = False) -> dict:
+        return sync_h_skills(self.repo_path, names=names, dry_run=dry_run).to_dict()
+
+    def _record_resource_summary(self, run_id: str, cloud: str, target: str, summary: str) -> None:
+        record = extract_resource_record(run_id, cloud, target, summary)
+        path = save_resource_record(self.store.run_dir(run_id) / "resources.json", record)
+        self.store.append_event(run_id, "system", "result", "Recorded resource hints from H CUA final answer.", {"path": str(path), "record": asdict(record)})
+
+    def _h_event_callback(self, run_id: str, milestone: str):
+        def record(event: dict) -> None:
+            self.store.append_event(
+                run_id,
+                "h_cua",
+                "trajectory",
+                summarize_h_event(event),
+                {"milestone": milestone, "h_event_type": event.get("type", "trajectory_event")},
+            )
+
+        return record
+
+    def _write_lesson(
+        self,
+        run_id: str,
+        affected_skill: str,
+        failure: str,
+        evidence: dict,
+        proposed_rule: str,
+        required_test: str,
+    ) -> None:
+        path = write_lesson_candidate(
+            self.store.run_dir(run_id),
+            run_id=run_id,
+            affected_skill=affected_skill,
+            failure=failure,
+            evidence=evidence,
+            proposed_rule=proposed_rule,
+            required_test=required_test,
+        )
+        self.store.append_event(
+            run_id,
+            "codex",
+            "lesson_candidate",
+            "Recorded a skill lesson candidate for review; it was not auto-promoted.",
+            {"path": str(path), "affected_skill": affected_skill},
+        )
+
+
+def _present_contract_facts(contract: dict) -> set[str]:
+    present = {key for key, value in contract.items() if value is not None and value != "" and value != [] and value != {}}
+    if contract.get("cloud_region"):
+        present.update({"aws_region", "google_cloud_region"})
+    if contract.get("required_tags", {}).get("cloud-cua-run"):
+        present.update({"cloud_cua_run_tag"})
+    return present

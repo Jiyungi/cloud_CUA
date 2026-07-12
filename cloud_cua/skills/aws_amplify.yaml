@@ -1,0 +1,39 @@
+name: cloud-cua/aws-amplify
+description: Use for deploying a supported static or frontend repository through AWS Amplify Hosting when Cloud CUA supplies a deployment contract and approval state.
+target: aws_amplify
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA
+url_pattern: "https://console\\.aws\\.amazon\\.com/amplify/.*"
+required_facts:
+  - repository_source
+  - build_command
+  - output_directory
+  - aws_region
+  - cloud_cua_run_tag
+unknowns_that_block:
+  - Build command or output directory is unknown.
+  - Repository access requires unapproved OAuth or account linking.
+h_cua_allowed_actions:
+  - Inspect Amplify Hosting setup forms.
+  - Report required repository, branch, build, domain, and authentication inputs.
+  - Create an Amplify app only after approval and only when the contract is complete.
+h_cua_stop_conditions:
+  - GitHub OAuth, account linking, secrets, or an unexpected pricing choice is required.
+  - Build settings differ from the contract.
+required_verifiers:
+  - aws_identity
+  - aws_tagged_run_resources
+  - aws_amplify_app_contract
+  - public_app_url
+  - http_live_url
+  - playwright_render
+success_conditions:
+  - The exact run-tagged Amplify app and branch exist.
+  - The deployed URL passes HTTP and browser rendering checks.
+cleanup_strategy: Delete only the run-tagged Amplify app after explicit cleanup approval.
+body: |
+  # Deploy with AWS Amplify Hosting
+
+  Use the Cloud CUA contract as the source of truth. Inspect first and report repository, branch, framework detection, build command, output directory, environment variable names, domain choice, OAuth requirements, and price-impacting choices.
+
+  Do not connect an account, reveal secrets, change billing, or create resources until the prompt confirms approval. Stop if build settings are missing or differ from the contract. After submission, report structured JSON with the app ID, branch, build status, public app URL, console URL, created resources, and blockers. Independent verifiers decide success.

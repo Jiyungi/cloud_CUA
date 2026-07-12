@@ -23,7 +23,7 @@ This is one product with three surfaces:
 - Local dashboard for the human user.
 - CLI for installation, startup, credentials, and MCP registration.
 
-The first real deployment target is AWS Amplify for frontend-style repos. ECS Express Mode and GCP Cloud Run are follow-on targets after the control loop is reliable.
+The product now supports generalized AWS deployment planning across Amplify, S3 static hosting, ECS Express Mode, Lambda, and IaC discovery. App Runner is treated as blocked/deprecated for new AWS accounts. GCP Cloud Run has a real approval-gated plan and verifier path, but still requires `gcloud` auth and manual GCP browser login.
 
 ## Non-Negotiable Rules
 
@@ -126,11 +126,12 @@ The first real deployment target is AWS Amplify for frontend-style repos. ECS Ex
 
 #### Acceptance Criteria
 
-1. FOR the first real deployment MVP, THE Cloud_CUA_System SHALL support AWS Amplify for frontend-style repos.
-2. THE Cloud_CUA_System SHALL mark AWS ECS Express Mode and GCP Cloud Run as planned follow-on targets until implemented.
-3. WHEN the repo fits AWS Amplify, THE Cloud_CUA_System SHALL recommend AWS Amplify and explain the reason according to the current mode.
-4. WHEN the repo does not fit the implemented target, THE Cloud_CUA_System SHALL stop before cloud changes and report the unsupported reason.
-5. THE Cloud_CUA_System SHALL NOT pretend to support a target that has no verifier implementation.
+1. FOR frontend-style repos, THE Cloud_CUA_System SHALL support AWS Amplify planning and approval-gated H CUA tasks.
+2. FOR static frontend repos, THE Cloud_CUA_System SHALL support S3 static hosting as a low-cost AWS target with cleanup and verifier support.
+3. FOR containerized/API repos with a Dockerfile, THE Cloud_CUA_System SHALL recommend AWS ECS Express Mode first, prepare an ECR image when possible, and SHALL NOT recommend AWS App Runner for new AWS accounts.
+4. FOR GCP, THE Cloud_CUA_System SHALL support Cloud Run planning, approval gating, and `gcloud run services list` verification.
+5. WHEN the repo does not fit an implemented target, THE Cloud_CUA_System SHALL stop before cloud changes and report the unsupported reason.
+6. THE Cloud_CUA_System SHALL NOT pretend to support a target that has no verifier implementation.
 
 ### Requirement 7: H CUA Task Boundaries
 
@@ -203,7 +204,7 @@ The first real deployment target is AWS Amplify for frontend-style repos. ECS Ex
 
 1. WHEN Gradium STT returns text, THE Voice_Command_Router SHALL classify it before sending it to Codex or H CUA.
 2. IF the STT text is a direct control command such as pause, continue, stop, switch to Vibe mode, switch to Teach mode, switch to Expert mode, open logs, mute voice, or run verifier, THEN THE Cloud_CUA_System SHALL execute the backend/dashboard action directly.
-3. IF the STT text is a reasoning question such as "why Amplify?", "what is IAM?", "is this cheaper?", or "explain this error", THEN THE Cloud_CUA_System SHALL route it to Codex or the explanation engine.
+3. IF the STT text is a reasoning question such as "why this service?", "what is IAM?", "is this cheaper?", or "explain this error", THEN THE Cloud_CUA_System SHALL route it to Codex or the explanation engine.
 4. IF the STT text requests a cloud operation, THEN THE Cloud_CUA_System SHALL convert it into a bounded planned action and SHALL require approval when the action affects cost, security, public exposure, secrets, or destructive changes.
 5. THE Cloud_CUA_System SHALL never send raw voice text directly to H CUA as an instruction.
 6. THE Voice_Command_Router SHALL write a `voice_command` event with the transcript, classification, and selected route.
@@ -274,18 +275,18 @@ The first real deployment target is AWS Amplify for frontend-style repos. ECS Ex
 5. THE Cloud_CUA_System SHALL require approval before sharing secrets with any cloud service.
 6. THE approval record SHALL be written to the Run_Event_Log.
 
-### Requirement 17: First AWS Amplify Deployment Path
+### Requirement 17: AWS Deployment Paths
 
-**User Story:** As a developer with a frontend-style repo, I want Cloud CUA to deploy through AWS Amplify first, so that the MVP proves real cloud-console deployment.
+**User Story:** As a developer, I want Cloud CUA to choose a reasonable AWS deployment path for my repo, so that the product is not limited to one Amplify demo.
 
 #### Acceptance Criteria
 
-1. WHEN the repo is classified as frontend-style and AWS is selected, THE Cloud_CUA_System SHALL recommend AWS Amplify.
+1. WHEN the repo is classified as frontend-style and AWS is selected, THE Cloud_CUA_System SHALL recommend AWS Amplify or S3 static hosting according to repo fit and user intent.
 2. THE Cloud_CUA_System SHALL guide H CUA through AWS Amplify console setup after manual login.
 3. THE Cloud_CUA_System SHALL pause for GitHub OAuth or account-linking approval when required.
 4. THE Cloud_CUA_System SHALL collect required build command, output directory, branch, and environment variables from Repo_Context or user approval.
-5. THE Cloud_CUA_System SHALL verify Amplify app existence with AWS CLI/API.
-6. THE Cloud_CUA_System SHALL verify the live Amplify URL with HTTP and Playwright checks.
+5. THE Cloud_CUA_System SHALL tag new resources with `cloud-cua=true`, `cloud-cua-repo`, and `cloud-cua-run` whenever the cloud console exposes tags.
+6. THE Cloud_CUA_System SHALL verify AWS identity, selected service resources, tagged resources, and live URLs with independent CLI/HTTP/Playwright checks where possible.
 
 ### Requirement 18: Out-of-Scope Deployment Targets
 
@@ -293,8 +294,8 @@ The first real deployment target is AWS Amplify for frontend-style repos. ECS Ex
 
 #### Acceptance Criteria
 
-1. THE Cloud_CUA_System SHALL identify ECS Express Mode as a planned target until implemented.
-2. THE Cloud_CUA_System SHALL identify GCP Cloud Run as a planned target until implemented.
+1. THE Cloud_CUA_System SHALL identify App Runner as blocked/deprecated for new AWS accounts and SHALL steer containerized web apps toward ECS Express Mode.
+2. THE Cloud_CUA_System SHALL identify GCP Cloud Run as implemented for planning and verification, but blocked until local `gcloud` auth and manual browser login are available.
 3. THE Cloud_CUA_System SHALL identify databases, queues, domains, and production networking as planned advanced scope unless implemented with verifiers.
 4. THE Cloud_CUA_System SHALL stop and report unsupported scope rather than improvising unverified deployment paths.
 
@@ -323,4 +324,23 @@ The first real deployment target is AWS Amplify for frontend-style repos. ECS Ex
 5. THE MVP SHALL record Codex, H CUA, user, and verifier events in `events.jsonl`.
 6. THE MVP SHALL run at least identity, HTTP, Playwright, and report verifiers.
 7. THE MVP SHALL support live mode switching.
-8. THE first deployment MVP SHALL deploy one frontend-style repo to AWS Amplify and verify it independently.
+8. THE first deployment MVP SHALL run at least one low-cost real AWS deployment smoke, verify it independently, and clean it up.
+9. THE H-driven cloud-console deployment MVP SHALL remain blocked until the H-controlled browser profile is manually logged into the target cloud account.
+
+### Requirement 21: Skills, Contracts, and Safe Learning
+
+**User Story:** As a developer, I want H CUA to gain bounded autonomy from reusable deployment skills while independent checks prevent repeated mistakes.
+
+#### Acceptance Criteria
+
+1. THE Cloud_CUA_System SHALL store reviewed deployment skills as local YAML and synchronize them to the user's H skill catalog.
+2. BEFORE a skilled H deployment session, THE Cloud_CUA_System SHALL create or update the active H skill and attach its name to the H agent.
+3. IF H skill synchronization fails, THEN THE Cloud_CUA_System SHALL block the H deployment session.
+4. THE Cloud_CUA_System SHALL save a per-run `contract.json` containing the exact image, port, region, tags, health path, skill hash, and autonomy level available for the target.
+5. FOR ECS Express, H CUA SHALL inspect the creation form without mutation before receiving the approved creation milestone.
+6. IF H's structured inspection conflicts with the contract, THEN Codex/backend SHALL record an objection and SHALL NOT send the creation milestone.
+7. THE Run_Event_Log SHALL record H trajectory events incrementally while the H session runs.
+8. THE ECS verifier SHALL independently compare the exact run-tagged service's task-definition image and port to `contract.json`, require healthy targets, and verify a real non-console application URL.
+9. ON a milestone or verifier failure, THE Cloud_CUA_System SHALL write `lesson_candidate.json` with failure evidence, a proposed general rule, and a required test.
+10. THE Cloud_CUA_System SHALL NOT automatically promote lesson candidates into trusted skills.
+11. THE Local_Dashboard SHALL show the active skill, H sync state, autonomy level, contract facts, missing facts, verifier gates, and pending lesson.

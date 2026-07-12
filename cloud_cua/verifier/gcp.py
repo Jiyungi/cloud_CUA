@@ -10,3 +10,10 @@ def verify_gcp_identity():
 def verify_gcp_project():
     return run_command("gcp_project", ["gcloud", "config", "get-value", "project"], timeout=30)
 
+
+def verify_gcp_cloud_run_services(region: str = "us-central1"):
+    return run_command(
+        "gcp_cloud_run_services",
+        ["gcloud", "run", "services", "list", "--region", region, "--format=json"],
+        timeout=45,
+    )

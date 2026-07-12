@@ -8,6 +8,7 @@ dependencies = [
   "uvicorn>=0.30",
   "mcp>=1.0",
   "python-dotenv>=1.0",
+  "PyYAML>=6.0",
   "websockets>=12,<16",
 ]
 
@@ -17,6 +18,7 @@ h = [
 ]
 dev = [
   "pytest>=8.0",
+  "httpx>=0.27",
 ]
 
 [project.scripts]
@@ -26,3 +28,6 @@ cloud-cua = "cloud_cua.cli:main"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-p no:eval_protocol"
+
+[tool.setuptools.package-data]
+cloud_cua = ["skills/*.yaml"]

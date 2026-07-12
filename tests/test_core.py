@@ -4,11 +4,25 @@ import json
 import subprocess
 from pathlib import Path
 
-from cloud_cua.h_runner import run_h_task
+from cloud_cua.aws_cli import aws_command
+from cloud_cua.h_runner import HTaskResult, run_h_task
+from cloud_cua.lessons import load_lesson_candidate, write_lesson_candidate
+from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
+from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
+from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
+from cloud_cua.deployment_contract import build_deployment_contract, load_contract, save_contract
+from cloud_cua.deployment_milestones import review_ecs_inspection
+from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
+from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
+from cloud_cua.packaging import build_shareable_package
+from cloud_cua.paths import resolve_repo_path
 from cloud_cua.reports import write_report
 from cloud_cua.repo_analyzer import analyze_repo
+from cloud_cua.resource_tracking import extract_resource_record
 from cloud_cua.run_store import RunStore
+from cloud_cua.safety import detect_approval_triggers
 from cloud_cua.verifier.base import VerifierResult
+from cloud_cua.verifier.aws import verify_ecs_contract
 from cloud_cua.voice_router import classify_voice_command
 from cloud_cua.voice_gradium import synthesize_tts
 
@@ -21,7 +35,7 @@ def test_voice_router_fast_lane_pause():
 
 
 def test_voice_router_reasoning_not_h_cua():
-    route = classify_voice_command("why Amplify?")
+    route = classify_voice_command("why this service?")
     assert route.classification == "reasoning_question"
     assert route.route == "codex"
 
@@ -56,12 +70,332 @@ def test_repo_analyzer_dockerfile_is_planned_ecs(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM python:3.12\n", encoding="utf-8")
     ctx = analyze_repo(tmp_path)
     assert ctx.dockerfile is True
-    assert ctx.recommendation == "aws_ecs_express_planned"
+    assert ctx.recommendation == "aws_ecs_express"
+
+
+def test_repo_analyzer_node_api_recommends_lambda(tmp_path: Path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"start": "node server.js"}, "dependencies": {"express": "^5.0.0"}}),
+        encoding="utf-8",
+    )
+    ctx = analyze_repo(tmp_path)
+    assert ctx.category == "node_api"
+    assert ctx.recommendation == "aws_lambda"
+
+
+def test_general_aws_plan_has_multiple_frontend_options(tmp_path: Path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"build": "vite build"}, "dependencies": {"vite": "^5.0.0"}}),
+        encoding="utf-8",
+    )
+    ctx = analyze_repo(tmp_path)
+    plan = build_aws_deployment_plan("demo", ctx)
+    targets = [option.target for option in plan.options]
+    assert plan.primary_target == "aws_amplify"
+    assert "aws_s3_static_site" in targets
+    assert plan.max_spend_usd == 5.0
+
+
+def test_general_aws_plan_uses_ecs_express_for_docker(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    plan = build_aws_deployment_plan("demo-api", ctx)
+    targets = [option.target for option in plan.options]
+    assert plan.primary_target == "aws_ecs_express"
+    assert "aws_app_runner_deprecated" in targets
+    assert "App Runner is closed" in " ".join(plan.unknowns)
+
+
+def test_deployment_contract_detects_container_port(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12\nEXPOSE 4173/tcp\nCMD python -m app\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    contract = build_deployment_contract(tmp_path, ctx, "aws_ecs_express")
+    assert contract.selected_container_port == 4173
+    assert not contract.missing_facts
+
+
+def test_deployment_contract_blocks_unknown_container_port(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12\nCMD python -m app\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    contract = build_deployment_contract(tmp_path, ctx, "aws_ecs_express")
+    assert contract.selected_container_port is None
+    assert contract.missing_facts
+
+
+def test_deployment_contract_round_trips_runtime_inputs(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    contract = build_deployment_contract(tmp_path, ctx, "aws_ecs_express").with_runtime_inputs(
+        run_id="run-1",
+        skill_name="cloud-cua/aws-ecs-express",
+        skill_hash="abc",
+        autonomy_level=2,
+        cloud_region="us-east-1",
+        container_image_uri="123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+        ecr_repository="app",
+        repo_name="demo",
+    )
+    path = save_contract(tmp_path / "contract.json", contract)
+    loaded = load_contract(path)
+    assert loaded.selected_container_port == 8080
+    assert loaded.container_image_uri == contract.container_image_uri
+    assert loaded.required_tags["cloud-cua-run"] == "run-1"
+
+
+def test_ecs_inspection_wrong_port_blocks_creation(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
+    contract = build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(
+        run_id="run-1",
+        skill_name="cloud-cua/aws-ecs-express",
+        skill_hash="abc",
+        autonomy_level=2,
+        cloud_region="us-east-1",
+        container_image_uri="example/image:tag",
+        repo_name="demo",
+    )
+    result = HTaskResult(
+        "completed",
+        json.dumps(
+            {
+                "milestone": "inspect_ecs_express_form",
+                "status": "observed",
+                "service_target": "aws_ecs_express",
+                "region": "us-east-1",
+                "visible_defaults": {"container_port": 80},
+                "can_apply_contract": True,
+                "blockers": [],
+            }
+        ),
+    )
+    review = review_ecs_inspection(result, contract)
+    assert review.status == "blocked"
+    assert "container port" in review.objections[0]
+
+
+def _ecs_contract_fixture(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
+    return build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(
+        run_id="run-1",
+        skill_name="cloud-cua/aws-ecs-express",
+        skill_hash="abc",
+        autonomy_level=2,
+        cloud_region="us-east-1",
+        container_image_uri="123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+        repo_name="demo",
+    )
+
+
+def _fake_ecs_aws_json(command, timeout=30, *, image=None, port=8080, health="healthy", tagged=True):
+    joined = " ".join(command)
+    if "resourcegroupstaggingapi" in joined:
+        resources = [{"ResourceARN": "arn:aws:ecs:us-east-1:123456789012:service/default/cloud-cua-demo"}] if tagged else []
+        return {"ResourceTagMappingList": resources}
+    if "describe-services" in joined:
+        return {
+            "services": [
+                {
+                    "status": "ACTIVE",
+                    "desiredCount": 1,
+                    "runningCount": 1,
+                    "taskDefinition": "arn:aws:ecs:us-east-1:123456789012:task-definition/demo:1",
+                    "deployments": [{"status": "PRIMARY", "rolloutState": "COMPLETED"}],
+                    "loadBalancers": [{"targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/demo/abc"}],
+                }
+            ]
+        }
+    if "describe-express-gateway-service" in joined:
+        return {
+            "service": {
+                "status": {"statusCode": "ACTIVE"},
+                "activeConfigurations": [
+                    {
+                        "taskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/demo:1",
+                        "healthCheckPath": "/",
+                        "primaryContainer": {
+                            "image": image or "123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+                            "containerPort": port,
+                        },
+                        "ingressPaths": [{"accessType": "PUBLIC", "endpoint": "demo.ecs.us-east-1.on.aws"}],
+                    }
+                ],
+            }
+        }
+    if "describe-task-definition" in joined:
+        return {
+            "taskDefinition": {
+                "containerDefinitions": [
+                    {
+                        "image": image or "123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+                        "portMappings": [{"containerPort": port}],
+                    }
+                ]
+            }
+        }
+    if "describe-target-health" in joined:
+        return {"TargetHealthDescriptions": [{"Target": {"Id": "task-1", "Port": port}, "TargetHealth": {"State": health}}]}
+    return {}
+
+
+def test_ecs_contract_verifier_rejects_image_mismatch(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, image="wrong/image:tag"))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "image mismatch" in result.summary
+
+
+def test_ecs_contract_verifier_rejects_port_mismatch(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, port=80))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "port mismatch" in result.summary
+
+
+def test_ecs_contract_verifier_rejects_unhealthy_target(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, health="unhealthy"))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "not healthy" in result.summary
+
+
+def test_ecs_contract_verifier_requires_exact_run_tag(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, tagged=False))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "cloud-cua-run=run-1" in result.summary
+
+
+def test_lesson_candidate_is_review_only_and_redacted(tmp_path: Path):
+    path = write_lesson_candidate(
+        tmp_path,
+        run_id="run-1",
+        affected_skill="cloud-cua/aws-ecs-express",
+        failure="port mismatch token=secret-value",
+        evidence={"api_key": "secret", "expected": 8080, "actual": 80},
+        proposed_rule="Verify the contract port before creation.",
+        required_test="Reject a mismatched task definition port.",
+    )
+    lesson = load_lesson_candidate(tmp_path)
+    assert path.exists()
+    assert lesson["status"] == "pending_review"
+    assert lesson["evidence"]["api_key"] == "[REDACTED]"
+    assert "secret-value" not in path.read_text(encoding="utf-8")
+
+
+def test_resource_record_separates_console_and_app_urls():
+    record = extract_resource_record(
+        "run-123",
+        "aws",
+        "aws_ecs_express",
+        "Console https://console.aws.amazon.com/ecs/v2/clusters/default and app https://abc.ecs.us-east-1.on.aws",
+    )
+    assert "https://console.aws.amazon.com/ecs/v2/clusters/default" in record.urls
+    assert record.app_urls == ["https://abc.ecs.us-east-1.on.aws"]
+
+
+def test_ecs_h_task_includes_contract_port_and_prepared_image_uri(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 8080\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    plan = build_aws_deployment_plan("demo-api", ctx)
+    contract = build_deployment_contract(tmp_path, ctx, "aws_ecs_express")
+    task = build_general_aws_h_task(
+        "demo-api",
+        ctx,
+        plan,
+        target="aws_ecs_express",
+        run_id="run-123",
+        prepared_inputs={"container_image_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/cloud-cua-demo:run-123", "container_port": "8080"},
+        contract=contract,
+    )
+    assert "Prepared inputs from Codex/local repo tools" in task
+    assert "123456789012.dkr.ecr.us-east-1.amazonaws.com/cloud-cua-demo:run-123" in task
+    assert "selected_container_port: 8080" in task
+    assert "Do not choose AWS App Runner" in task
+
+
+def test_prepare_ecr_image_skips_without_dockerfile(tmp_path: Path):
+    result = prepare_ecr_image(tmp_path, "demo", "run-123")
+    assert result.status == "skipped"
+
+
+def test_prepare_ecr_image_reports_progress_on_skip(tmp_path: Path):
+    steps = []
+    result = prepare_ecr_image_with_progress(tmp_path, "demo", "run-123", progress=lambda step, message, evidence: steps.append((step, message)))
+    assert result.status == "skipped"
+    assert steps[0][0] == "container_image_skipped"
+
+
+def test_gcp_cloud_run_plan_supports_docker_repo(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    plan = build_gcp_cloud_run_plan("demo-api", ctx)
+    assert plan.supported is True
+    assert plan.target == "gcp_cloud_run"
+    assert plan.service_name.startswith("cloud-cua-demo-api")
+
+
+def test_approval_trigger_detection_is_specific():
+    triggers = detect_approval_triggers("Deploy public ECS service with IAM role and GitHub OAuth")
+    codes = {trigger.code for trigger in triggers}
+    assert {"paid_resources", "public_exposure", "broad_iam", "oauth"} <= codes
+
+
+def test_codex_config_upsert_replaces_cloud_cua_only():
+    text = '[mcp_servers.other]\ncommand = "x"\n'
+    updated = upsert_mcp_server(text, "cloud-cua", "python.exe", ["-m", "cloud_cua.cli", "mcp"])
+    assert "[mcp_servers.other]" in updated
+    assert "[mcp_servers.cloud-cua]" in updated
+    assert 'args = ["-m", "cloud_cua.cli", "mcp"]' in updated
+
+
+def test_install_mcp_writes_config(tmp_path: Path):
+    config = tmp_path / "config.toml"
+    result = install_cloud_cua_mcp(config, python_executable="python", dry_run=False)
+    text = config.read_text(encoding="utf-8")
+    assert result.status == "passed"
+    assert "[mcp_servers.cloud-cua]" in text
+    assert 'command = "python"' in text
+
+
+def test_aws_cleanup_dry_run_uses_discovery(monkeypatch):
+    monkeypatch.setattr(
+        "cloud_cua.aws_cleanup.discover_cleanup_actions",
+        lambda run_id=None: [],
+    )
+    result = cleanup_cloud_cua_aws_resources(dry_run=True)
+    assert result.status == "passed"
+    assert result.dry_run is True
+
+
+def test_aws_command_uses_cloud_cua_profile_when_available(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "default\ncloud-cua-dev\n"
+        stderr = ""
+
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.setattr("cloud_cua.aws_cli.shutil.which", lambda name: "aws.exe")
+    monkeypatch.setattr("cloud_cua.aws_cli.subprocess.run", lambda *args, **kwargs: FakeProc())
+
+    assert aws_command(["sts", "get-caller-identity"]) == ["aws", "--profile", "cloud-cua-dev", "sts", "get-caller-identity"]
 
 
 def test_repo_analyzer_unknown_blocks(tmp_path: Path):
     ctx = analyze_repo(tmp_path)
     assert ctx.recommendation == "blocked_unknown_repo"
+
+
+def test_container_windows_path_maps_to_workspace(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("CLOUD_CUA_CONTAINER", "1")
+    monkeypatch.setenv("CLOUD_CUA_WORKSPACE", str(workspace))
+
+    assert resolve_repo_path(r"C:\Users\Person\project") == workspace
 
 
 def test_gradium_tts_skips_without_key(tmp_path: Path, monkeypatch):
@@ -114,6 +448,30 @@ def test_h_runner_rate_limit_message(monkeypatch):
     assert "rate limited" in result.summary
 
 
+def test_h_runner_blocks_browser_takeover_in_docker(monkeypatch):
+    monkeypatch.setenv("CLOUD_CUA_CONTAINER", "1")
+    from cloud_cua.h_runner import _run_h_task_sdk
+
+    result = _run_h_task_sdk("inspect only")
+    assert result.status == "blocked"
+    assert "host-local" in result.summary
+
+
+def test_h_agent_includes_active_skill_name():
+    from cloud_cua.h_runner import _inline_browser_agent
+
+    agent = _inline_browser_agent("vibe", ["cloud-cua/aws-ecs-express"])
+    assert agent["skills"] == ["cloud-cua/aws-ecs-express"]
+
+
+def test_h_event_summary_keeps_action_without_large_payload():
+    from cloud_cua.h_runner import summarize_h_event
+
+    summary = summarize_h_event({"type": "agent_event", "data": {"action": "click Create service", "screenshot": "x" * 10000}})
+    assert "click Create service" in summary
+    assert len(summary) < 500
+
+
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     result = VerifierResult(
         "secret_check",
@@ -125,6 +483,25 @@ def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     assert "abc123" not in text
     assert "AKIAABCDEFGHIJKLMNOP" not in text
     assert "[REDACTED]" in text
+
+
+def test_shareable_package_excludes_local_state(tmp_path: Path):
+    (tmp_path / "cloud_cua").mkdir()
+    (tmp_path / "cloud_cua" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / ".env").write_text("HAI_API_KEY=secret", encoding="utf-8")
+    (tmp_path / ".kiro").mkdir()
+    (tmp_path / ".kiro" / "local.md").write_text("local", encoding="utf-8")
+    (tmp_path / "readme files").mkdir()
+    (tmp_path / "readme files" / "notes.md").write_text("notes", encoding="utf-8")
+    result = build_shareable_package(tmp_path, tmp_path / "out.zip")
+    import zipfile
+
+    with zipfile.ZipFile(result.path) as archive:
+        names = set(archive.namelist())
+    assert "cloud_cua/__init__.py" in names
+    assert ".env" not in names
+    assert ".kiro/local.md" not in names
+    assert "readme files/notes.md" not in names
 
 
 def test_report_includes_approvals_and_verifiers(tmp_path: Path):

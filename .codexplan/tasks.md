@@ -10,7 +10,7 @@ This plan builds Cloud CUA as a local-first deployment assistant with:
 - H Company CUA integration for browser/cloud-console operation;
 - independent verifiers that prove deployment state without trusting CUA;
 - live Vibe/Teach/Expert mode switching;
-- AWS Amplify as the first real deployment target.
+- AWS Amplify/S3 for frontend repos and ECS Express Mode for Docker/container repos.
 
 The work is ordered so the core risk is tested first: can Codex call Cloud CUA, and can Cloud CUA delegate bounded browser work to H CUA after manual login?
 
@@ -20,7 +20,7 @@ Owner labels are suggested for parallel work.
 
 - **Agent/Backend**: CLI, MCP, backend API, run store, H runner, verifiers.
 - **Frontend/Product**: dashboard, login modal, mode controls, approvals, activity feed, voice UI.
-- **Cloud/Verification**: AWS Amplify adapter, AWS/GCP CLI checks, Playwright checks, report output.
+- **Cloud/Verification**: AWS target adapters, ECR/ECS checks, AWS/GCP CLI checks, Playwright checks, report output.
 - **Both**: spike validation, integration tests, final demo path.
 
 ## Tasks
@@ -46,11 +46,12 @@ Owner labels are suggested for parallel work.
     - Never write credentials into the repo
     - _Requirements: 3_
 
-  - [x] 2.2 Implement `cloud-cua init`
+  - [ ] 2.2 Implement `cloud-cua init`
     - Create config directory
     - Prompt for missing `HAI_API_KEY`
     - Save credentials
     - Validate basic shape without printing the secret
+    - Status: saves credentials today, but key-shape validation still needs to be added.
     - _Requirements: 2, 3_
 
   - [ ]* 2.3 Test credential behavior
@@ -126,7 +127,7 @@ Owner labels are suggested for parallel work.
     - _Requirements: 1, 8, 9_
 
 - [ ] 6. Spike: prove Codex can call H safely (Owner: Both)
-  - [ ] 6.1 Install and validate H tooling
+  - [x] 6.1 Install and validate H tooling
     - Install H CLI/HoloDesktop or H SDK path chosen for local control
     - Run a tiny safe local task outside AWS
     - Confirm hosted/local model config is available
@@ -167,14 +168,14 @@ Owner labels are suggested for parallel work.
     - Failed identity verifier blocks modification
     - _Requirements: 4, 14_
 
-- [x] 8. Build local dashboard shell (Owner: Frontend/Product)
+- [ ] 8. Build local dashboard shell (Owner: Frontend/Product)
   - [x] 8.1 Create dashboard app
     - Local page at `http://localhost:3000` or backend-served equivalent
     - Run list/detail page
     - Current run status
     - _Requirements: 13_
 
-  - [x] 8.2 Build required run panels
+  - [ ] 8.2 Build required run panels
     - Repo summary
     - Cloud/provider target
     - Current step
@@ -235,7 +236,9 @@ Owner labels are suggested for parallel work.
 
   - [x] 10.3 Produce deployment recommendation
     - Recommend AWS Amplify only for supported frontend-style repos
-    - Mark ECS Express Mode and GCP Cloud Run as planned if repo needs them
+    - Recommend ECS Express Mode for Dockerfile repos
+    - Treat App Runner as blocked/deprecated for new AWS accounts
+    - Mark GCP Cloud Run as planned/approval-gated when GCP is selected
     - _Requirements: 6, 17, 18_
 
   - [x]* 10.4 Test repo analyzer fixtures
@@ -264,8 +267,8 @@ Owner labels are suggested for parallel work.
     - Pause prevents next task
     - _Requirements: 7, 8_
 
-- [x] 12. Implement independent verifiers (Owner: Cloud/Verification)
-  - [x] 12.1 Implement repo verifier
+- [ ] 12. Implement independent verifiers (Owner: Cloud/Verification)
+  - [ ] 12.1 Implement repo verifier
     - Git diff summary
     - Optional build/test command hooks
     - _Requirements: 14_
@@ -275,7 +278,7 @@ Owner labels are suggested for parallel work.
     - Store sanitized output
     - _Requirements: 14_
 
-  - [x] 12.3 Implement AWS action/resource verifiers
+  - [ ] 12.3 Implement AWS action/resource verifiers
     - CloudTrail lookup wrapper
     - Amplify list/get wrapper
     - Result parser
@@ -286,11 +289,11 @@ Owner labels are suggested for parallel work.
     - Playwright page render check
     - _Requirements: 14, 17_
 
-  - [x] 12.5 Stub GCP verifiers as planned scope
+  - [x] 12.5 Implement GCP verifier basics
     - `gcloud auth list`
     - `gcloud config get-value project`
-    - `gcloud run services describe`
-    - Mark as disabled until Cloud Run adapter exists
+    - `gcloud run services list`
+    - Skip cleanly when `gcloud` is not installed
     - _Requirements: 14, 18_
 
   - [x]* 12.6 Test verifier result schema
@@ -299,7 +302,7 @@ Owner labels are suggested for parallel work.
     - no secret leakage
     - _Requirements: 14, 19_
 
-- [ ] 13. Implement approval gates (Owner: Frontend/Product)
+- [x] 13. Implement approval gates (Owner: Frontend/Product)
   - [x] 13.1 Build approval model and backend endpoints
     - Pending approval object
     - Approve/deny actions
@@ -311,7 +314,7 @@ Owner labels are suggested for parallel work.
     - Approve and Deny buttons
     - _Requirements: 13, 16_
 
-  - [ ] 13.3 Add required approval triggers
+  - [x] 13.3 Add required approval triggers
     - paid resources
     - broad IAM
     - public exposure
@@ -326,7 +329,7 @@ Owner labels are suggested for parallel work.
     - Approval event is written
     - _Requirements: 16_
 
-- [ ] 14. Implement AWS Amplify adapter (Owner: Cloud/Verification)
+- [ ] 14. Implement AWS frontend adapter through the generalized AWS runner (Owner: Cloud/Verification)
   - [x] 14.1 Build Amplify deployment plan generator
     - App name
     - Branch
@@ -335,20 +338,20 @@ Owner labels are suggested for parallel work.
     - Env var names and missing values
     - _Requirements: 6, 17_
 
-  - [x] 14.2 Build Amplify inspect tasks for H CUA
+  - [ ] 14.2 Build Amplify inspect tasks for H CUA
     - Check if AWS console is logged in
     - Check if Amplify page is reachable
     - Check if GitHub connection is required
     - Do not modify during inspect tasks
     - _Requirements: 7, 17_
 
-  - [x] 14.3 Build Amplify modifying tasks for H CUA
+  - [ ] 14.3 Build Amplify modifying tasks for H CUA
     - Only after approval
     - Use short task steps
     - Stop on OAuth/permission prompts
     - _Requirements: 7, 16, 17_
 
-  - [x] 14.4 Wire Amplify verifiers
+  - [ ] 14.4 Wire Amplify verifiers
     - AWS identity
     - Amplify app/branch
     - CloudTrail actions
@@ -388,13 +391,13 @@ Owner labels are suggested for parallel work.
     - _Requirements: 15_
 
 - [ ] 16. Implement Teach Mode voice with Gradium and fast command routing (Owner: Frontend/Product)
-  - [ ] 16.1 Build voice UI
+  - [x] 16.1 Build voice UI
     - Voice button in dashboard
     - Text transcript fallback
     - Voice disabled state when no key
     - _Requirements: 11, 11A, 13_
 
-  - [x] 16.2 Implement Voice Command Router
+  - [ ] 16.2 Implement Voice Command Router
     - Classify STT or typed text before Codex/H CUA sees it
     - Route direct controls to backend actions immediately
     - Route reasoning questions to Codex or the explanation engine
@@ -403,7 +406,7 @@ Owner labels are suggested for parallel work.
     - Write `voice_command` events with transcript, classification, and route
     - _Requirements: 11, 11A_
 
-  - [ ] 16.3 Implement Gradium STT adapter
+  - [x] 16.3 Implement Gradium STT adapter
     - Browser records or streams user audio
     - Backend uses `GRADIUM_API_KEY` or short-lived browser token flow
     - STT result goes to Voice Command Router first
@@ -411,7 +414,7 @@ Owner labels are suggested for parallel work.
     - Text fallback uses the same router
     - _Requirements: 11, 11A_
 
-  - [ ] 16.4 Implement Gradium TTS adapter
+  - [x] 16.4 Implement Gradium TTS adapter
     - Speak short Teach Mode explanations, warnings, questions, and final results
     - Do not speak every internal event
     - TTS is output only; it does not choose actions
@@ -422,7 +425,7 @@ Owner labels are suggested for parallel work.
     - Missing key disables voice without breaking Teach Mode
     - `pause` routes directly to backend pause
     - `switch to Expert mode` routes directly to mode switch
-    - `why Amplify?` routes to Codex/explanation path
+    - `why this service?` routes to Codex/explanation path
     - `click this in AWS` does not go directly to H CUA
     - STT transcript becomes `voice_command` event
     - _Requirements: 11, 11A_
@@ -444,14 +447,14 @@ Owner labels are suggested for parallel work.
     - Update requirements/design/tasks if product decisions change
     - _Requirements: 20_
 
-- [ ] 18. End-to-end AWS Amplify deployment checkpoint (Owner: Both)
+- [ ] 18. End-to-end AWS deployment checkpoint (Owner: Both)
   - [ ] 18.1 Prepare sample frontend repo
     - Simple Vite/React or static app
     - Known build command
     - Known output directory
     - _Requirements: 5, 17_
 
-  - [ ] 18.2 Run AWS Amplify deployment flow
+  - [ ] 18.2 Run H CUA AWS console deployment flow
     - Manual login
     - H CUA console operation
     - User approval for resource creation
@@ -461,9 +464,17 @@ Owner labels are suggested for parallel work.
     - Report
     - _Requirements: 14, 16, 17, 20_
 
-  - [ ] 18.3 Record target-state gaps
-    - What still needs ECS Express Mode
-    - What still needs GCP Cloud Run
+  - [x] 18.3 Run real low-cost AWS smoke deployment
+    - Created tagged S3 static website bucket under `cloud-cua-smoke-*`
+    - Verified public website endpoint returned the run marker
+    - Deleted object, bucket policy, website config, and bucket
+    - Confirmed `cloud-cua` cleanup dry-run found zero leftover resources
+    - _Requirements: 14, 16, 17, 20_
+
+  - [x] 18.4 Record target-state gaps
+    - H CUA console deployment still needs manual login in the H-controlled browser profile
+    - ECS Express console creation remains unproven until H CUA completes it in the user's AWS account
+    - GCP Cloud Run needs local `gcloud` installation/auth before real deployment
     - What still needs stronger security/cost handling
     - _Requirements: 18, 20_
 
@@ -480,8 +491,9 @@ Owner labels are suggested for parallel work.
   - [x] 19.2 Document constraints honestly
     - CUA can fail
     - Login/captcha/MFA manual
-    - AWS Amplify only first
-    - ECS/GCP planned
+    - Frontend uses Amplify/S3; Docker uses ECS Express Mode
+    - GCP planned/approval-gated but still depends on local `gcloud` auth
+    - App Runner blocked/deprecated for new AWS accounts
     - NemoClaw not used
     - _Requirements: 6, 18_
 
@@ -499,13 +511,14 @@ Owner labels are suggested for parallel work.
     - Verifier tests
     - _Requirements: 20_
 
-  - [x] 20.2 Run manual dashboard QA
+  - [ ] 20.2 Run full dashboard QA
     - Login modal
     - Mode switching
     - Approval gates
     - Pause/resume
     - Activity feed
     - Report link
+    - Automated visual smoke for desktop/mobile is implemented, but full dashboard QA is not complete.
     - _Requirements: 4, 9, 13, 16_
 
   - [ ] 20.3 Confirm MVP pass/fail criteria
@@ -513,8 +526,101 @@ Owner labels are suggested for parallel work.
     - Dashboard opens
     - H CUA inspect task works
     - Independent verifiers run
-    - AWS Amplify deployment path works or has documented blocker
+    - Low-cost AWS deployment smoke works and cleans up
+    - H CUA AWS console deployment has documented manual-login blocker
     - _Requirements: 20_
+
+- [x] 21. Shareable product hardening (Owner: Both)
+  - [x] 21.1 Add `cloud-cua install-mcp`
+    - Writes Codex MCP config
+    - Backs up existing config before editing
+    - _Requirements: 1, 2_
+
+  - [x] 21.2 Add `cloud-cua doctor`
+    - Checks Python, Node, npm, AWS CLI, AWS identity, gcloud, Chrome, Chrome debug port, Playwright, Docker, credentials, Codex MCP config
+    - _Requirements: 2, 14, 20_
+
+  - [x] 21.3 Add Docker quickstart
+    - `Dockerfile`
+    - `docker-compose.yml`
+    - `.dockerignore`
+    - Does not expose H or Gradium keys in rendered Compose config
+    - _Requirements: 2, 3_
+
+  - [x] 21.4 Add AWS cleanup command
+    - Dry-run by default
+    - Deletes only discovered Cloud CUA named/tagged resources when `--yes` is used
+    - _Requirements: 16, 17_
+
+  - [x] 21.5 Commit shareable release artifact
+    - `dist/cloud-cua-shareable.zip`
+    - Excludes `.env`, `.kiro`, `readme files`, local run artifacts, venvs, node_modules, and git metadata
+    - _Requirements: 2, 19_
+
+- [ ] 22. ECS Express Mode end-to-end hardening (Owner: Cloud/Verification)
+  - [x] 22.1 Make Docker repos prefer ECS Express Mode
+    - App Runner is deprecated/blocked for new AWS accounts
+    - AWS planner lists App Runner only to explain why it will not be used
+    - _Requirements: 6, 17, 18_
+
+  - [x] 22.2 Prepare ECR images before H CUA runs
+    - Create a Cloud-CUA-tagged ECR repository
+    - Docker build/tag/push the local repo image
+    - Pass the exact image URI to H CUA for ECS Express Mode
+    - _Requirements: 5, 7, 17_
+
+  - [ ] 22.3 Prove real ECS Express console deployment
+    - User logs into AWS manually in the H-controlled browser
+    - H CUA creates/updates an ECS Express service from the prepared ECR image
+    - Verifier proves the exact service/resource URL for the run
+    - _Requirements: 14, 16, 17, 20_
+
+  - [ ] 22.4 Tighten exact-run verification
+    - Extract ECS Express service name/cluster/load balancer URL from H final answer or AWS APIs
+    - Verify HTTP and Playwright against the exact live URL
+    - Write exact resource names into `DEPLOYMENT_REPORT.md`
+    - _Requirements: 14, 15, 17_
+
+- [ ] 23. Implement H skill autonomy loop (Owner: Agent/Backend)
+  - [x] 23.1 Add local skill registry
+    - Validated YAML recipes for ECS Express, Amplify, and GCP Cloud Run
+    - Reusable facts, stop conditions, allowed actions, proof gates, and cleanup strategy
+    - _Requirements: 21_
+
+  - [x] 23.2 Synchronize real H-hosted skills
+    - Create/update/list through the H SDK
+    - CLI, API, and MCP surfaces
+    - Auto-sync active skill before H deployment sessions
+    - _Requirements: 21_
+
+  - [x] 23.3 Attach skills and persist contracts
+    - H agent receives the hosted skill name
+    - `contract.json` records run-specific facts and skill hash
+    - _Requirements: 7, 21_
+
+  - [x] 23.4 Add ECS milestone supervision
+    - Inspect form without mutation
+    - Parse structured H observation
+    - Block on contract mismatch before creation
+    - _Requirements: 7, 8, 21_
+
+  - [x] 23.5 Add contract-aware ECS proof
+    - Exact run tag, image, port, rollout, task health, target health, URL, report, and cleanup discovery
+    - Regression tests cover wrong image, wrong port, unhealthy target, and missing run tag
+    - _Requirements: 14, 21_
+
+  - [x] 23.6 Add safe lesson candidates and dashboard visibility
+    - Review-only `lesson_candidate.json`
+    - Dashboard shows skill, sync, autonomy, facts, gates, and lessons
+    - MCP exposes skill sync/status and lesson retrieval
+    - _Requirements: 8, 13, 21_
+
+  - [ ] 23.7 Run real hosted-skill ECS smoke
+    - Confirm all three skills appear in the H web catalog
+    - Run host-local H inspection and creation milestones
+    - Require every ECS contract verifier to pass
+    - Clean up run-tagged resources
+    - _Requirements: 20, 21_
 
 ## Task Dependency Graph
 
@@ -542,4 +648,6 @@ Owner labels are suggested for parallel work.
 - Update `design.md` before changing architecture.
 - Update `tasks.md` when implementation scope changes.
 - Do not add NemoClaw tasks.
-- Current H status: local Chrome/Selenium attachment works, but the H hosted trajectory API returned HTTP 429 during session creation. Keep tasks 6, 17, and 18 open until a real H CUA session succeeds with available quota.
+- Current H status: host-local doctor can confirm H credentials/quota and Chrome prerequisites, but the latest full H browser takeover is not proven after local bridge failures. Docker mode intentionally blocks H browser takeover; use host-local `python -m cloud_cua.cli start` for real H CUA work.
+- Current visual QA status: `npm run visual:dashboard` passes desktop/mobile/login-modal smoke checks and writes screenshots under `.cloud-cua/visual-checks/`, but this is not a full manual dashboard QA pass.
+- Current AWS smoke status: AWS CLI profile `cloud-cua-dev` created a tagged S3 static website, verified its public endpoint, deleted it, and `cloud-cua aws-cleanup` found zero leftover Cloud CUA resources.

@@ -13,6 +13,7 @@ class Approval:
     reason: str
     risk_level: str
     status: str = "pending"
+    triggers: list[str] | None = None
 
 
 def approvals_path(run_dir: Path) -> Path:
@@ -23,7 +24,11 @@ def load_approvals(run_dir: Path) -> list[Approval]:
     path = approvals_path(run_dir)
     if not path.exists():
         return []
-    return [Approval(**item) for item in json.loads(path.read_text(encoding="utf-8"))]
+    approvals: list[Approval] = []
+    for item in json.loads(path.read_text(encoding="utf-8")):
+        item.setdefault("triggers", None)
+        approvals.append(Approval(**item))
+    return approvals
 
 
 def save_approvals(run_dir: Path, approvals: list[Approval]) -> None:
@@ -31,12 +36,12 @@ def save_approvals(run_dir: Path, approvals: list[Approval]) -> None:
     path.write_text(json.dumps([asdict(item) for item in approvals], indent=2), encoding="utf-8")
 
 
-def create_approval(run_dir: Path, action: str, reason: str, risk_level: str = "medium") -> Approval:
+def create_approval(run_dir: Path, action: str, reason: str, risk_level: str = "medium", triggers: list[str] | None = None) -> Approval:
     approvals = load_approvals(run_dir)
     for existing in approvals:
         if existing.action == action and existing.status == "pending":
             return existing
-    approval = Approval(uuid4().hex[:12], action, reason, risk_level)
+    approval = Approval(uuid4().hex[:12], action, reason, risk_level, "pending", triggers)
     approvals.append(approval)
     save_approvals(run_dir, approvals)
     return approval

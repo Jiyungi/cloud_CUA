@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -8,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .models import Cloud, Event, Mode, Run
-from .paths import runs_dir
+from .paths import resolve_repo_path, runs_dir
 
 SECRET_PATTERNS = [
     re.compile(r"(api[_-]?key\s*[=:]\s*)[^\s,;]+", re.I),
@@ -45,7 +46,7 @@ def sanitize_obj(value):
 
 class RunStore:
     def __init__(self, repo_path: str | Path):
-        self.repo_path = Path(repo_path).resolve()
+        self.repo_path = resolve_repo_path(repo_path)
         self.root = runs_dir(self.repo_path)
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +63,27 @@ class RunStore:
         path = self.run_dir(run_id) / "verifier-results"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def contract_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "contract.json"
+
+    def acquire_lock(self, run_id: str, name: str) -> bool:
+        path = self.run_dir(run_id) / "locks" / f"{name}.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return False
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(now_iso())
+        return True
+
+    def release_lock(self, run_id: str, name: str) -> None:
+        path = self.run_dir(run_id) / "locks" / f"{name}.lock"
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
 
     def create_run(self, cloud: Cloud, mode: Mode, dashboard_url: str | None = None) -> Run:
         run_id = new_run_id()
@@ -119,4 +141,3 @@ class RunStore:
             except Exception:
                 continue
         return runs
-

@@ -161,6 +161,14 @@ HTML = r"""
     }
     .lane strong { font-size: 13px; }
     .lane span { color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .skill-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; margin-top: 14px; }
+    .skill-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .skill-meta > div { border-left: 3px solid var(--border); padding-left: 10px; min-width: 0; }
+    .skill-meta strong { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+    .skill-meta span { display: block; overflow-wrap: anywhere; }
+    .compact-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .lesson { border-left: 4px solid var(--warning); background: #fff8e8; padding: 12px; margin-top: 14px; }
+    .lesson[hidden] { display: none; }
     .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
     .proof-item { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
     .proof-item strong { display: block; margin-bottom: 8px; }
@@ -176,6 +184,14 @@ HTML = r"""
     }
     .approval.approved { border-color: #a7d7c5; background: #effaf5; }
     .approval.denied { border-color: #f3b8b3; background: #fff2f1; }
+    .voice-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .voice-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .recording { background: var(--danger) !important; border-color: var(--danger) !important; }
     .activity {
       height: calc(100vh - 112px);
       min-height: 560px;
@@ -224,6 +240,9 @@ HTML = r"""
       .mission { grid-template-columns: 1fr; }
       .mission-side { border-left: 0; border-top: 1px solid var(--border); }
       .lanes, .proof-grid { grid-template-columns: 1fr; }
+      .skill-grid, .skill-meta { grid-template-columns: 1fr; }
+      .voice-strip { grid-template-columns: 1fr; align-items: stretch; }
+      .voice-actions { justify-content: flex-start; }
       .split { align-items: stretch; flex-direction: column; }
       .mode-control { width: 100%; }
     }
@@ -250,7 +269,7 @@ HTML = r"""
           <div class="row">
             <button onclick="startRun()">Start local repo</button>
             <button class="secondary" onclick="openBrowser()">Open cloud login</button>
-            <button class="quiet" onclick="runAmplify()">Run Amplify step</button>
+            <button class="quiet" onclick="runDeploy()">Deploy</button>
             <button class="quiet" onclick="pauseRun()">Pause</button>
             <button class="quiet" onclick="resumeRun()">Resume</button>
           </div>
@@ -278,6 +297,27 @@ HTML = r"""
       </section>
 
       <section class="panel pad">
+        <div class="split">
+          <div>
+            <h2>Voice</h2>
+            <p id="voiceState" class="summary">Checking Gradium voice availability.</p>
+          </div>
+          <span id="voiceKeyChip" class="chip">Voice unknown</span>
+        </div>
+        <div class="voice-strip">
+          <div>
+            <label for="voiceText">Command or question</label>
+            <textarea id="voiceText" rows="2" placeholder="pause, switch to Teach mode, why this service?"></textarea>
+          </div>
+          <div class="voice-actions">
+            <button id="micButton" class="secondary" onclick="toggleRecording()">Start mic</button>
+            <button class="secondary" onclick="sendVoice()">Route text</button>
+            <button class="quiet" onclick="speakLatest()">Speak latest</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel pad">
         <h2>Control Loop</h2>
         <p class="summary">Each part has a different job. The dashboard should make it obvious who acted and what proof exists.</p>
         <div class="lanes">
@@ -285,6 +325,36 @@ HTML = r"""
           <div class="lane"><strong>H CUA</strong><span id="hLane">Waits for login, then operates browser.</span></div>
           <div class="lane"><strong>User</strong><span id="userLane">Approves risky cloud actions.</span></div>
           <div class="lane"><strong>Verifier</strong><span id="verifierLane">Checks AWS/GCP directly.</span></div>
+        </div>
+      </section>
+
+      <section class="panel pad">
+        <div class="split">
+          <div>
+            <h2>Skills</h2>
+            <p class="summary">The active deployment recipe H can load for this run.</p>
+          </div>
+          <button id="syncSkillsButton" class="secondary" onclick="syncSkills()">Sync H skills</button>
+        </div>
+        <div class="skill-grid">
+          <div>
+            <div class="skill-meta">
+              <div><strong>Active skill</strong><span id="activeSkill">Not selected</span></div>
+              <div><strong>H catalog</strong><span id="skillSync">Not synced</span></div>
+              <div><strong>Autonomy</strong><span id="skillAutonomy">Not assigned</span></div>
+            </div>
+            <div id="lessonPanel" class="lesson" hidden>
+              <strong>Lesson awaiting review</strong>
+              <p id="lessonFailure" class="summary"></p>
+              <p id="lessonRule" class="summary"></p>
+            </div>
+          </div>
+          <div>
+            <strong>Contract facts</strong>
+            <ul id="skillFacts" class="compact-list"><li>No contract yet.</li></ul>
+            <strong style="display:block; margin-top:12px">Verifier gates</strong>
+            <ul id="skillGates" class="compact-list"><li>No gates selected.</li></ul>
+          </div>
         </div>
       </section>
 
@@ -305,6 +375,7 @@ HTML = r"""
         </div>
         <div class="row" style="margin-top:14px">
           <button class="secondary" onclick="runVerifier()">Run verifier</button>
+          <button class="secondary" onclick="awsCleanupDryRun()">AWS cleanup dry run</button>
           <button class="secondary" onclick="writeReport()">Write report</button>
         </div>
       </section>
@@ -319,15 +390,17 @@ HTML = r"""
               <label for="cloud">Cloud</label>
               <select id="cloud"><option value="aws">AWS</option><option value="gcp">GCP</option></select>
             </div>
-            <div style="min-width:160px; flex:1">
-              <label for="voiceText">Voice/text command</label>
-              <textarea id="voiceText" rows="2" placeholder="pause, switch to Teach mode, why Amplify?"></textarea>
+            <div style="min-width:180px; flex:1">
+              <label for="awsTask">Deployment task override</label>
+              <textarea id="awsTask" rows="2" placeholder="Deploy this repo safely on AWS under $5"></textarea>
             </div>
           </div>
           <div class="row" style="margin-top:12px">
             <button class="secondary" onclick="showLogin()">Show login gate</button>
             <button class="secondary" onclick="hInspect()">H inspect</button>
-            <button class="secondary" onclick="sendVoice()">Route command</button>
+            <button class="secondary" onclick="runDeploy()">Deploy</button>
+            <button class="secondary" onclick="runGcpTask()">Run GCP task</button>
+            <button class="secondary" onclick="cleanupH()">Clean H sessions</button>
           </div>
         </div>
       </details>
@@ -359,6 +432,10 @@ HTML = r"""
 <script>
 let currentRun = null;
 let lastEvents = [];
+let voiceReady = false;
+let containerMode = false;
+let mediaRecorder = null;
+let audioChunks = [];
 const repoInput = document.getElementById('repo');
 initDefaults();
 
@@ -383,6 +460,8 @@ async function refresh() {
   renderEvents(ev);
   renderProof(ev);
   await loadApprovals();
+  await loadCapabilities();
+  await loadSkillState();
 }
 function renderRun() {
   statusTitle.textContent = titleForStatus(currentRun.status);
@@ -404,7 +483,7 @@ function renderEvents(ev) {
     </div>
   `).join('');
   codexLane.textContent = latest('codex') || 'Plans from repo context.';
-  hLane.textContent = latest('h_cua') || 'Waits for login, then operates browser.';
+  hLane.textContent = latest('h_cua') || (containerMode ? 'Docker mode can supervise and verify. Run host-local Python for real H browser takeover.' : 'Waits for login, then operates browser.');
   userLane.textContent = latest('user') || 'Approves risky cloud actions.';
   verifierLane.textContent = latest('verifier') || 'Checks AWS/GCP directly.';
 }
@@ -435,19 +514,150 @@ async function continueLogin() { if (!currentRun) return; await post(`/runs/${cu
 async function pauseRun() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/pause`, body()); await refresh(); }
 async function resumeRun() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/resume`, body()); await refresh(); }
 async function hInspect() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/h-inspect`, body()); await refresh(); }
-async function runAmplify() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/amplify-deploy`, body()); await refresh(); }
+async function runAwsTask() {
+  if (!currentRun) return;
+  await post(`/runs/${currentRun.run_id}/aws-deploy`, body({task: awsTask.value || null, max_spend_usd: 5}));
+  await refresh();
+}
+async function runDeploy() {
+  if (!currentRun) return;
+  if ((cloud.value || currentRun.cloud) === 'gcp') {
+    await runGcpTask();
+  } else {
+    await runAwsTask();
+  }
+}
+async function runGcpTask() {
+  if (!currentRun) return;
+  await post(`/runs/${currentRun.run_id}/gcp-deploy`, body({task: awsTask.value || null}));
+  await refresh();
+}
 async function runVerifier() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/verify`, body()); await refresh(); }
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
 async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
+async function cleanupH() { await post('/h-cleanup', body()); await refresh(); }
+async function awsCleanupDryRun() {
+  const runId = currentRun ? currentRun.run_id : null;
+  await post('/aws-cleanup', body({run_id: runId, dry_run: true}));
+  await refresh();
+}
+async function loadCapabilities() {
+  if (!repoInput.value) return;
+  try {
+    const caps = await (await fetch(`/capabilities?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
+    voiceReady = Boolean(caps.gradium_api_key_present);
+    containerMode = Boolean(caps.container_mode);
+    micButton.disabled = !voiceReady || !currentRun;
+    voiceKeyChip.textContent = voiceReady ? 'Gradium ready' : 'Voice disabled';
+    voiceState.textContent = voiceReady ? 'Mic commands use Gradium STT, then the same router as typed commands.' : 'Add GRADIUM_API_KEY to enable microphone and speech playback. Typed commands still work.';
+    if (containerMode) hLane.textContent = 'Docker mode can supervise and verify. Run host-local Python for real H browser takeover.';
+  } catch {
+    voiceReady = false;
+    micButton.disabled = true;
+    voiceKeyChip.textContent = 'Voice unavailable';
+  }
+}
+async function loadSkillState() {
+  if (!currentRun) return;
+  try {
+    const state = await (await fetch(`/runs/${currentRun.run_id}/skill-state?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
+    const skill = state.active_skill;
+    activeSkill.textContent = skill?.name || 'Not selected';
+    skillSync.textContent = readableStatus(state.h_sync_status || 'not_synced');
+    skillAutonomy.textContent = skill ? `Level ${skill.autonomy_level} of 5` : 'Not assigned';
+    const present = state.present_facts || [];
+    const missing = state.missing_facts || [];
+    skillFacts.innerHTML = [
+      ...present.map(item => `<li>${escapeHtml(item)} <strong style="color:var(--success)">ready</strong></li>`),
+      ...missing.map(item => `<li>${escapeHtml(item)} <strong style="color:var(--danger)">missing</strong></li>`),
+    ].join('') || '<li>No contract yet.</li>';
+    skillGates.innerHTML = (state.verifier_gates || []).map(item => `<li>${escapeHtml(item)}</li>`).join('') || '<li>No gates selected.</li>';
+    const lesson = state.lesson_candidate;
+    lessonPanel.hidden = !lesson;
+    if (lesson) {
+      lessonFailure.textContent = lesson.failure;
+      lessonRule.textContent = `Proposed rule: ${lesson.proposed_rule}`;
+    }
+  } catch {
+    skillSync.textContent = 'Status unavailable';
+  }
+}
+async function syncSkills() {
+  syncSkillsButton.disabled = true;
+  skillSync.textContent = 'Syncing';
+  try {
+    const result = await post('/skills/sync', body({dry_run:false}));
+    skillSync.textContent = result.status === 'passed' ? 'Synced' : 'Blocked';
+  } catch {
+    skillSync.textContent = 'Sync failed';
+  } finally {
+    syncSkillsButton.disabled = false;
+    await loadSkillState();
+  }
+}
+async function toggleRecording() {
+  if (!currentRun || !voiceReady) return;
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  mediaRecorder = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
+  audioChunks = [];
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    stream.getTracks().forEach(track => track.stop());
+    micButton.textContent = 'Start mic';
+    micButton.classList.remove('recording');
+    const blob = new Blob(audioChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+    const base64 = await blobToBase64(blob);
+    const inputFormat = blob.type.includes('wav') ? 'wav' : 'webm';
+    await post(`/runs/${currentRun.run_id}/voice-transcribe`, body({audio_base64: base64, input_format: inputFormat}));
+    await refresh();
+  };
+  mediaRecorder.start();
+  micButton.textContent = 'Stop mic';
+  micButton.classList.add('recording');
+}
+async function speakLatest() {
+  if (!currentRun || !voiceReady) return;
+  const latestText = latest('h_cua') || latest('verifier') || latest('system') || 'No Cloud CUA update is available yet.';
+  const result = await post(`/runs/${currentRun.run_id}/speak`, body({text: latestText.slice(0, 500)}));
+  if (result.audio_base64) {
+    const audio = new Audio(`data:audio/wav;base64,${result.audio_base64}`);
+    await audio.play();
+  }
+  await refresh();
+}
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
 function latest(source) {
   const event = lastEvents.slice().reverse().find(e => e.source === source);
   return event ? event.message : '';
 }
 function renderProof(ev) {
-  const evidence = JSON.stringify(ev.filter(e => e.source === 'verifier').map(e => e.evidence || {}));
-  identityState.textContent = evidence.includes('aws_identity') || evidence.includes('gcp_auth_list') ? 'Checked' : 'Not checked';
-  resourceState.textContent = evidence.includes('aws_amplify_list_apps') ? 'Checked' : 'Not checked';
-  liveState.textContent = evidence.includes('http_live_url') || evidence.includes('playwright_render') ? 'Checked' : 'No URL yet';
+  identityState.textContent = hasPassedVerifier(ev, ['aws_identity', 'gcp_auth_list']) ? 'Checked' : 'Not checked';
+  resourceState.textContent = hasPassedVerifier(ev, ['aws_tagged_run_resources', 'aws_ecs_run_services', 'gcp_cloud_run_services', 'aws_amplify_list_apps']) ? 'Checked' : 'Not checked';
+  liveState.textContent = hasPassedVerifier(ev, ['http_live_url', 'playwright_render']) ? 'Checked' : 'No URL yet';
+  if (hasFailedVerifier(ev, ['public_app_url', 'http_live_url', 'playwright_render', 'aws_ecs_run_services'])) liveState.textContent = 'Failed';
+}
+function verifierResults(ev) {
+  return ev
+    .filter(e => e.source === 'verifier')
+    .flatMap(e => Array.isArray(e.evidence?.results) ? e.evidence.results : (e.evidence?.result ? [e.evidence.result] : []));
+}
+function hasPassedVerifier(ev, names) {
+  return verifierResults(ev).some(result => names.includes(result.name) && result.status === 'passed');
+}
+function hasFailedVerifier(ev, names) {
+  return verifierResults(ev).some(result => names.includes(result.name) && result.status === 'failed');
 }
 function titleForStatus(status) {
   return ({created:'Preparing run', waiting_for_login:'Waiting for cloud login', running:'Deployment running', paused:'Paused', verifying:'Verifying deployment', completed:'Deployment complete', blocked:'Needs attention', failed:'Failed'}[status] || 'Deployment status');
@@ -460,14 +670,17 @@ function dotClass(status) {
   return '';
 }
 function shortPath(p) { return p ? p.split(/[\\/]/).slice(-2).join('/') : 'No repo selected'; }
+function readableStatus(value) { return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 }
 async function initDefaults() {
   const saved = localStorage.getItem('cloud_cua_repo');
-  if (saved) { repoInput.value = saved; return; }
+  if (saved) { repoInput.value = saved; await loadCapabilities(); return; }
   try { repoInput.value = (await (await fetch('/defaults')).json()).repo_path || ''; } catch {}
+  await loadCapabilities();
 }
+repoInput.addEventListener('change', loadCapabilities);
 setInterval(refresh, 3500);
 </script>
 </body>

@@ -9,9 +9,9 @@ The system is intentionally not SaaS-first. AWS/GCP login, MFA, SSO, and captcha
 The MVP has two phases:
 
 1. **Local control loop MVP**: Codex calls Cloud CUA through MCP, dashboard opens, login modal blocks, H CUA performs inspect-only browser tasks, independent verifiers run, event log and report are written.
-2. **First deployment MVP**: frontend-style repo deploys through AWS Amplify, with H CUA operating console setup and AWS/HTTP/Playwright verifiers proving the result.
+2. **First deployment MVP**: Cloud CUA proves a low-cost AWS deployment path, records approvals, verifies resources independently, and cleans up tagged resources. H CUA console deployment remains gated by manual login in the H-controlled browser profile.
 
-ECS Express Mode and GCP Cloud Run are designed as later deployment adapters, not first scope.
+AWS is now generalized across Amplify, S3 static hosting, ECS Express Mode, Lambda, and IaC discovery. App Runner is blocked/deprecated for new AWS accounts. GCP Cloud Run has an approval-gated plan and verifier path, but needs local `gcloud` auth before real deployment.
 
 ## Design Principles
 
@@ -20,7 +20,7 @@ ECS Express Mode and GCP Cloud Run are designed as later deployment adapters, no
 3. **Local-first for login and trust.** The user logs into cloud consoles on their own machine. Secrets stay local by default.
 4. **Small tool calls beat vague autonomy.** Every H CUA task is short, scoped, and has success criteria.
 5. **Mode is policy.** Vibe, Teach, and Expert mode change behavior, not architecture.
-6. **First target must be narrow and real.** AWS Amplify is first because it gives meaningful console work and a verifiable deployed URL.
+6. **Targets must follow current cloud reality.** Frontend repos can use Amplify, Docker repos should use ECS Express Mode, and blocked/deprecated AWS services must not be selected for new accounts.
 
 ## High-Level Architecture
 
@@ -56,6 +56,9 @@ Commands:
 cloud-cua init
 cloud-cua start
 cloud-cua mcp
+cloud-cua install-mcp
+cloud-cua doctor
+cloud-cua aws-cleanup
 ```
 
 Responsibilities:
@@ -67,7 +70,9 @@ Responsibilities:
 - start the local backend;
 - open or print dashboard URL;
 - run the MCP server over stdio;
-- install or print MCP config snippets for Codex/Kiro/Cursor later.
+- install MCP config for Codex;
+- check local dependencies with `doctor`;
+- clean Cloud CUA tagged AWS resources with dry-run by default.
 
 The CLI is not the main product UI. It exists to make the MCP server and dashboard reliable.
 
@@ -130,6 +135,11 @@ cloud_cua_resume_h_cua(run_id)
 cloud_cua_request_approval(run_id, action, reason)
 cloud_cua_run_verifier(run_id, verifier_name)
 cloud_cua_write_report(run_id)
+cloud_cua_get_aws_plan(repo_path, run_id)
+cloud_cua_run_aws_deployment_task(repo_path, run_id, task, target, max_spend_usd)
+cloud_cua_get_gcp_plan(repo_path, run_id)
+cloud_cua_run_gcp_cloud_run_task(repo_path, run_id, task)
+cloud_cua_cleanup_aws_resources(repo_path, run_id, dry_run)
 ```
 
 Design rule:
@@ -172,6 +182,8 @@ Each run is stored locally:
 .cloud-cua/runs/<run-id>/
   run.json
   events.jsonl
+  contract.json
+  lesson_candidate.json
   verifier-results/
   h-cua/
   report-draft.md
@@ -299,7 +311,7 @@ Codex can refine this analysis, but Cloud CUA should have deterministic local sc
 
 ## Deployment Adapters
 
-### AWS Amplify Adapter - First Real Target
+### AWS Frontend Adapter - Amplify Or S3
 
 Supported repo category:
 
@@ -337,26 +349,37 @@ UpdateApp
 UpdateBranch
 ```
 
-### ECS Express Mode Adapter - Planned
+### ECS Express Mode Adapter - Container Target
 
-Use after MVP when containerized apps are supported.
+Use for containerized web/API repos with a Dockerfile.
 
-Required before enabling:
+Implemented:
 
 - Dockerfile generation or validation;
-- container image build/push story;
+- container image build/push to ECR before H CUA operates AWS;
 - ECS service verifier;
-- ALB/live URL verifier;
 - cost approval gate.
 
-### GCP Cloud Run Adapter - Planned
+Still required before full confidence:
 
-Use after AWS Amplify MVP.
+- real H CUA console success on the user's AWS account;
+- resource-specific ECS Express service URL extraction;
+- ALB/live URL verifier tied to the exact run id.
 
-Required before enabling:
+### GCP Cloud Run Adapter - Implemented Planning Path
+
+Use for containerized or HTTP service repos when GCP is selected.
+
+Implemented:
+
+- Cloud Run plan generation;
+- approval-gated H CUA task prompt;
+- `gcloud auth list`, `gcloud config get-value project`, and `gcloud run services list` verifiers.
+
+Still required before real deployment:
 
 - `gcloud` auth/project verification;
-- service deploy/describe verification;
+- manual GCP browser login;
 - Cloud Audit Logs query;
 - live URL and Playwright checks.
 
@@ -432,6 +455,27 @@ Rules:
 - blocked/timed-out tasks stop the workflow until user/Codex decides next step;
 - prefer short tasks because HoloDesktop MCP calls can be blocking.
 
+## Skill And Autonomy Design
+
+Local YAML is the reviewed source of truth for each deployment skill. Before H operates a supported target, Cloud CUA compares the local skill content to the user's H skill catalog, creates or updates the hosted skill, and attaches the hosted name to the inline H browser agent. Failure to sync is a blocking error.
+
+Each run also has a concrete `contract.json`. The skill describes the reusable workflow; the contract contains run-specific facts such as image URI, container port, health path, region, tags, skill hash, and autonomy level.
+
+ECS Express uses two H milestones:
+
+1. H inspects the creation form without mutation and returns structured JSON.
+2. Codex/backend compares every visible value to the contract. If clear, H receives the approved creation milestone; otherwise the run blocks.
+
+H session events stream through the worker as newline-delimited JSON and become `h_cua:trajectory` events in the dashboard. Large screenshots and raw payloads are not copied into the event log.
+
+Autonomy grows only through reviewed skills:
+
+- Level 1: inspect with supervision;
+- Level 2: execute a known workflow with milestone review;
+- Level 3+: future skill branching and broader autonomy after verifier coverage exists.
+
+Failures create `lesson_candidate.json`. A lesson records evidence, a proposed reusable rule, and a required regression test. It is never applied automatically.
+
 ## Verifier Design
 
 The verifier stack is independent of CUA.
@@ -445,6 +489,8 @@ Verifier layers:
 5. **Live URL verifier**: HTTP response.
 6. **Render verifier**: Playwright render check.
 7. **Report verifier**: final report and event log exist.
+
+For ECS Express, resource verification is contract-aware: exact run tag, task-definition image, container port, rollout, running tasks, target health, public URL, HTTP response, Playwright rendering, and cleanup discovery must pass before the run can complete.
 
 Verifier result shape:
 
@@ -527,7 +573,7 @@ Codex is not called for fast-lane commands. H CUA is not called for fast-lane co
 Use this path for questions or instructions that need repo/cloud reasoning:
 
 ```text
-why Amplify?
+why this service?
 what is IAM?
 is this cheaper than Vercel?
 explain this error

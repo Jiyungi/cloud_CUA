@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import queue
+import threading
+import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import asdict
 from typing import Any
 
 from .credentials import load_secret_values
+from .h_admin import cleanup_h_sessions, get_h_quota
 from .mode_policy import policy_for
 from .models import Mode
 
@@ -38,8 +44,8 @@ def _event_excerpt(events: list[Any], limit: int = 8) -> str:
     return "\n".join(lines)
 
 
-def _inline_browser_agent(mode: Mode) -> dict[str, Any]:
-    return {
+def _inline_browser_agent(mode: Mode, skill_names: list[str] | None = None) -> dict[str, Any]:
+    agent = {
         "name": "cloud-cua-local-browser",
         "description": "Use the user's local browser to inspect or operate a cloud console under Cloud CUA supervision.",
         "instructions": (
@@ -61,9 +67,28 @@ def _inline_browser_agent(mode: Mode) -> dict[str, Any]:
             }
         ],
     }
+    if skill_names:
+        agent["skills"] = skill_names
+    return agent
 
 
-def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: int = 180) -> HTaskResult:
+def _run_h_task_sdk(
+    task: str,
+    mode: Mode = "vibe",
+    max_steps: int = 20,
+    max_time_s: int = 180,
+    skill_names: list[str] | None = None,
+    event_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> HTaskResult:
+    if os.environ.get("CLOUD_CUA_CONTAINER") == "1":
+        return HTaskResult(
+            status="blocked",
+            summary=(
+                "H CUA local browser takeover is host-local and is disabled in Docker mode. "
+                "Run `python -m cloud_cua.cli start` on the host machine for real H browser control. "
+                "Docker mode is for the dashboard, MCP surface, repo analysis, AWS/Docker CLI checks, and verifiers."
+            ),
+        )
     values = load_secret_values()
     api_key = values.get("HAI_API_KEY")
     if not api_key:
@@ -71,6 +96,20 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
             status="blocked",
             summary="HAI_API_KEY is not configured. Add it before running H browser control.",
         )
+    try:
+        cleanup_h_sessions()
+        quota = get_h_quota()
+        if quota and quota.available is not None and quota.available <= 0:
+            return HTaskResult(
+                status="blocked",
+                summary=(
+                    "H has no available concurrent session slots. "
+                    f"Limit={quota.limit}, active={quota.active}, available={quota.available}. "
+                    "Run H cleanup or cancel stale sessions before starting another CUA task."
+                ),
+            )
+    except Exception:
+        pass
 
     full_task = (
         f"{task}\n\n"
@@ -81,22 +120,32 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
         from hai_agents import Client
 
         client = Client(api_key=api_key)
-        result = client.run_session(
-            agent=_inline_browser_agent(mode),
-            messages=full_task,
-            max_steps=max_steps,
-            max_time_s=max_time_s,
-            wait_for_seconds=5,
-            timeout_seconds=max_time_s + 60,
-            include_events=True,
-        )
+        create_params = {
+            "agent": _inline_browser_agent(mode, skill_names),
+            "messages": full_task,
+            "max_steps": max_steps,
+            "max_time_s": max_time_s,
+            "queue": False,
+        }
+        if event_callback:
+            handle = client.start_session(**create_params)
+            for event in handle.stream(wait_for_seconds=5, until="settled", timeout_seconds=max_time_s + 60):
+                event_callback(_event_dict(event))
+            result = handle.wait_for_completion(wait_for_seconds=5, timeout_seconds=60, include_events=True)
+        else:
+            result = client.run_session(
+                **create_params,
+                wait_for_seconds=5,
+                timeout_seconds=max_time_s + 60,
+                include_events=True,
+            )
         status = "completed" if result.status in {"completed", "idle"} and result.outcome not in {"blocked", "infeasible"} else str(result.status)
         answer = "" if result.answer is None else str(result.answer)
         summary = answer.strip() or result.error or _event_excerpt(result.events) or f"H session ended with status {result.status}."
         raw = _event_excerpt(result.events, limit=20)
         return HTaskResult(
             status=status,
-            summary=summary[-1600:],
+            summary=summary[-8000:],
             raw=raw,
             session_id=result.id,
             outcome=result.outcome,
@@ -123,10 +172,22 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
             raw=trace[-4000:],
             error=str(exc),
         )
+    finally:
+        try:
+            cleanup_h_sessions()
+        except Exception:
+            pass
 
 
-def run_h_task(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: int = 180) -> HTaskResult:
-    payload = {"task": task, "mode": mode, "max_steps": max_steps, "max_time_s": max_time_s}
+def run_h_task(
+    task: str,
+    mode: Mode = "vibe",
+    max_steps: int = 20,
+    max_time_s: int = 180,
+    skill_names: list[str] | None = None,
+    event_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> HTaskResult:
+    payload = {"task": task, "mode": mode, "max_steps": max_steps, "max_time_s": max_time_s, "skill_names": skill_names or []}
     outer_timeout = max(45, max_time_s + 30)
     command = [sys.executable, "-m", "cloud_cua.h_runner_worker"]
     try:
@@ -138,7 +199,10 @@ def run_h_task(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: 
             text=True,
             creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
         )
-        stdout, stderr = proc.communicate(json.dumps(payload), timeout=outer_timeout)
+        if event_callback:
+            stdout, stderr = _stream_worker(proc, payload, event_callback, outer_timeout)
+        else:
+            stdout, stderr = proc.communicate(json.dumps(payload), timeout=outer_timeout)
     except subprocess.TimeoutExpired:
         try:
             if proc.pid:
@@ -162,11 +226,87 @@ def run_h_task(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: 
         return HTaskResult(status="failed", summary=f"H worker returned invalid output: {exc}", raw=raw[-2000:])
 
 
-def run_h_task_worker(payload: dict[str, Any]) -> str:
+def run_h_task_worker(
+    payload: dict[str, Any],
+    event_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> str:
     result = _run_h_task_sdk(
         payload["task"],
         payload.get("mode", "vibe"),
         int(payload.get("max_steps", 20)),
         int(payload.get("max_time_s", 180)),
+        list(payload.get("skill_names") or []),
+        event_callback,
     )
     return json.dumps(asdict(result))
+
+
+def summarize_h_event(event: dict[str, Any]) -> str:
+    event_type = str(event.get("type") or event.get("event_type") or "trajectory_event")
+    data = event.get("data")
+    if isinstance(data, dict):
+        interesting = []
+        for key in ("status", "action", "name", "message", "url", "outcome"):
+            value = data.get(key)
+            if value not in {None, ""}:
+                interesting.append(f"{key}={str(value)[:240]}")
+        if interesting:
+            return f"{event_type}: " + ", ".join(interesting)
+    if data is not None and data != "":
+        return f"{event_type}: {str(data)[:400]}"
+    return event_type
+
+
+def _event_dict(event: Any) -> dict[str, Any]:
+    if hasattr(event, "model_dump"):
+        return event.model_dump(mode="json")
+    if isinstance(event, dict):
+        return event
+    return {"type": type(event).__name__, "data": str(event)}
+
+
+def _stream_worker(
+    proc: subprocess.Popen,
+    payload: dict[str, Any],
+    event_callback: Callable[[dict[str, Any]], None],
+    timeout_seconds: int,
+) -> tuple[str, str]:
+    assert proc.stdin is not None and proc.stdout is not None
+    proc.stdin.write(json.dumps(payload))
+    proc.stdin.close()
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def read_stdout() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    reader = threading.Thread(target=read_stdout, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout_seconds
+    result_json = ""
+    finished = False
+    while not finished:
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(cmd="cloud_cua.h_runner_worker", timeout=timeout_seconds)
+        try:
+            line = lines.get(timeout=0.25)
+        except queue.Empty:
+            if proc.poll() is not None and not reader.is_alive():
+                break
+            continue
+        if line is None:
+            finished = True
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("kind") == "event" and isinstance(message.get("event"), dict):
+            event_callback(message["event"])
+        elif message.get("kind") == "result":
+            result_json = json.dumps(message.get("result") or {})
+    proc.wait(timeout=5)
+    stderr = proc.stderr.read() if proc.stderr is not None else ""
+    return result_json, stderr

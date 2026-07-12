@@ -1,0 +1,14 @@
+.git
+.cloud-cua
+.kiro
+.venv
+venv
+node_modules
+dist
+build
+__pycache__
+.pytest_cache
+*.pyc
+*.log
+.env
+readme files

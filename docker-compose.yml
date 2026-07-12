@@ -1,0 +1,20 @@
+services:
+  cloud-cua:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      CLOUD_CUA_DASHBOARD_PORT: "3000"
+      AWS_PROFILE: "${AWS_PROFILE:-cloud-cua-dev}"
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      GOOGLE_CLOUD_PROJECT: "${GOOGLE_CLOUD_PROJECT:-}"
+      GOOGLE_CLOUD_REGION: "${GOOGLE_CLOUD_REGION:-us-central1}"
+      CLOUD_CUA_CONTAINER: "1"
+    volumes:
+      - .:/workspace
+      - ${USERPROFILE}/.cloud-cua:/root/.cloud-cua:ro
+      - ${USERPROFILE}/.aws:/root/.aws:ro
+      - ${USERPROFILE}/.config/gcloud:/root/.config/gcloud:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspace
+    command: ["python", "-m", "cloud_cua.cli", "start", "--host", "0.0.0.0", "--port", "3000"]

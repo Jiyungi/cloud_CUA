@@ -2,6 +2,9 @@
   "name": "cloud-cua-verifiers",
   "private": true,
   "version": "0.1.0",
+  "scripts": {
+    "visual:dashboard": "node scripts/visual-dashboard-smoke.mjs"
+  },
   "devDependencies": {
     "playwright": "^1.57.0"
   }
