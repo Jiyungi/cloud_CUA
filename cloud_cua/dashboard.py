@@ -170,6 +170,19 @@ HTML = r"""
     .lesson { border-left: 4px solid var(--warning); background: #fff8e8; padding: 12px; margin-top: 14px; }
     .lesson[hidden] { display: none; }
     .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .safety-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .safety-item { border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius); padding: 13px; min-height: 92px; }
+    .safety-item strong { display:block; margin-bottom:7px; }
+    .safety-item span { color: var(--muted); font-size:13px; line-height:1.4; display:block; }
+    .progress-track { height: 7px; background: #dbe3ef; border-radius: 999px; overflow:hidden; margin-top:10px; }
+    .progress-bar { height:100%; width:0; background:var(--primary); transition:width .2s ease; }
+    .progress-bar.warn { background:var(--warning); }
+    .progress-bar.bad { background:var(--danger); }
+    .secret-row { border-top:1px solid var(--border); padding-top:12px; margin-top:12px; }
+    .secret-row:first-child { border-top:0; padding-top:0; margin-top:0; }
+    .secret-choice { display:flex; gap:14px; margin:8px 0; color:var(--muted); font-size:13px; }
+    .secret-choice label { display:flex; gap:6px; align-items:center; margin:0; }
+    .secret-choice input { width:auto; }
     .proof-item { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
     .proof-item strong { display: block; margin-bottom: 8px; }
     .proof-item span { color: var(--muted); }
@@ -228,6 +241,8 @@ HTML = r"""
     }
     .modal {
       width: min(520px, 100%);
+      max-height: calc(100vh - 40px);
+      overflow: auto;
       background: #fff;
       border-radius: var(--radius);
       box-shadow: 0 30px 90px rgba(0, 0, 0, .3);
@@ -239,7 +254,7 @@ HTML = r"""
       .activity { height: auto; min-height: 360px; }
       .mission { grid-template-columns: 1fr; }
       .mission-side { border-left: 0; border-top: 1px solid var(--border); }
-      .lanes, .proof-grid { grid-template-columns: 1fr; }
+      .lanes, .proof-grid, .safety-grid { grid-template-columns: 1fr; }
       .skill-grid, .skill-meta { grid-template-columns: 1fr; }
       .voice-strip { grid-template-columns: 1fr; align-items: stretch; }
       .voice-actions { justify-content: flex-start; }
@@ -271,6 +286,7 @@ HTML = r"""
             <button class="quiet" onclick="runDeploy()">Deploy</button>
             <button class="quiet" onclick="pauseRun()">Pause</button>
             <button class="quiet" onclick="resumeRun()">Resume</button>
+            <button class="quiet" onclick="cancelRun()">Cancel</button>
           </div>
         </div>
         <div class="mission-side">
@@ -278,6 +294,19 @@ HTML = r"""
           <div><span class="kicker">Cloud</span><div id="cloudLabel">AWS</div></div>
           <div><span class="kicker">Target</span><div id="targetLabel">Not analyzed</div></div>
           <div><span class="kicker">Current step</span><div id="stepLabel">Idle</div></div>
+          <div><span class="kicker">H session</span><div id="hJobLabel">Idle</div></div>
+        </div>
+      </section>
+
+      <section class="panel pad">
+        <div class="split">
+          <div><h2>Safety</h2><p class="summary">Identity, runtime configuration, and cost must be proven before creation.</p></div>
+          <span id="safetyChip" class="chip">Checking</span>
+        </div>
+        <div class="safety-grid">
+          <div class="safety-item"><strong>AWS account</strong><span id="accountMatchState">Not checked</span></div>
+          <div class="safety-item"><strong>Runtime configuration</strong><span id="runtimeConfigState">Not checked</span></div>
+          <div class="safety-item"><strong>Cost policy</strong><span id="costState">Not estimated</span><div class="progress-track"><div id="costBar" class="progress-bar"></div></div></div>
         </div>
       </section>
 
@@ -402,6 +431,8 @@ HTML = r"""
             <button class="secondary" onclick="runGcpTask()">Run GCP task</button>
             <button class="secondary" onclick="cleanupH()">Clean H sessions</button>
           </div>
+          <label for="runPicker">Recent runs for this repo</label>
+          <select id="runPicker" onchange="selectRun(this.value)"><option value="">No runs loaded</option></select>
         </div>
       </details>
     </div>
@@ -424,8 +455,36 @@ HTML = r"""
       <p id="loginCopy">Log into AWS in this browser window. Click Continue when done.</p>
       <div class="row">
         <button onclick="continueLogin()">Continue</button>
-        <button class="secondary" onclick="hideLogin()">Cancel</button>
+        <button class="secondary" onclick="cancelRun()">Cancel run</button>
       </div>
+    </div>
+  </div>
+
+  <div id="runtimeModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="runtimeTitle">
+    <div class="modal">
+      <h2 id="runtimeTitle">Runtime configuration required</h2>
+      <p>Cloud CUA stores new secret values directly in AWS Systems Manager Parameter Store. Plaintext is not saved in this app, the repo, the run, or the H session.</p>
+      <div id="publicConfigWarning" class="lesson" hidden></div>
+      <div id="runtimeFields"></div>
+      <div class="row" style="margin-top:18px">
+        <button onclick="saveRuntimeConfiguration()">Store in AWS and continue</button>
+        <button class="secondary" onclick="cancelRun()">Cancel run</button>
+      </div>
+      <p id="runtimeError" class="summary"></p>
+    </div>
+  </div>
+
+  <div id="costModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="costTitle">
+    <div class="modal">
+      <h2 id="costTitle">Cost action required</h2>
+      <p id="costModalCopy">The run reached its estimated spending policy cap. Cloud CUA will not perform more paid actions until tagged resources are cleaned up or you approve a higher cap.</p>
+      <p><strong>AWS billing data is delayed.</strong> This is a live-price estimate and policy guard, not a bank-level spending guarantee.</p>
+      <div id="cleanupPreview" class="empty">Run a cleanup preview before deleting anything.</div>
+      <div class="row" style="margin-top:18px">
+        <button id="cleanupGateButton" class="danger" onclick="costCleanupAction()">Review tagged cleanup</button>
+        <button class="secondary" onclick="requestCostExtension()">Request $5 extension</button>
+      </div>
+      <p id="costGateError" class="summary"></p>
     </div>
   </div>
 
@@ -433,9 +492,13 @@ HTML = r"""
 let currentRun = null;
 let lastEvents = [];
 let voiceReady = false;
+let voiceMuted = false;
 let containerMode = false;
 let mediaRecorder = null;
 let audioChunks = [];
+let runtimeStatus = null;
+let costStatus = null;
+let cleanupReviewed = false;
 const repoInput = document.getElementById('repo');
 initDefaults();
 
@@ -453,7 +516,9 @@ async function startRun() {
 }
 async function refresh() {
   if (!currentRun) return;
-  currentRun = await (await fetch(`/runs/${currentRun.run_id}?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
+  const runResponse = await fetch(`/runs/${currentRun.run_id}?repo_path=${encodeURIComponent(repoInput.value)}`);
+  if (!runResponse.ok) { statusTitle.textContent = 'Run connection lost'; return; }
+  currentRun = await runResponse.json();
   const ev = await (await fetch(`/runs/${currentRun.run_id}/events?repo_path=${encodeURIComponent(repoInput.value)}&limit=100`)).json();
   lastEvents = ev;
   renderRun();
@@ -462,6 +527,8 @@ async function refresh() {
   await loadApprovals();
   await loadCapabilities();
   await loadSkillState();
+  await loadSafetyState();
+  await loadRunPicker();
 }
 function renderRun() {
   statusTitle.textContent = titleForStatus(currentRun.status);
@@ -470,6 +537,8 @@ function renderRun() {
   cloudLabel.textContent = currentRun.cloud?.toUpperCase() || 'AWS';
   targetLabel.textContent = currentRun.target || 'Not analyzed';
   stepLabel.textContent = currentRun.current_step || 'Idle';
+  const hJob = currentRun.h_job;
+  hJobLabel.textContent = hJob ? `${readableStatus(hJob.status)} / ${readableStatus(hJob.milestone)}` : 'Idle';
   runSummary.innerHTML = `Repo: <b>${shortPath(repoInput.value)}</b><br>Mode: <b>${currentRun.mode}</b>`;
   for (const m of ['vibe', 'teach', 'expert']) document.getElementById('mode-' + m).classList.toggle('active', currentRun.mode === m);
 }
@@ -513,6 +582,14 @@ function hideLogin() { loginModal.style.display = 'none'; }
 async function continueLogin() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/continue-login`, body()); hideLogin(); await refresh(); }
 async function pauseRun() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/pause`, body()); await refresh(); }
 async function resumeRun() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/resume`, body()); await refresh(); }
+async function cancelRun() {
+  if (!currentRun) return;
+  await post(`/runs/${currentRun.run_id}/cancel`, body());
+  hideLogin();
+  runtimeModal.style.display = 'none';
+  costModal.style.display = 'none';
+  await refresh();
+}
 async function hInspect() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/h-inspect`, body()); await refresh(); }
 async function runAwsTask() {
   if (!currentRun) return;
@@ -534,11 +611,153 @@ async function runGcpTask() {
 }
 async function runVerifier() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/verify`, body()); await refresh(); }
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
-async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
+async function sendVoice() {
+  if (!currentRun || !voiceText.value.trim()) return;
+  const result = await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value}));
+  voiceText.value = '';
+  voiceState.textContent = result.response || 'Command routed.';
+  if (result.ui_action === 'open_logs') document.querySelector('.activity').scrollIntoView({behavior:'smooth'});
+  if (result.ui_action === 'mute_voice') voiceMuted = true;
+  await refresh();
+}
 async function cleanupH() { await post('/h-cleanup', body()); await refresh(); }
 async function awsCleanupDryRun() {
   const runId = currentRun ? currentRun.run_id : null;
   await post('/aws-cleanup', body({run_id: runId, dry_run: true}));
+  await refresh();
+}
+async function loadSafetyState() {
+  if (!currentRun) return;
+  const query = `repo_path=${encodeURIComponent(repoInput.value)}`;
+  try {
+    const [identityResponse, runtimeResponse, costResponse] = await Promise.all([
+      fetch(`/runs/${currentRun.run_id}/browser-identity?${query}`),
+      fetch(`/runs/${currentRun.run_id}/runtime-configuration?${query}`),
+      fetch(`/runs/${currentRun.run_id}/cost?${query}`),
+    ]);
+    const identity = await identityResponse.json();
+    runtimeStatus = await runtimeResponse.json();
+    costStatus = await costResponse.json();
+    accountMatchState.textContent = identity.status === 'matched'
+      ? `Matched ${identity.expected_account_id}`
+      : identity.status === 'mismatched'
+        ? `Mismatch: browser ${identity.browser_account_id}, CLI ${identity.expected_account_id}`
+        : readableStatus(identity.status || 'not_checked');
+    runtimeConfigState.textContent = runtimeStatus.status === 'ready'
+      ? `${runtimeStatus.references?.length || 0} secure reference(s) ready`
+      : runtimeStatus.missing_names?.length
+        ? `${runtimeStatus.missing_names.length} value(s) required`
+        : readableStatus(runtimeStatus.status || 'not_checked');
+    if (costStatus.status === 'not_configured') {
+      costState.textContent = 'Created when a target is selected';
+      costBar.style.width = '0%';
+    } else {
+      const used = Math.max(0, Number(costStatus.percent_used || 0));
+      costState.textContent = `$${Number(costStatus.estimated_accrued_usd || 0).toFixed(3)} of $${Number(costStatus.max_spend_usd || 0).toFixed(2)} estimated`;
+      costBar.style.width = `${Math.min(100, used)}%`;
+      costBar.classList.toggle('warn', used >= 50 && used < 100);
+      costBar.classList.toggle('bad', used >= 100);
+    }
+    const safe = identity.status === 'matched' && runtimeStatus.status === 'ready' && costStatus.status !== 'blocked';
+    safetyChip.textContent = safe ? 'Ready' : 'Action required';
+    if (currentRun.status === 'waiting_for_configuration' && runtimeStatus.status === 'required') showRuntimeModal(runtimeStatus);
+    else runtimeModal.style.display = 'none';
+    costModal.style.display = currentRun.status === 'cost_action_required' ? 'flex' : 'none';
+  } catch (error) {
+    safetyChip.textContent = 'Status unavailable';
+  }
+}
+function showRuntimeModal(status) {
+  runtimeStatus = status;
+  const publicNames = status.public_build_names || [];
+  publicConfigWarning.hidden = !publicNames.length;
+  publicConfigWarning.innerHTML = publicNames.length
+    ? `<strong>Public build configuration</strong><p class="summary">${publicNames.map(escapeHtml).join(', ')} will be visible in browser code and cannot contain secrets. Set these in the repo's normal local build environment before deployment.</p>`
+    : '';
+  runtimeFields.innerHTML = (status.missing_names || []).map((name, index) => `
+    <div class="secret-row" data-secret-name="${escapeHtml(name)}">
+      <strong>${escapeHtml(name)}</strong>
+      <div class="secret-choice">
+        <label><input type="radio" name="secret-source-${index}" value="value" checked onchange="toggleSecretSource(this)"> New secret</label>
+        <label><input type="radio" name="secret-source-${index}" value="reference" onchange="toggleSecretSource(this)"> Existing SSM parameter</label>
+      </div>
+      <input class="source-value" type="password" autocomplete="new-password" placeholder="Stored directly in AWS SSM" aria-label="New value for ${escapeHtml(name)}">
+      <input class="source-reference" hidden placeholder="/path/name or SSM parameter ARN" aria-label="Existing SSM reference for ${escapeHtml(name)}">
+    </div>
+  `).join('');
+  runtimeError.textContent = '';
+  runtimeModal.style.display = 'flex';
+}
+function toggleSecretSource(input) {
+  const row = input.closest('.secret-row');
+  const useReference = input.value === 'reference';
+  row.querySelector('.source-value').hidden = useReference;
+  row.querySelector('.source-reference').hidden = !useReference;
+}
+async function saveRuntimeConfiguration() {
+  const values = {};
+  const existing_references = {};
+  for (const row of runtimeFields.querySelectorAll('.secret-row')) {
+    const name = row.dataset.secretName;
+    const source = row.querySelector('input[type=radio]:checked').value;
+    const value = row.querySelector(source === 'reference' ? '.source-reference' : '.source-value').value.trim();
+    if (!value) { runtimeError.textContent = `${name} is required.`; return; }
+    (source === 'reference' ? existing_references : values)[name] = value;
+  }
+  runtimeError.textContent = 'Storing secure values in AWS SSM...';
+  try {
+    await post(`/runs/${currentRun.run_id}/runtime-configuration`, body({values, existing_references, region:'us-east-1'}));
+    runtimeFields.innerHTML = '';
+    runtimeModal.style.display = 'none';
+    await refresh();
+  } catch (error) {
+    runtimeError.textContent = String(error);
+  }
+}
+async function costCleanupAction() {
+  costGateError.textContent = '';
+  try {
+    const result = await post('/aws-cleanup', body({run_id: currentRun.run_id, dry_run: !cleanupReviewed}));
+    if (!cleanupReviewed) {
+      cleanupReviewed = true;
+      const items = result.actions || [];
+      cleanupPreview.innerHTML = items.length
+        ? `<strong>${items.length} tagged action(s) found</strong><ul class="compact-list">${items.map(item => `<li>${escapeHtml(item.service)}: ${escapeHtml(item.resource)}</li>`).join('')}</ul>`
+        : 'No tagged resources belonging to this run were found.';
+      cleanupGateButton.textContent = items.length ? 'Delete listed resources' : 'Refresh cleanup preview';
+      cleanupGateButton.disabled = !items.length;
+    } else {
+      cleanupPreview.textContent = result.summary || 'Cleanup finished.';
+      cleanupGateButton.disabled = true;
+      await refresh();
+    }
+  } catch (error) { costGateError.textContent = String(error); }
+}
+async function requestCostExtension() {
+  const currentCap = Number(costStatus?.max_spend_usd || 5);
+  try {
+    const result = await post(`/runs/${currentRun.run_id}/cost-extension`, body({new_cap_usd: currentCap + 5}));
+    costGateError.textContent = result.approval_id ? 'Approve the cost extension in the Approvals panel.' : 'Cost policy extended.';
+    await refresh();
+  } catch (error) { costGateError.textContent = String(error); }
+}
+async function loadRunPicker() {
+  if (!repoInput.value) return;
+  try {
+    const runs = await (await fetch(`/runs?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
+    runPicker.innerHTML = runs.length
+      ? runs.slice().reverse().map(run => `<option value="${escapeHtml(run.run_id)}" ${run.run_id === currentRun?.run_id ? 'selected' : ''}>${escapeHtml(run.run_id)} / ${escapeHtml(readableStatus(run.status))}</option>`).join('')
+      : '<option value="">No runs found</option>';
+  } catch { runPicker.innerHTML = '<option value="">Runs unavailable</option>'; }
+}
+async function selectRun(runId) {
+  if (!runId) return;
+  const response = await fetch(`/runs/${encodeURIComponent(runId)}?repo_path=${encodeURIComponent(repoInput.value)}`);
+  if (!response.ok) return;
+  currentRun = await response.json();
+  cleanupReviewed = false;
+  const params = new URLSearchParams({repo_path:repoInput.value, run_id:runId});
+  history.replaceState({}, '', `/?${params}`);
   await refresh();
 }
 async function loadCapabilities() {
@@ -621,7 +840,7 @@ async function toggleRecording() {
   micButton.classList.add('recording');
 }
 async function speakLatest() {
-  if (!currentRun || !voiceReady) return;
+  if (!currentRun || !voiceReady || voiceMuted) return;
   const latestText = latest('h_cua') || latest('verifier') || latest('system') || 'No Cloud CUA update is available yet.';
   const result = await post(`/runs/${currentRun.run_id}/speak`, body({text: latestText.slice(0, 500)}));
   if (result.audio_base64) {
@@ -660,13 +879,13 @@ function hasFailedVerifier(ev, names) {
   return verifierResults(ev).some(result => names.includes(result.name) && result.status === 'failed');
 }
 function titleForStatus(status) {
-  return ({created:'Preparing run', waiting_for_login:'Waiting for cloud login', running:'Deployment running', paused:'Paused', verifying:'Verifying deployment', completed:'Deployment complete', blocked:'Needs attention', failed:'Failed'}[status] || 'Deployment status');
+  return ({created:'Preparing run', waiting_for_login:'Waiting for cloud login', waiting_for_configuration:'Runtime configuration required', running:'Deployment running', paused:'Paused', verifying:'Verifying deployment', completed:'Deployment complete', blocked:'Needs attention', cost_action_required:'Cost action required', cancelled:'Run cancelled', failed:'Failed'}[status] || 'Deployment status');
 }
 function dotClass(status) {
   if (status === 'completed') return 'good';
   if (status === 'running' || status === 'verifying') return 'running';
-  if (status === 'blocked' || status === 'waiting_for_login' || status === 'paused') return 'warn';
-  if (status === 'failed') return 'bad';
+  if (status === 'blocked' || status === 'waiting_for_login' || status === 'waiting_for_configuration' || status === 'paused') return 'warn';
+  if (status === 'failed' || status === 'cost_action_required' || status === 'cancelled') return 'bad';
   return '';
 }
 function shortPath(p) { return p ? p.split(/[\\/]/).slice(-2).join('/') : 'No repo selected'; }

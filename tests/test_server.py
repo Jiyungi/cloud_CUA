@@ -324,6 +324,9 @@ def test_dashboard_contains_supervision_sections():
     assert "Skills" in page.text
     assert "Sync H skills" in page.text
     assert "Lesson awaiting review" in page.text
+    assert "Runtime configuration required" in page.text
+    assert "Cost action required" in page.text
+    assert "Recent runs for this repo" in page.text
 
 
 def test_gcp_cloud_run_deploy_requires_approval(tmp_path):
