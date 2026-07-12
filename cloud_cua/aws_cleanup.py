@@ -142,6 +142,11 @@ def _action_from_arn(arn: str) -> CleanupAction | None:
             if _is_express_gateway_service(cluster, service):
                 return CleanupAction("ecs-express", service, aws_command(["ecs", "delete-express-gateway-service", "--service-arn", arn]))
             return CleanupAction("ecs", service, aws_command(["ecs", "delete-service", "--cluster", cluster, "--service", service, "--force"]))
+    if ":ecs:" in arn and ":task/" in arn:
+        parsed_task = _parse_ecs_task_arn(arn)
+        if parsed_task:
+            cluster, task = parsed_task
+            return CleanupAction("ecs-task", task, aws_command(["ecs", "stop-task", "--cluster", cluster, "--task", arn, "--reason", "Cloud CUA cleanup"]))
     if ":lambda:" in arn and ":function:" in arn:
         name = arn.rsplit(":function:", 1)[-1]
         return CleanupAction("lambda", name, aws_command(["lambda", "delete-function", "--function-name", name]))
@@ -201,6 +206,15 @@ def _parse_ecs_service_arn(arn: str) -> tuple[str, str] | None:
         return None
 
 
+def _parse_ecs_task_arn(arn: str) -> tuple[str, str] | None:
+    try:
+        tail = arn.split(":task/", 1)[1]
+        cluster, task = tail.split("/", 1)
+        return cluster, task
+    except Exception:
+        return None
+
+
 def _is_express_gateway_service(cluster: str, service: str) -> bool:
     data = _aws_json(aws_command(["ecs", "describe-services", "--cluster", cluster, "--services", service]))
     services = data.get("services", []) if isinstance(data, dict) else []
@@ -219,5 +233,5 @@ def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:
             continue
         seen.add(key)
         deduped.append(action)
-    priority = {"ecs-express": 0, "ecs": 0, "apprunner": 1, "amplify": 1, "lambda": 1, "cloudformation": 2, "s3": 3, "ecr": 9}
+    priority = {"ecs-task": 0, "ecs-express": 1, "ecs": 1, "apprunner": 2, "amplify": 2, "lambda": 2, "cloudformation": 3, "s3": 4, "ecr": 9}
     return sorted(deduped, key=lambda action: (priority.get(action.service, 5), action.service, action.resource))
