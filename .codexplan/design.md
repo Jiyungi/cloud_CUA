@@ -581,7 +581,7 @@ Required approvals:
 
 Gradium is optional but important for Teach Mode.
 
-Voice has two lanes. Simple commands use the fast lane. Reasoning questions use the slow lane.
+Voice has two lanes. Simple commands use the fast lane. Reasoning questions use the slow lane. The browser uses hold-to-talk and streams 24 kHz, 16-bit mono PCM frames through an authenticated run-scoped WebSocket. Raw audio is never written to disk.
 
 ### Fast Lane: Direct Control Commands
 
@@ -630,7 +630,7 @@ User voice
   -> browser microphone
   -> Gradium STT
   -> Voice Router
-  -> Codex / explanation engine
+  -> read-only ephemeral Codex worker
   -> optional plan change or explanation
   -> optional Gradium TTS response
 ```
@@ -644,9 +644,10 @@ TTS is output only. It speaks short dashboard/Codex explanations.
 Flow:
 
 ```text
-Cloud CUA explanation text
+Cloud CUA or Codex explanation text
   -> Gradium TTS
-  -> dashboard plays audio
+  -> streamed 48 kHz PCM
+  -> dashboard schedules audio chunks
 ```
 
 Do not speak every internal event. Speak only user-relevant explanations, warnings, questions, and final results.
@@ -655,10 +656,7 @@ Do not speak every internal event. Speak only user-relevant explanations, warnin
 
 The browser must not receive `GRADIUM_API_KEY`.
 
-Allowed approaches:
-
-1. backend sends recorded audio to Gradium and returns transcript/audio to the dashboard;
-2. backend issues a short-lived browser token if Gradium's browser-token flow is used.
+The implemented approach keeps the key in the backend. The browser sends PCM only to the authenticated local Cloud CUA WebSocket; the backend opens Gradium STT/TTS WebSockets with the API key.
 
 ### Voice Event Shape
 
@@ -687,13 +685,15 @@ Classifications:
 
 ### MVP Voice Flow
 
-1. user presses voice button in dashboard;
-2. audio goes to Gradium STT;
+1. user holds the voice button in dashboard;
+2. browser resamples microphone audio and streams PCM to Gradium STT through the local backend;
 3. Voice Router classifies the transcript;
 4. direct controls execute immediately in the backend;
-5. reasoning questions go to Codex or the explanation engine;
+5. reasoning questions go to an ephemeral read-only Codex worker with bounded repository/run context;
 6. planned cloud actions become approval-gated plans;
 7. Teach Mode can return short TTS explanation.
+
+Teach Mode defaults to one plain-language sentence of at most 35 words. It expands only when the user explicitly asks for more detail or comparison. High-risk approval gates require the exact spoken phrase shown by the dashboard; a generic yes cannot authorize them.
 
 If Gradium is missing or fails:
 

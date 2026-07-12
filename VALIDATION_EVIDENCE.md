@@ -81,6 +81,16 @@ The later global audit also removed a retained ECS task definition and CloudWatc
 
 GCP is not production-ready. `gcloud` is not installed or authenticated on this machine, so Cloud Run remains planning-only until project identity, exact verification, a real deployment, and cleanup are proven.
 
+## Voice Control Completion
+
+- The dashboard now uses hold-to-talk Web Audio capture, 24 kHz mono PCM frames, an authenticated run-scoped WebSocket, live transcript states, and streamed 48 kHz PCM playback. Raw audio is not persisted.
+- A live Gradium round trip generated 23 TTS chunks and transcribed the downsampled stream as `pause deployment.`
+- A real read-only ephemeral Codex worker returned a structured 25-word Teach explanation with cloud/H/Gradium credentials removed from its environment.
+- A Chrome fake-microphone smoke streamed `switch to teach mode` through the real dashboard and Gradium; the InvoiceOps run changed to Teach mode, the turn completed, and browser/server error counts were zero.
+- A second browser smoke streamed `Why this service?`; the real Codex worker returned a 34-word repository-grounded answer and Gradium TTS completed over the same voice WebSocket.
+- Tests cover contextual stop, direct controls, exact high-risk approval phrases, multiple-gate ambiguity, bounded history, secret redaction, dead-lock recovery, native Gradium framing, WebSocket authentication, and desktop/mobile overflow.
+- Full suite after the voice implementation: 474 passed.
+
 ## Jiyun Evaluation And Fixture Validation
 
 - Imported Jiyun's seven agent-project commits with original authorship and imported the AWS evaluation catalog without replacing newer main tests.

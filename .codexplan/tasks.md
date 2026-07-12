@@ -392,7 +392,8 @@ Owner labels are suggested for parallel work.
 
 - [x] 16. Implement Teach Mode voice with Gradium and fast command routing (Owner: Frontend/Product)
   - [x] 16.1 Build voice UI
-    - Voice button in dashboard
+    - Hold-to-talk button streams 24 kHz mono PCM in 80 ms frames
+    - Live partial transcript, final transcript, action result, and speaking states
     - Text transcript fallback
     - Voice disabled state when no key
     - _Requirements: 11, 11A, 13_
@@ -407,7 +408,7 @@ Owner labels are suggested for parallel work.
     - _Requirements: 11, 11A_
 
   - [x] 16.3 Implement Gradium STT adapter
-    - Browser records or streams user audio
+    - Browser streams user audio through an authenticated run-scoped WebSocket
     - Backend uses `GRADIUM_API_KEY` or short-lived browser token flow
     - STT result goes to Voice Command Router first
     - API key is never exposed in browser JavaScript
@@ -421,13 +422,17 @@ Owner labels are suggested for parallel work.
     - Text fallback on failure
     - _Requirements: 11_
 
-  - [x]* 16.5 Test voice routing and fallback
+  - [x] 16.5 Test voice routing and fallback
     - Missing key disables voice without breaking Teach Mode
     - `pause` routes directly to backend pause
     - `switch to Expert mode` routes directly to mode switch
     - `why this service?` routes to Codex/explanation path
     - `click this in AWS` does not go directly to H CUA
     - STT transcript becomes `voice_command` event
+    - Live Gradium TTS-to-STT round trip transcribed `pause deployment.`
+    - Real browser voice turn changed the InvoiceOps run to Teach mode with zero browser/server errors
+    - Real spoken question reached a read-only Codex worker, returned a 34-word answer, and completed streamed TTS
+    - Dead backend voice locks are reclaimed by process ownership instead of leaving the microphone stuck
     - _Requirements: 11, 11A_
 
 - [x] 17. End-to-end local control loop checkpoint (Owner: Both)
