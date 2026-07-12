@@ -2,18 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cloud_cua.aws_evals import load_aws_eval_catalog
 from cloud_cua.h_skills import get_h_skill_status, sync_h_skills
 from cloud_cua.skill_registry import get_skill, load_skills, skill_for_target
 
 
 def test_skill_registry_loads_unique_valid_skills():
     skills = load_skills()
-    assert {skill.name for skill in skills} == {
+    names = {skill.name for skill in skills}
+    assert {
         "cloud-cua/aws-amplify",
         "cloud-cua/aws-ecs-express",
         "cloud-cua/aws-s3-static",
         "cloud-cua/gcp-cloud-run",
-    }
+    } <= names
+    assert {service.skill_name for service in load_aws_eval_catalog().services} <= names
+    assert len(skills) == 53
     assert len({skill.target for skill in skills}) == len(skills)
     assert all(len(skill.content_hash) == 64 for skill in skills)
 

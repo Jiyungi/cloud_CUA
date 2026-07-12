@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+import shutil
+
+import pytest
+
 from cloud_cua.aws_evals import (
     CASE_TYPES,
     build_h_eval_task,
@@ -9,6 +14,12 @@ from cloud_cua.aws_evals import (
     get_aws_eval_service,
     load_aws_eval_catalog,
 )
+from cloud_cua.aws_skill_generation import RULES_MARKER, materialize_aws_eval_skills
+from cloud_cua.skill_registry import get_skill, load_skills
+
+
+CATALOG = load_aws_eval_catalog()
+ALL_CASE_IDS = [case.id for case in CATALOG.cases]
 
 
 def _passing_submission(case_id: str) -> dict[str, object]:
@@ -94,3 +105,44 @@ def test_generated_skill_is_review_only() -> None:
     assert seed["status"] == "candidate_pending_review"
     assert seed["autonomy_level"] == 1
     assert "downstream_container_port" in seed["required_facts"]
+
+
+@pytest.mark.parametrize("case_id", ALL_CASE_IDS)
+def test_every_aws_eval_case_accepts_complete_contract_evidence(case_id: str) -> None:
+    prompt = build_h_eval_task(case_id)
+    result = evaluate_aws_eval_submission(case_id, _passing_submission(case_id))
+    assert case_id in prompt
+    assert result.passed is True
+    assert result.score == 100
+
+
+@pytest.mark.parametrize("case_id", ALL_CASE_IDS)
+def test_every_aws_eval_case_fails_closed_on_an_unknown_required_fact(case_id: str) -> None:
+    _service, case = get_aws_eval_case(case_id)
+    submission = _passing_submission(case_id)
+    facts = dict(submission["facts"])  # type: ignore[arg-type]
+    facts[case.required_fact_keys[0]] = "unknown"
+    submission["facts"] = facts
+    result = evaluate_aws_eval_submission(case_id, submission)
+    assert result.passed is False
+    assert case.required_fact_keys[0] in result.missing_facts
+
+
+def test_materialized_registry_covers_all_fifty_services_with_fifty_three_total_skills() -> None:
+    skills = load_skills()
+    by_name = {skill.name: skill for skill in skills}
+    assert len(skills) == 53
+    for service in CATALOG.services:
+        assert by_name[service.skill_name].target == service.skill_target
+    assert RULES_MARKER in get_skill("cloud-cua/aws-amplify").body
+
+
+def test_skill_materialization_is_idempotent_and_preserves_existing_amplify(tmp_path: Path) -> None:
+    source = Path(__file__).parents[1] / "cloud_cua" / "skills" / "aws_amplify.yaml"
+    shutil.copy2(source, tmp_path / source.name)
+    first = materialize_aws_eval_skills(tmp_path)
+    second = materialize_aws_eval_skills(tmp_path)
+    assert len(first.created) == 49
+    assert first.unchanged == ("cloud-cua/aws-amplify",)
+    assert len(second.unchanged) == 50
+    assert len(load_skills(tmp_path)) == 50
