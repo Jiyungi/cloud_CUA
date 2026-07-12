@@ -111,13 +111,15 @@ def _chrome_debug_check(*, required: bool) -> DoctorCheck:
 
 
 def _playwright_check(*, required: bool) -> DoctorCheck:
-    if not shutil.which("node"):
-        return DoctorCheck("playwright", "failed" if required else "skipped", "Node is required before checking Playwright.")
-    script = "const p=require('playwright'); console.log(Boolean(p.chromium));"
-    proc = subprocess.run(["node", "-e", script], text=True, capture_output=True, timeout=20)
-    if proc.returncode != 0:
-        return DoctorCheck("playwright", "failed" if required else "skipped", "Playwright node package is not installed. Run npm install.")
-    return DoctorCheck("playwright", "passed", "Playwright package is available.")
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(channel="chrome", headless=True)
+            browser.close()
+    except Exception as exc:
+        return DoctorCheck("playwright", "failed" if required else "skipped", f"Managed Playwright/Chrome launch failed: {type(exc).__name__}: {exc}")
+    return DoctorCheck("playwright", "passed", "Managed Python Playwright launched the installed Chrome channel.")
 
 
 def _docker_check(*, required: bool) -> DoctorCheck:

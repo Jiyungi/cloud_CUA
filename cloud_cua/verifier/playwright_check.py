@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-import json
-
-from .base import VerifierResult, run_command
+from .base import VerifierResult
 
 
 def verify_playwright_url(url: str) -> VerifierResult:
-    safe_url = json.dumps(url)
-    script = (
-        "const { chromium } = require('playwright');"
-        "(async()=>{const b=await chromium.launch({headless:true});"
-        "const p=await b.newPage();"
-        f"await p.goto({safe_url}, {{waitUntil:'domcontentloaded', timeout:30000}});"
-        "const title=await p.title(); const body=await p.textContent('body');"
-        "await b.close(); if(!body || body.trim().length===0) process.exit(2);"
-        "console.log(JSON.stringify({title, bodyLength: body.length}));})();"
-    )
-    return run_command("playwright_render", ["node", "-e", script], timeout=45)
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(channel="chrome", headless=True)
+            page = browser.new_page()
+            response = page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            title = page.title()
+            body = page.locator("body").inner_text(timeout=10_000).strip()
+            status = response.status if response else None
+            browser.close()
+        if not body:
+            return VerifierResult("playwright_render", "failed", "playwright chromium channel=chrome", "Rendered page body was empty.")
+        return VerifierResult(
+            "playwright_render",
+            "passed",
+            "playwright chromium channel=chrome",
+            f"Rendered HTTP {status}; title={title!r}; bodyLength={len(body)}.",
+        )
+    except Exception as exc:
+        return VerifierResult("playwright_render", "failed", "playwright chromium channel=chrome", f"Playwright render failed: {type(exc).__name__}: {exc}")
