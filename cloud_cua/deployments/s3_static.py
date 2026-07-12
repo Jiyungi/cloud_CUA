@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, asdict
 
@@ -40,11 +41,28 @@ Click each final save/create action only once. Return the structured answer with
 
 
 def build_s3_website_task(contract: DeploymentContract) -> str:
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "CloudCUAPublicRead",
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": f"arn:aws:s3:::{contract.resource_name}/*",
+            }
+        ],
+    }
     return f"""Milestone: configure_s3_static_website
 
 The prior saved checkpoint proved that bucket {contract.resource_name} exists in {contract.cloud_region}, has bucket-level public access unblocked, and carries every required tag for this exact run. Use the loaded cloud-cua/aws-s3-static skill.
 
-Open the exact bucket Properties page directly. Configure static website hosting with index.html as both the index and error document. Then open Permissions and add only this bucket-scoped public-read policy for objects under arn:aws:s3:::{contract.resource_name}/*. Do not change tags, ownership, ACLs, versioning, logging, replication, CloudFront, Route 53, or any other bucket.
+Open this exact bucket Properties page directly: https://s3.console.aws.amazon.com/s3/buckets/{contract.resource_name}?region={contract.cloud_region}&tab=properties
+
+Configure static website hosting with index.html as both the index and error document. Then open Permissions and add exactly this bucket-scoped public-read policy:
+{json.dumps(policy, indent=2)}
+
+Do not change tags, ownership, ACLs, versioning, logging, replication, CloudFront, Route 53, or any other bucket.
 
 Contract:
 {contract.h_instructions()}
