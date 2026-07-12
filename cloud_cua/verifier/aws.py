@@ -257,16 +257,16 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
             failures.append(f"ECS service {service_name} has no task definition ARN.")
             continue
         primary_container = active_configuration.get("primaryContainer", {})
+        task_data = _aws_json(
+            aws_command(["ecs", "describe-task-definition", "--task-definition", task_definition_arn, "--include", "TAGS"]),
+            timeout=45,
+        )
+        task_definition = task_data.get("taskDefinition", {})
+        containers = task_definition.get("containerDefinitions", [])
         if primary_container:
             images = [str(primary_container.get("image"))] if primary_container.get("image") else []
             ports = [int(primary_container.get("containerPort"))] if primary_container.get("containerPort") is not None else []
         else:
-            task_data = _aws_json(
-                aws_command(["ecs", "describe-task-definition", "--task-definition", task_definition_arn, "--include", "TAGS"]),
-                timeout=45,
-            )
-            task_definition = task_data.get("taskDefinition", {})
-            containers = task_definition.get("containerDefinitions", [])
             images = sorted({str(item.get("image", "")) for item in containers if item.get("image")})
             ports = sorted(
                 {
@@ -280,6 +280,19 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
             failures.append(f"Task definition image mismatch: expected {contract.container_image_uri}, found {images or 'none'}.")
         if contract.selected_container_port is not None and contract.selected_container_port not in ports:
             failures.append(f"Task definition port mismatch: expected {contract.selected_container_port}, found {ports or 'none'}.")
+        actual_secret_references = {
+            str(secret.get("name")): str(secret.get("valueFrom"))
+            for container in containers
+            for secret in container.get("secrets", [])
+            if secret.get("name") and secret.get("valueFrom")
+        }
+        for name, expected_reference in sorted(contract.runtime_secret_references.items()):
+            actual_reference = actual_secret_references.get(name)
+            if actual_reference != expected_reference:
+                failures.append(
+                    f"Task definition secret binding mismatch for {name}: expected {expected_reference}, "
+                    f"found {actual_reference or 'none'}."
+                )
 
         desired = int(service.get("desiredCount") or 0)
         running = int(service.get("runningCount") or 0)
@@ -314,6 +327,7 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
                 "taskDefinitionArn": task_definition_arn,
                 "images": images,
                 "ports": ports,
+                "runtimeSecretReferences": actual_secret_references,
                 "desiredCount": desired,
                 "runningCount": running,
                 "targetHealth": target_health,

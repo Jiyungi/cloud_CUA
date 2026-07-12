@@ -17,6 +17,7 @@ unknowns_that_block:
 h_cua_allowed_actions:
   - Inspect ECS Express Mode forms without changing cloud resources.
   - Fill a deployment form only with values from the contract.
+  - Bind each contracted runtime variable name to its exact SSM parameter ARN through the ECS secrets control.
   - Create the service only after the prompt states that user approval is granted.
   - Observe deployment status and report visible resource identifiers and application URLs.
 h_cua_stop_conditions:
@@ -35,6 +36,7 @@ required_verifiers:
 success_conditions:
   - The exact run-tagged ECS service exists.
   - Its task definition uses the prepared image and contracted container port.
+  - Its task definition binds every contracted runtime secret name to the exact SSM parameter ARN.
   - Desired tasks are running and load balancer targets are healthy.
   - A non-console public application URL passes HTTP and browser rendering checks.
 cleanup_strategy: Delete only resources carrying both cloud-cua=true and the exact cloud-cua-run tag.
@@ -50,7 +52,8 @@ body: |
   3. After explicit approval, prepare the form without submitting it. Use write actions with enter=false. Never press Enter in a form field. Fill the exact image, port, health path, and tags; leave optional task role and networking controls unchanged unless the contract specifies them.
   4. Use a one-pass evidence checklist for long forms. Go to the top once, rewrite and record the exact image, port, and health path from the contract, then move downward only. Record each required tag when visible. Do not scroll back to re-check a value already directly observed or written in this milestone.
   5. As soon as every required field and tag is recorded, return the structured prepared-form answer. Do not keep exploring optional sections. Do not click Create until a later submit-only milestone.
-  6. During the submit-only milestone, trust the immediately preceding saved prepared-form checkpoint. Confirm only that the same unsubmitted form has no new blocker, then click Create exactly once. If the page appears unchanged, wait or inspect the resulting AWS state; never click Create a second time. Do not call provisioning or an Active label proof that the app works.
-  7. Return structured JSON with milestone, status, region, service name and ARN, task definition, image URI, container port, target health, public app URL, console URL, created resources, blockers, and assumptions.
+  6. If runtime_secret_references are present, add each variable through the ECS secret-value control using the exact variable name and SSM ARN. Never retrieve, reveal, or type the plaintext value. Confirm the task execution role can read only those parameters; stop if AWS requires broad IAM.
+  7. During the submit-only milestone, trust the immediately preceding saved prepared-form checkpoint. Confirm only that the same unsubmitted form has no new blocker, then click Create exactly once. If the page appears unchanged, wait or inspect the resulting AWS state; never click Create a second time. Do not call provisioning or an Active label proof that the app works.
+  8. Return structured JSON with milestone, status, region, service name and ARN, task definition, image URI, container port, runtime secret bindings, target health, public app URL, console URL, created resources, blockers, and assumptions.
 
   A console URL is never a public application URL. H observations are evidence for the supervisor, not final proof; independent verifiers decide whether the run succeeded.

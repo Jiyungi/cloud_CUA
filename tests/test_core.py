@@ -298,6 +298,7 @@ def _fake_ecs_aws_json(
     express_events=False,
     health_path="/",
     repo_tag="demo",
+    secrets=None,
 ):
     joined = " ".join(command)
     if "resourcegroupstaggingapi" in joined:
@@ -350,6 +351,7 @@ def _fake_ecs_aws_json(
                     {
                         "image": image or "123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
                         "portMappings": [{"containerPort": port}],
+                        "secrets": [{"name": name, "valueFrom": value} for name, value in (secrets or {}).items()],
                     }
                 ]
             }
@@ -423,6 +425,25 @@ def test_ecs_contract_verifier_rejects_required_tag_mismatch(tmp_path: Path, mon
     result = verify_ecs_contract("run-1", contract)
     assert result.status == "failed"
     assert "cloud-cua-repo" in result.summary
+
+
+def test_ecs_contract_verifier_requires_exact_runtime_secret_binding(tmp_path: Path, monkeypatch):
+    from dataclasses import replace
+
+    reference = "arn:aws:ssm:us-east-1:123456789012:parameter/cloud-cua/run-1/DATABASE_URL"
+    contract = replace(_ecs_contract_fixture(tmp_path), runtime_secret_references={"DATABASE_URL": reference})
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout))
+
+    missing = verify_ecs_contract("run-1", contract)
+    assert missing.status == "failed"
+    assert "secret binding mismatch" in missing.summary
+
+    monkeypatch.setattr(
+        "cloud_cua.verifier.aws._aws_json",
+        lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, secrets={"DATABASE_URL": reference}),
+    )
+    matched = verify_ecs_contract("run-1", contract)
+    assert matched.status == "passed"
 
 
 def test_lesson_candidate_is_review_only_and_redacted(tmp_path: Path):
