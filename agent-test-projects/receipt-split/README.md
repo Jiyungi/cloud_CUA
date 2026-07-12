@@ -20,3 +20,14 @@ npm run fixture:generate
 ## Test contract
 
 Read `AGENT_TEST_SPEC.md` before running Cloud CUA. A rendered mock frontend is not a successful AWS deployment.
+
+## Local verification
+
+```bash
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+The Playwright flow asserts that upload, extraction review, splitting, reminders, and payment state work without application `fetch` or XHR requests. Generated reports and browser artifacts are ignored by Git.
