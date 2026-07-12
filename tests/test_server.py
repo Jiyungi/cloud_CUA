@@ -507,6 +507,8 @@ def test_dashboard_contains_supervision_sections():
     assert "AudioWorkletNode" in page.text
     assert "Repository folder" in page.text
     assert "Attach repository" in page.text
+    assert "data-active-control" in page.text
+    assert "Start new run" in page.text
     assert page.text.count('id="repo"') == 1
     assert "Skills" in page.text
     assert "Sync H skills" in page.text

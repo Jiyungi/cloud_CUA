@@ -313,11 +313,11 @@ HTML = r"""
             <p id="runSummary" class="summary">Start from Codex through MCP, or use this local repo to test the control loop.</p>
           </div>
           <div class="row">
-            <button class="secondary" data-run-control onclick="openBrowser()" disabled>Open cloud login</button>
-            <button class="quiet" data-run-control onclick="runDeploy()" disabled>Deploy</button>
-            <button class="quiet" data-run-control onclick="pauseRun()" disabled>Pause</button>
-            <button class="quiet" data-run-control onclick="resumeRun()" disabled>Resume</button>
-            <button class="quiet" data-run-control onclick="cancelRun()" disabled>Cancel</button>
+            <button class="secondary" data-run-control data-active-control onclick="openBrowser()" disabled>Open cloud login</button>
+            <button class="quiet" data-run-control data-active-control onclick="runDeploy()" disabled>Deploy</button>
+            <button class="quiet" data-run-control data-active-control onclick="pauseRun()" disabled>Pause</button>
+            <button class="quiet" data-run-control data-active-control onclick="resumeRun()" disabled>Resume</button>
+            <button class="quiet" data-run-control data-active-control onclick="cancelRun()" disabled>Cancel</button>
           </div>
         </div>
         <div class="mission-side">
@@ -348,9 +348,9 @@ HTML = r"""
             <p class="summary">Switch how much the agent explains or asks before the next step.</p>
           </div>
           <div class="mode-control">
-            <button id="mode-vibe" data-run-control onclick="setMode('vibe')" disabled>Vibe</button>
-            <button id="mode-teach" data-run-control onclick="setMode('teach')" disabled>Teach</button>
-            <button id="mode-expert" data-run-control onclick="setMode('expert')" disabled>Expert</button>
+            <button id="mode-vibe" data-run-control data-active-control onclick="setMode('vibe')" disabled>Vibe</button>
+            <button id="mode-teach" data-run-control data-active-control onclick="setMode('teach')" disabled>Teach</button>
+            <button id="mode-expert" data-run-control data-active-control onclick="setMode('expert')" disabled>Expert</button>
           </div>
         </div>
       </section>
@@ -372,7 +372,7 @@ HTML = r"""
           </div>
           <div class="voice-actions">
             <button id="micButton" class="secondary" title="Hold while speaking">Hold to talk</button>
-            <button class="secondary" data-run-control onclick="sendVoice()" disabled>Route text</button>
+            <button class="secondary" data-run-control data-active-control onclick="sendVoice()" disabled>Route text</button>
           </div>
         </div>
       </section>
@@ -647,6 +647,7 @@ async function loadHandoffState() {
 }
 function renderRun() {
   updateRunControls();
+  attachRepoButton.textContent = ['completed', 'cancelled', 'failed'].includes(currentRun.status) ? 'Start new run' : 'Attach repository';
   statusTitle.textContent = titleForStatus(currentRun.status);
   headerState.innerHTML = `<span class="dot ${dotClass(currentRun.status)}"></span>${currentRun.status}`;
   runIdPill.textContent = currentRun.run_id || 'No run';
@@ -665,7 +666,9 @@ function renderRun() {
 }
 function updateRunControls() {
   document.querySelectorAll('[data-run-control]').forEach(button => { button.disabled = !currentRun; });
-  if (document.getElementById('micButton')) micButton.disabled = !voiceReady || !currentRun;
+  const terminal = currentRun && ['completed', 'cancelled', 'failed'].includes(currentRun.status);
+  document.querySelectorAll('[data-active-control]').forEach(button => { button.disabled = !currentRun || terminal; });
+  if (document.getElementById('micButton')) micButton.disabled = !voiceReady || !currentRun || terminal;
 }
 function renderEvents(ev) {
   eventCount.textContent = `${ev.length} events`;
