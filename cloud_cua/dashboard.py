@@ -232,6 +232,8 @@ HTML = r"""
       .mission { grid-template-columns: 1fr; }
       .mission-side { border-left: 0; border-top: 1px solid var(--border); }
       .lanes, .proof-grid { grid-template-columns: 1fr; }
+      .voice-strip { grid-template-columns: 1fr; align-items: stretch; }
+      .voice-actions { justify-content: flex-start; }
       .split { align-items: stretch; flex-direction: column; }
       .mode-control { width: 100%; }
     }
@@ -392,6 +394,7 @@ HTML = r"""
 let currentRun = null;
 let lastEvents = [];
 let voiceReady = false;
+let containerMode = false;
 let mediaRecorder = null;
 let audioChunks = [];
 const continuedApprovals = new Set();
@@ -441,7 +444,7 @@ function renderEvents(ev) {
     </div>
   `).join('');
   codexLane.textContent = latest('codex') || 'Plans from repo context.';
-  hLane.textContent = latest('h_cua') || 'Waits for login, then operates browser.';
+  hLane.textContent = latest('h_cua') || (containerMode ? 'Docker mode can supervise and verify. Run host-local Python for real H browser takeover.' : 'Waits for login, then operates browser.');
   userLane.textContent = latest('user') || 'Approves risky cloud actions.';
   verifierLane.textContent = latest('verifier') || 'Checks AWS/GCP directly.';
 }
@@ -525,9 +528,11 @@ async function loadCapabilities() {
   try {
     const caps = await (await fetch(`/capabilities?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
     voiceReady = Boolean(caps.gradium_api_key_present);
+    containerMode = Boolean(caps.container_mode);
     micButton.disabled = !voiceReady || !currentRun;
     voiceKeyChip.textContent = voiceReady ? 'Gradium ready' : 'Voice disabled';
     voiceState.textContent = voiceReady ? 'Mic commands use Gradium STT, then the same router as typed commands.' : 'Add GRADIUM_API_KEY to enable microphone and speech playback. Typed commands still work.';
+    if (containerMode) hLane.textContent = 'Docker mode can supervise and verify. Run host-local Python for real H browser takeover.';
   } catch {
     voiceReady = false;
     micButton.disabled = true;

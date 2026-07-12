@@ -21,11 +21,21 @@ def browser_profile_dir() -> Path:
 
 
 def repo_runtime_dir(repo_path: str | Path) -> Path:
-    return Path(repo_path).resolve() / ".cloud-cua"
+    return resolve_repo_path(repo_path) / ".cloud-cua"
 
 
 def runs_dir(repo_path: str | Path) -> Path:
     return repo_runtime_dir(repo_path) / "runs"
+
+
+def resolve_repo_path(repo_path: str | Path) -> Path:
+    path = Path(repo_path).expanduser().resolve()
+    if path.exists() or os.environ.get("CLOUD_CUA_CONTAINER") != "1":
+        return path
+    workspace = Path(os.environ.get("CLOUD_CUA_WORKSPACE", "/workspace")).resolve()
+    if workspace.exists():
+        return workspace
+    return path
 
 
 def default_dashboard_port() -> int:
@@ -34,4 +44,3 @@ def default_dashboard_port() -> int:
 
 def default_api_port() -> int:
     return int(os.environ.get("CLOUD_CUA_API_PORT", "8765"))
-

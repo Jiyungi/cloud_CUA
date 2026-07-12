@@ -12,6 +12,7 @@ from cloud_cua.container_image import prepare_ecr_image
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
 from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
+from cloud_cua.paths import resolve_repo_path
 from cloud_cua.reports import write_report
 from cloud_cua.repo_analyzer import analyze_repo
 from cloud_cua.run_store import RunStore
@@ -183,6 +184,15 @@ def test_repo_analyzer_unknown_blocks(tmp_path: Path):
     assert ctx.recommendation == "blocked_unknown_repo"
 
 
+def test_container_windows_path_maps_to_workspace(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("CLOUD_CUA_CONTAINER", "1")
+    monkeypatch.setenv("CLOUD_CUA_WORKSPACE", str(workspace))
+
+    assert resolve_repo_path(r"C:\Users\Person\project") == workspace
+
+
 def test_gradium_tts_skips_without_key(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("GRADIUM_API_KEY", raising=False)
     result = synthesize_tts("hello", str(tmp_path))
@@ -231,6 +241,15 @@ def test_h_runner_rate_limit_message(monkeypatch):
     result = run_h_task("safe inspect", "vibe", max_steps=1, max_time_s=1)
     assert result.status == "blocked"
     assert "rate limited" in result.summary
+
+
+def test_h_runner_blocks_browser_takeover_in_docker(monkeypatch):
+    monkeypatch.setenv("CLOUD_CUA_CONTAINER", "1")
+    from cloud_cua.h_runner import _run_h_task_sdk
+
+    result = _run_h_task_sdk("inspect only")
+    assert result.status == "blocked"
+    assert "host-local" in result.summary
 
 
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):

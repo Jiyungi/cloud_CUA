@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import traceback
@@ -65,6 +66,15 @@ def _inline_browser_agent(mode: Mode) -> dict[str, Any]:
 
 
 def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: int = 180) -> HTaskResult:
+    if os.environ.get("CLOUD_CUA_CONTAINER") == "1":
+        return HTaskResult(
+            status="blocked",
+            summary=(
+                "H CUA local browser takeover is host-local and is disabled in Docker mode. "
+                "Run `python -m cloud_cua.cli start` on the host machine for real H browser control. "
+                "Docker mode is for the dashboard, MCP surface, repo analysis, AWS/Docker CLI checks, and verifiers."
+            ),
+        )
     values = load_secret_values()
     api_key = values.get("HAI_API_KEY")
     if not api_key:

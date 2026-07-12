@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from .models import RepoContext
+from .paths import resolve_repo_path
 
 
 def _read_json(path: Path) -> dict:
@@ -55,7 +56,7 @@ def _env_vars(root: Path) -> list[str]:
 
 
 def analyze_repo(repo_path: str | Path) -> RepoContext:
-    root = Path(repo_path).resolve()
+    root = resolve_repo_path(repo_path)
     pkg = _read_json(root / "package.json")
     deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
     scripts = pkg.get("scripts", {})

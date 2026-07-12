@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .models import Cloud, Event, Mode, Run
-from .paths import runs_dir
+from .paths import resolve_repo_path, runs_dir
 
 SECRET_PATTERNS = [
     re.compile(r"(api[_-]?key\s*[=:]\s*)[^\s,;]+", re.I),
@@ -45,7 +45,7 @@ def sanitize_obj(value):
 
 class RunStore:
     def __init__(self, repo_path: str | Path):
-        self.repo_path = Path(repo_path).resolve()
+        self.repo_path = resolve_repo_path(repo_path)
         self.root = runs_dir(self.repo_path)
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -119,4 +119,3 @@ class RunStore:
             except Exception:
                 continue
         return runs
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import base64
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .h_admin import cleanup_h_sessions
 from .h_runner import run_h_task
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
+from .paths import resolve_repo_path
 from .repo_analyzer import analyze_repo
 from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
@@ -44,7 +46,7 @@ from .voice_router import classify_voice_command
 
 class Orchestrator:
     def __init__(self, repo_path: str | Path):
-        self.repo_path = Path(repo_path).resolve()
+        self.repo_path = resolve_repo_path(repo_path)
         self.store = RunStore(self.repo_path)
 
     def start_deployment(self, cloud: str = "aws", mode: str = "vibe") -> dict:
@@ -475,6 +477,7 @@ class Orchestrator:
             "hai_api_key_present": creds.hai_api_key_present,
             "gradium_api_key_present": creds.gradium_api_key_present,
             "credentials_source": creds.source,
+            "container_mode": os.environ.get("CLOUD_CUA_CONTAINER") == "1",
         }
 
     def _record_resource_summary(self, run_id: str, cloud: str, target: str, summary: str) -> None:
