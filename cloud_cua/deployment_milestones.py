@@ -82,35 +82,56 @@ def review_ecs_inspection(result: HTaskResult, contract: DeploymentContract) -> 
     return MilestoneReview("blocked" if objections else "clear", observation=observation, objections=objections, corrections=corrections)
 
 
-def build_ecs_creation_task(contract: DeploymentContract, corrections: list[str] | None = None) -> str:
+def build_ecs_prepare_form_task(contract: DeploymentContract, corrections: list[str] | None = None) -> str:
     correction_text = "\n".join(f"- {item}" for item in (corrections or [])) or "- No editable defaults require correction."
-    return f"""Milestone: create_ecs_express_service
+    return f"""Milestone: prepare_ecs_express_form
 
-User approval is granted for this exact Cloud CUA deployment contract. Use the loaded cloud-cua/aws-ecs-express skill and only the values below. Do not substitute defaults that conflict with the contract. Stop before any new OAuth, secret entry, broad IAM, billing change, destructive action, or cost above $5.
+User approval is granted to prepare this ECS Express form, but not to submit it in this milestone. Use the loaded cloud-cua/aws-ecs-express skill.
 
-Cloud CUA contract:
+Use write actions with enter=false for every text field. Never press Enter. Never click Create or submit the form. Fill only these contract values:
 {json.dumps(contract.to_dict(), indent=2)}
 
-Supervisor corrections from the inspection milestone:
+Apply these supervisor corrections:
 {correction_text}
 
-Create the ECS Express Mode service, then observe AWS until it reports a stable success, failure, or user-action blocker. Return one JSON object and no Markdown:
-{{
-  "milestone": "create_ecs_express_service",
-  "status": "submitted|completed|blocked|failed",
-  "region": "...",
-  "service_name": "...",
-  "service_arn": "...",
-  "task_definition_arn": "...",
-  "image_uri": "...",
-  "container_port": 0,
-  "target_health": "healthy|unhealthy|pending|unknown",
-  "public_app_url": null,
-  "console_url": "...",
-  "created_resources": [],
-  "blockers": [],
-  "assumptions": []
-}}
+Set the exact image URI, container port, health check path, and all required tags. Leave the optional task role empty and leave default networking unchanged because the contract does not specify either. Do not create IAM roles.
+
+Return the selected values through the structured answer schema. Set ready_to_submit=true only when every reported value exactly matches the contract and the form is still unsubmitted.
+"""
+
+
+def review_ecs_prepared_form(result: HTaskResult, contract: DeploymentContract) -> MilestoneReview:
+    if result.status != "completed":
+        return MilestoneReview("blocked", objections=[f"H form preparation ended with status {result.status}: {result.summary}"])
+    observation = extract_json_object(result.summary)
+    if observation is None:
+        return MilestoneReview("blocked", objections=["H form preparation did not return the required structured answer."])
+    objections: list[str] = []
+    if observation.get("milestone") != "prepare_ecs_express_form":
+        objections.append("H returned the wrong form-preparation milestone.")
+    if observation.get("ready_to_submit") is not True:
+        objections.append("H did not confirm that the form is ready to submit.")
+    if observation.get("blockers"):
+        objections.append("H reported form blockers: " + "; ".join(str(item) for item in observation["blockers"]))
+    _compare_required(objections, "image URI", observation.get("image_uri"), contract.container_image_uri)
+    _compare_required(objections, "container port", observation.get("container_port"), contract.selected_container_port)
+    _compare_required(objections, "health check path", observation.get("health_check_path"), contract.health_check_path)
+    actual_tags = observation.get("tags") if isinstance(observation.get("tags"), dict) else {}
+    for key, value in contract.required_tags.items():
+        if str(actual_tags.get(key, "")) != str(value):
+            objections.append(f"Prepared form tag {key!r} does not match contract value {value!r}.")
+    return MilestoneReview("blocked" if objections else "clear", observation=observation, objections=objections)
+
+
+def build_ecs_submit_task(contract: DeploymentContract) -> str:
+    return f"""Milestone: create_ecs_express_service
+
+The ECS Express form was prepared in a previous milestone and the supervisor verified its reported values. Do not type into fields and do not press Enter.
+
+Before submitting, visually confirm the image URI, container port, health path, and required tags still match this contract:
+{json.dumps(contract.to_dict(), indent=2)}
+
+If any value is missing or different, do not submit and return status=blocked. Otherwise click the visible Create button exactly once. Observe the resulting service until AWS shows a stable success, failure, or user-action blocker, then return the required structured answer.
 """
 
 
@@ -145,3 +166,8 @@ def _correction_if_different(corrections: list[str], label: str, visible: Any, e
         message = f"Set {label} from visible default {visible!r} to contract value {expected!r}."
         if message not in corrections:
             corrections.append(message)
+
+
+def _compare_required(objections: list[str], label: str, actual: Any, expected: Any) -> None:
+    if str(actual).strip() != str(expected).strip():
+        objections.append(f"Prepared {label} {actual!r} does not match contract value {expected!r}.")

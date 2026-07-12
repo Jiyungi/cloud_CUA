@@ -11,7 +11,7 @@ from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
 from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
 from cloud_cua.deployment_contract import build_deployment_contract, load_contract, save_contract
-from cloud_cua.deployment_milestones import review_ecs_inspection
+from cloud_cua.deployment_milestones import review_ecs_inspection, review_ecs_prepared_form
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
 from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
@@ -507,11 +507,34 @@ def test_orphaned_chromedriver_cleanup_parses_stopped_ids(monkeypatch):
 
 
 def test_h_runner_resolves_structured_ecs_schemas():
-    from cloud_cua.h_runner import ECSCreationAnswer, ECSInspectionAnswer, _answer_schema_for
+    from cloud_cua.h_runner import ECSCreationAnswer, ECSInspectionAnswer, ECSPreparedFormAnswer, _answer_schema_for
 
     assert _answer_schema_for("ecs_inspection") is ECSInspectionAnswer
+    assert _answer_schema_for("ecs_prepared_form") is ECSPreparedFormAnswer
     assert _answer_schema_for("ecs_creation") is ECSCreationAnswer
     assert _answer_schema_for(None) is None
+
+
+def test_prepared_ecs_form_must_match_contract(tmp_path: Path):
+    contract = _ecs_contract_fixture(tmp_path)
+    result = HTaskResult(
+        "completed",
+        json.dumps(
+            {
+                "milestone": "prepare_ecs_express_form",
+                "status": "prepared",
+                "image_uri": contract.container_image_uri,
+                "container_port": 80,
+                "health_check_path": "/",
+                "tags": contract.required_tags,
+                "ready_to_submit": True,
+                "blockers": [],
+            }
+        ),
+    )
+    review = review_ecs_prepared_form(result, contract)
+    assert review.status == "blocked"
+    assert any("container port" in item for item in review.objections)
 
 
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):

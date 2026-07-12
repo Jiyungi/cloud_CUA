@@ -13,7 +13,13 @@ from .browser_profile import launch_dedicated_browser
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
 from .deployment_contract import build_deployment_contract, load_contract, save_contract
-from .deployment_milestones import build_ecs_creation_task, build_ecs_inspection_task, review_ecs_inspection
+from .deployment_milestones import (
+    build_ecs_inspection_task,
+    build_ecs_prepare_form_task,
+    build_ecs_submit_task,
+    review_ecs_inspection,
+    review_ecs_prepared_form,
+)
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
@@ -362,7 +368,39 @@ class Orchestrator:
                         "contract": contract.to_dict(),
                     }
 
-                task_text = build_ecs_creation_task(contract, inspection_review.corrections)
+                run = self.store.load_run(run_id)
+                run.current_step = "h_cua_prepare_ecs_form"
+                self.store.save_run(run)
+                prepare_task = build_ecs_prepare_form_task(contract, inspection_review.corrections)
+                self.store.append_event(run_id, "h_cua", "milestone", "H CUA is preparing the ECS form without submitting it.", {"milestone": "prepare_ecs_express_form", "skill_name": skill.name})
+                prepare_result = run_h_task(
+                    prepare_task,
+                    run.mode,
+                    max_steps=35,
+                    max_time_s=480,
+                    skill_names=[skill.name],
+                    event_callback=self._h_event_callback(run_id, "prepare_ecs_express_form"),
+                    answer_schema_name="ecs_prepared_form",
+                )
+                self.store.append_event(run_id, "h_cua", "observation", prepare_result.summary, {"status": prepare_result.status, "session_id": prepare_result.session_id, "milestone": "prepare_ecs_express_form"})
+                prepare_review = review_ecs_prepared_form(prepare_result, contract)
+                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed prepared ECS form: {prepare_review.status}.", prepare_review.to_dict())
+                if prepare_review.status != "clear":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "ecs_prepared_form_mismatch"
+                    self.store.save_run(run)
+                    self._write_lesson(
+                        run_id,
+                        skill.name,
+                        "H CUA's prepared ECS form did not match the deployment contract.",
+                        prepare_review.to_dict(),
+                        "Prepare the cloud form without submitting, then compare every selected value to the contract.",
+                        "Test that image, port, health path, tag, blocker, or ready-state mismatches prevent submission.",
+                    )
+                    return {"status": "blocked", "summary": "The prepared ECS form did not match the deployment contract.", "review": prepare_review.to_dict(), "contract": contract.to_dict()}
+
+                task_text = build_ecs_submit_task(contract)
             else:
                 task_text = build_general_aws_h_task(
                     self.repo_path.name,

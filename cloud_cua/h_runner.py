@@ -71,6 +71,18 @@ class ECSCreationAnswer(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
 
 
+class ECSPreparedFormAnswer(BaseModel):
+    milestone: str
+    status: str
+    image_uri: str | None = None
+    container_port: int | None = None
+    health_check_path: str | None = None
+    tags: dict[str, str] = Field(default_factory=dict)
+    ready_to_submit: bool
+    blockers: list[str] = Field(default_factory=list)
+    console_url: str | None = None
+
+
 def _event_excerpt(events: list[Any], limit: int = 8) -> str:
     lines: list[str] = []
     for event in events[-limit:]:
@@ -216,7 +228,12 @@ def _run_h_task_sdk(
                 raise
         if result is None:
             raise RuntimeError("H session did not return a result after local bridge retry.")
-        status = "completed" if result.status in {"completed", "idle"} and result.outcome not in {"blocked", "infeasible"} else str(result.status)
+        if result.outcome in {"blocked", "infeasible"}:
+            status = "blocked"
+        elif result.status in {"completed", "idle"}:
+            status = "completed"
+        else:
+            status = str(result.status)
         if result.answer is None:
             answer = ""
         elif hasattr(result.answer, "model_dump"):
@@ -432,5 +449,6 @@ def cleanup_orphaned_chromedrivers() -> list[int]:
 def _answer_schema_for(name: str | None):
     return {
         "ecs_inspection": ECSInspectionAnswer,
+        "ecs_prepared_form": ECSPreparedFormAnswer,
         "ecs_creation": ECSCreationAnswer,
     }.get(name)

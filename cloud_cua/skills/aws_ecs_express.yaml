@@ -47,8 +47,9 @@ body: |
 
   1. Inspect the ECS Express form without changing resources. Report the visible service type, region, image field, port default, health path default, tags, IAM choices, and estimated cost.
   2. Report editable defaults that differ from the contract as required corrections. Stop only if a required fact is missing or the form cannot accept the contracted value.
-  3. After explicit approval, fill only contract values. Stop before OAuth, secrets, broad IAM, billing changes, or destructive actions not named in the approval.
-  4. Submit the service, then observe until AWS shows a stable success, failure, or user-action blocker. Do not call provisioning or an Active label proof that the app works.
-  5. Return structured JSON with milestone, status, region, service name and ARN, task definition, image URI, container port, target health, public app URL, console URL, created resources, blockers, and assumptions.
+  3. After explicit approval, prepare the form without submitting it. Use write actions with enter=false. Never press Enter in a form field. Fill the exact image, port, health path, and tags; leave optional task role and networking controls unchanged unless the contract specifies them.
+  4. Report the prepared field values for supervisor comparison. Do not click Create until a later submit-only milestone.
+  5. During the submit-only milestone, re-check the prepared values, click Create exactly once, then observe until AWS shows a stable success, failure, or user-action blocker. Do not call provisioning or an Active label proof that the app works.
+  6. Return structured JSON with milestone, status, region, service name and ARN, task definition, image URI, container port, target health, public app URL, console URL, created resources, blockers, and assumptions.
 
   A console URL is never a public application URL. H observations are evidence for the supervisor, not final proof; independent verifiers decide whether the run succeeded.
