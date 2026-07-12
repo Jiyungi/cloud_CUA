@@ -32,6 +32,10 @@ class HTaskResult:
     error: str | None = None
 
 
+class HSessionStalled(RuntimeError):
+    """Raised when a hosted H session stops producing a bounded result."""
+
+
 class ECSVisibleDefaults(BaseModel):
     image_uri: str | None = None
     container_port: int | None = None
@@ -195,6 +199,16 @@ def _run_h_task_sdk(
                 answer_schema = _answer_schema_for(answer_schema_name)
                 if event_callback:
                     handle = client.start_session(**create_params, answer_schema=answer_schema)
+                    event_callback(
+                        {
+                            "type": "HSessionStarted",
+                            "data": {
+                                "status": "running",
+                                "session_id": handle.id,
+                                "agent_view_url": getattr(handle, "agent_view_url", None),
+                            },
+                        }
+                    )
                     for event in handle.stream(wait_for_seconds=5, until="settled", timeout_seconds=max_time_s + 60):
                         event_callback(_event_dict(event))
                     result = handle.wait_for_completion(wait_for_seconds=5, timeout_seconds=60, include_events=True)
@@ -298,6 +312,7 @@ def run_h_task(
     }
     outer_timeout = max(45, max_time_s + 30)
     command = [sys.executable, "-m", "cloud_cua.h_runner_worker"]
+    proc = None
     try:
         proc = subprocess.Popen(
             command,
@@ -312,15 +327,11 @@ def run_h_task(
         else:
             stdout, stderr = proc.communicate(json.dumps(payload), timeout=outer_timeout)
     except subprocess.TimeoutExpired:
-        try:
-            if proc.pid:
-                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, text=True, timeout=10)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+        _kill_process_tree(proc)
         return HTaskResult(status="timed_out", summary=f"H browser session exceeded outer timeout of {outer_timeout}s and was stopped.")
+    except HSessionStalled as exc:
+        _kill_process_tree(proc)
+        return HTaskResult(status="timed_out", summary=str(exc))
     except Exception as exc:
         return HTaskResult(status="failed", summary=f"H worker failed to start: {type(exc).__name__}: {exc}", error=str(exc))
     if proc.returncode != 0:
@@ -403,11 +414,24 @@ def _stream_worker(
     stderr_reader = threading.Thread(target=read_stderr, daemon=True)
     stderr_reader.start()
     deadline = time.monotonic() + timeout_seconds
+    last_event_at = time.monotonic()
+    session_id: str | None = None
+    intervention_at: float | None = None
+    structured_milestone = bool(payload.get("answer_schema_name"))
     result_json = ""
     finished = False
     while not finished:
         if time.monotonic() >= deadline:
             raise subprocess.TimeoutExpired(cmd="cloud_cua.h_runner_worker", timeout=timeout_seconds)
+        if structured_milestone and session_id and intervention_at is None and time.monotonic() - last_event_at >= 75:
+            reason = "H produced no trajectory event for 75 seconds during a bounded milestone."
+            event_callback(_supervisor_event(session_id, reason, "forcing_answer"))
+            _intervene_h_session(session_id, reason)
+            intervention_at = time.monotonic()
+        if intervention_at is not None and time.monotonic() - intervention_at >= 45:
+            raise HSessionStalled(
+                "H session remained unresponsive for 45 seconds after the supervisor requested a final structured answer; the local worker was stopped."
+            )
         try:
             line = lines.get(timeout=0.25)
         except queue.Empty:
@@ -422,11 +446,69 @@ def _stream_worker(
         except json.JSONDecodeError:
             continue
         if message.get("kind") == "event" and isinstance(message.get("event"), dict):
-            event_callback(message["event"])
+            event = message["event"]
+            last_event_at = time.monotonic()
+            if event.get("type") == "HSessionStarted":
+                data = event.get("data") or {}
+                session_id = str(data.get("session_id") or "") or None
+            event_callback(event)
+            if structured_milestone and session_id and intervention_at is None and _is_agent_error_event(event):
+                reason = "H reported an agent/tool observation error during a bounded milestone."
+                event_callback(_supervisor_event(session_id, reason, "forcing_answer"))
+                _intervene_h_session(session_id, reason)
+                intervention_at = time.monotonic()
         elif message.get("kind") == "result":
             result_json = json.dumps(message.get("result") or {})
     proc.wait(timeout=5)
     return result_json, "".join(stderr_lines)
+
+
+def _is_agent_error_event(event: dict[str, Any]) -> bool:
+    data = event.get("data")
+    if isinstance(data, dict) and data.get("kind") == "error_event":
+        return True
+    return str(event.get("type", "")).lower() == "errorevent"
+
+
+def _supervisor_event(session_id: str, reason: str, status: str) -> dict[str, Any]:
+    return {
+        "type": "SupervisorIntervention",
+        "data": {"status": status, "session_id": session_id, "message": reason},
+    }
+
+
+def _intervene_h_session(session_id: str, reason: str) -> None:
+    values = load_secret_values()
+    api_key = values.get("HAI_API_KEY")
+    if not api_key:
+        return
+    try:
+        from hai_agents import Client
+
+        handle = Client(api_key=api_key).session(session_id)
+        handle.send_message(
+            "Cloud CUA supervisor: stop the current action loop. "
+            f"Reason: {reason} Return the required structured answer now using only directly observed facts. "
+            "Report missing facts or blockers instead of guessing, and do not perform another browser action."
+        )
+        handle.force_answer()
+    except Exception:
+        return
+
+
+def _kill_process_tree(proc: subprocess.Popen | None) -> None:
+    if proc is None:
+        return
+    try:
+        if proc.pid and os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, text=True, timeout=10)
+            return
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
 
 
 def cleanup_orphaned_chromedrivers() -> list[int]:

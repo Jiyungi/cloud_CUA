@@ -517,6 +517,17 @@ def test_h_event_summary_keeps_action_without_large_payload():
     assert len(summary) < 500
 
 
+def test_h_supervisor_detects_agent_observation_errors():
+    from cloud_cua.h_runner import _is_agent_error_event, _supervisor_event
+
+    event = {"type": "AgentEvent", "data": {"kind": "error_event", "error": "observation timed out"}}
+    assert _is_agent_error_event(event) is True
+    assert _is_agent_error_event({"type": "AgentEvent", "data": {"kind": "policy_event"}}) is False
+    intervention = _supervisor_event("session-1", "stalled", "forcing_answer")
+    assert intervention["data"]["session_id"] == "session-1"
+    assert intervention["data"]["status"] == "forcing_answer"
+
+
 def test_orphaned_chromedriver_cleanup_parses_stopped_ids(monkeypatch):
     from cloud_cua.h_runner import cleanup_orphaned_chromedrivers
 
