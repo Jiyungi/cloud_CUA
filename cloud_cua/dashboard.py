@@ -458,8 +458,9 @@ async function loadApprovals() {
   `).join('');
 }
 async function decideApproval(id, approved) {
-  await post(`/runs/${currentRun.run_id}/approval-decision`, body({approval_id: id, approved}));
+  const approval = await post(`/runs/${currentRun.run_id}/approval-decision`, body({approval_id: id, approved}));
   await refresh();
+  if (approved) continueAfterApproval(approval);
 }
 async function setMode(m) { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/mode`, body({mode:m})); await refresh(); }
 async function openBrowser() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/open-browser`, body()); showLogin(); await refresh(); }
@@ -487,6 +488,16 @@ async function runVerifier() { if (!currentRun) return; await post(`/runs/${curr
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
 async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
 async function cleanupH() { await post('/h-cleanup', body()); await refresh(); }
+function continueAfterApproval(approval) {
+  const action = String(approval?.action || '');
+  if (action.startsWith('Run AWS deployment task:')) {
+    post(`/runs/${currentRun.run_id}/aws-deploy`, body({task: awsTask.value || null, max_spend_usd: 5})).then(refresh).catch(console.error);
+  } else if (action === 'Run GCP Cloud Run deployment task') {
+    post(`/runs/${currentRun.run_id}/gcp-deploy`, body({task: awsTask.value || null})).then(refresh).catch(console.error);
+  } else if (action === 'Create or update AWS Amplify app') {
+    post(`/runs/${currentRun.run_id}/amplify-deploy`, body()).then(refresh).catch(console.error);
+  }
+}
 async function awsCleanupDryRun() {
   const runId = currentRun ? currentRun.run_id : null;
   await post('/aws-cleanup', body({run_id: runId, dry_run: true}));

@@ -343,6 +343,12 @@ class Orchestrator:
     def decide_approval(self, run_id: str, approval_id: str, approved: bool) -> dict:
         approval = decide_approval(self.store.run_dir(run_id), approval_id, approved)
         self.store.append_event(run_id, "user", "approval", f"Approval {approval.status}: {approval.action}", asdict(approval))
+        if approved:
+            run = self.store.load_run(run_id)
+            if run.status == "blocked" and run.current_step == "approval_required":
+                run.status = "running"
+                run.current_step = "approval_approved"
+                self.store.save_run(run)
         return asdict(approval)
 
     def list_approvals(self, run_id: str) -> list[dict]:

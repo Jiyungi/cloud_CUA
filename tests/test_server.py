@@ -92,6 +92,15 @@ def test_general_aws_deploy_requires_approval(tmp_path):
     assert result.json()["approval"]["status"] == "pending"
     assert "paid_resources" in result.json()["approval"]["triggers"]
 
+    approved = client.post(
+        f"/runs/{run['run_id']}/approval-decision",
+        json={"repo_path": str(tmp_path), "approval_id": result.json()["approval"]["approval_id"], "approved": True},
+    )
+    assert approved.status_code == 200
+    status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
+    assert status["status"] == "running"
+    assert status["current_step"] == "approval_approved"
+
 
 def test_general_aws_deploy_blocks_over_budget(tmp_path):
     client = TestClient(create_app())
