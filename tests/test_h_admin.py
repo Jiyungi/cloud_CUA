@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cloud_cua.h_admin import cleanup_h_session, cleanup_h_sessions
+from cloud_cua.run_store import RunStore
 from cloud_cua.h_runner import _acquire_local_browser_lock, _release_local_browser_lock
 
 
@@ -117,3 +118,45 @@ def test_local_browser_lock_has_one_owner(tmp_path, monkeypatch):
     third = _acquire_local_browser_lock()
     assert third
     _release_local_browser_lock(third)
+
+
+def test_cleanup_removes_orphan_bridge_created_by_cloud_cua_worker(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    event = store.append_event(run.run_id, "h_cua", "trajectory", "Started H worker.", {"h_event_type": "HWorkerStarted"})
+
+    class OrphanClient(FakeHClient):
+        def get(self, path, params=None):
+            if path == "/api/v2/sessions":
+                return FakeResponse(payload={"items": []})
+            if path == "/api/v1/trajectories/":
+                return FakeResponse(payload={"items": [
+                    {
+                        "id": "owned-orphan",
+                        "status": "pending",
+                        "agent": "surferh",
+                        "objective": "",
+                        "start_url": "https://www.bing.com/",
+                        "metadata": {},
+                        "created_at": event.time,
+                    },
+                    {
+                        "id": "unrelated-orphan",
+                        "status": "pending",
+                        "agent": "surferh",
+                        "objective": "",
+                        "start_url": "https://www.bing.com/",
+                        "metadata": {},
+                        "created_at": "2020-01-01T00:00:00Z",
+                    },
+                ]})
+            return super().get(path, params)
+
+    client = OrphanClient()
+    monkeypatch.setattr("cloud_cua.h_admin.load_secret_values", lambda *_args: {"HAI_API_KEY": "test"})
+    monkeypatch.setattr("cloud_cua.h_admin.httpx.Client", lambda **_kwargs: client)
+
+    result = cleanup_h_sessions(str(tmp_path))
+
+    assert result.deleted_trajectory_ids == ["owned-orphan"]
+    assert "/api/v1/trajectories/unrelated-orphan" not in client.deleted

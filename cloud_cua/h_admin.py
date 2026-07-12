@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import UTC, datetime
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -74,10 +77,11 @@ def cleanup_h_sessions(repo_path: str | None = None) -> HCleanupResult:
             if status in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{sid}"):
                 cancelled.append(sid)
 
-        trajectories = client.get("/api/v1/trajectories/")
+        trajectories = client.get("/api/v1/trajectories/", params={"size": 100})
         trajectories.raise_for_status()
         for item in trajectories.json().get("items", []):
-            if item.get("status") in NON_TERMINAL and item.get("id") in (cloud_cua_ids | bridge_ids):
+            owned_bridge = item.get("id") in (cloud_cua_ids | bridge_ids) or _created_during_cloud_cua_worker(item, repo_path)
+            if item.get("status") in NON_TERMINAL and owned_bridge:
                 tid = item.get("id")
                 if tid and _delete_ok(client, f"/api/v1/trajectories/{tid}"):
                     deleted.append(tid)
@@ -171,3 +175,55 @@ def _session_bridge_ids(item: dict) -> set[str]:
         for environment in environments
         if isinstance(environment, dict) and environment.get("session_id")
     }
+
+
+def _created_during_cloud_cua_worker(item: dict, repo_path: str | None) -> bool:
+    if not repo_path or not _looks_like_local_bridge(item):
+        return False
+    created = _parse_time(item.get("created_at"))
+    if created is None:
+        return False
+    for worker_time in _cloud_cua_worker_times(Path(repo_path)):
+        if abs((created - worker_time).total_seconds()) <= 120:
+            return True
+    return False
+
+
+def _looks_like_local_bridge(item: dict) -> bool:
+    return (
+        item.get("agent") == "surferh"
+        and not str(item.get("objective") or "").strip()
+        and item.get("start_url") == "https://www.bing.com/"
+        and not item.get("metadata")
+    )
+
+
+def _cloud_cua_worker_times(repo_path: Path) -> list[datetime]:
+    root = repo_path.resolve() / ".cloud-cua" / "runs"
+    times: list[datetime] = []
+    for events_path in root.glob("*/events.jsonl"):
+        try:
+            lines = events_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if event.get("source") != "h_cua" or event.get("evidence", {}).get("h_event_type") != "HWorkerStarted":
+                continue
+            parsed = _parse_time(event.get("time"))
+            if parsed:
+                times.append(parsed)
+    return times
+
+
+def _parse_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(UTC)
