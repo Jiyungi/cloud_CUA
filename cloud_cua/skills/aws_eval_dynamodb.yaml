@@ -1,0 +1,128 @@
+name: cloud-cua/aws-dynamodb
+description: Operate Amazon DynamoDB through its AWS console with reviewed facts, safety stops, proof, and cleanup gates.
+target: aws_dynamodb
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA/blob/main/docs/aws-h-evaluation-catalog.md
+url_pattern: https://console.aws.amazon.com/dynamodbv2/home
+required_facts:
+- access_patterns
+- consumed_capacity
+- expected_partition_key
+- expected_sort_key
+- gsi_definitions
+- idempotency_key
+- kms_key_arn
+- partition_key
+- partition_key_distribution
+- replica_regions
+- selected_partition_key
+- selected_sort_key
+- sort_key
+- stream_view_type
+- table_name
+- throttled_operation
+- ttl_attribute
+unknowns_that_block:
+- 'Required fact is missing or unverified: access_patterns'
+- 'Required fact is missing or unverified: consumed_capacity'
+- 'Required fact is missing or unverified: expected_partition_key'
+- 'Required fact is missing or unverified: expected_sort_key'
+- 'Required fact is missing or unverified: gsi_definitions'
+- 'Required fact is missing or unverified: idempotency_key'
+- 'Required fact is missing or unverified: kms_key_arn'
+- 'Required fact is missing or unverified: partition_key'
+- 'Required fact is missing or unverified: partition_key_distribution'
+- 'Required fact is missing or unverified: replica_regions'
+- 'Required fact is missing or unverified: selected_partition_key'
+- 'Required fact is missing or unverified: selected_sort_key'
+- 'Required fact is missing or unverified: sort_key'
+- 'Required fact is missing or unverified: stream_view_type'
+- 'Required fact is missing or unverified: table_name'
+- 'Required fact is missing or unverified: throttled_operation'
+- 'Required fact is missing or unverified: ttl_attribute'
+h_cua_allowed_actions:
+- Inspect Amazon DynamoDB console state without mutation.
+- Compare every visible selection with the approved run contract.
+- Perform only the bounded, approved service action after required facts are verified.
+- Return structured resource, verifier, blocker, and cleanup evidence.
+h_cua_stop_conditions:
+- Key schema is immutable after creation
+- Scans are not a substitute for access-pattern design
+- Global tables multiply regions cost and cleanup
+required_verifiers:
+- access_pattern_examples
+- backups_disposition
+- blocker_report
+- conditional_replay_test
+- conditional_write_test
+- duplicate_count_after_fix
+- gsi_status
+- isolation_risk
+- key_distribution_summary
+- key_schema
+- no_table_created
+- pitr_state
+- replicas_removed
+- schema_comparison
+- table_arn
+- table_deleted
+- throttle_metrics
+- ttl_state
+success_conditions:
+- Create the exact partition sort keys GSIs PITR TTL stream and KMS settings required by documented access patterns
+- Block table creation when the wizard swaps tenant and invoice keys and suggests a full table scan
+- Diagnose hot partitions or capacity and replay duplicates using metrics and conditional writes before scaling blindly
+cleanup_strategy: 'Delete only exact run-owned resources and prove: backups_disposition, no_table_created, replicas_removed,
+  table_deleted.'
+body: '# Operate Amazon DynamoDB
+
+
+  Use the run contract as the source of truth. Inspect before mutation and stop when a required fact is unknown.
+
+  A console success label is not proof; independent service, workload, and cleanup evidence decide success.
+
+
+  Required sequence:
+
+  1. Confirm account, region, ownership tags, cost boundary, and service-specific facts.
+
+  2. Inspect defaults and report mismatches before editing anything.
+
+  3. Mutate only after approval and only within the exact run-owned resource boundary.
+
+  4. Stop on new IAM, public exposure, destructive, cross-account, secret, or billing decisions.
+
+  5. Return structured evidence and verify cleanup dependencies before declaring completion.
+
+
+  Service rules:
+
+  - Derive keys from queries before creation
+
+  - Verify conditional idempotency not only successful PutItem
+
+  - Account for replicas and backups in cleanup
+
+  - Key schema mistakes require recreation
+
+  - Multi-tenant ownership belongs in the primary access pattern
+
+  - Never approve scan as the normal request path
+
+  - Throttling can be data-model skew not capacity shortage
+
+  - Replays must be proven idempotent
+
+  - Global-table cleanup starts with replicas
+
+
+  Evaluation scenarios:
+
+  - dynamodb-guided-provision: Create the exact partition sort keys GSIs PITR TTL stream and KMS settings required by documented
+  access patterns
+
+  - dynamodb-misconfiguration-trap: Block table creation when the wizard swaps tenant and invoice keys and suggests a full
+  table scan
+
+  - dynamodb-recovery-cleanup: Diagnose hot partitions or capacity and replay duplicates using metrics and conditional writes
+  before scaling blindly'

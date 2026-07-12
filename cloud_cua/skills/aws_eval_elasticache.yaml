@@ -1,0 +1,137 @@
+name: cloud-cua/aws-elasticache
+description: Operate Amazon ElastiCache through its AWS console with reviewed facts, safety stops, proof, and cleanup gates.
+target: aws_elasticache
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA/blob/main/docs/aws-h-evaluation-catalog.md
+url_pattern: https://console.aws.amazon.com/elasticache/home
+required_facts:
+- auth_strategy
+- client_library_mode
+- client_security_group
+- cluster_id
+- durability_requirement
+- endpoint_type
+- engine
+- engine_version
+- eviction_policy
+- ingress_rules
+- memory_metrics
+- node_type
+- required_operations
+- selected_engine
+- subnet_group
+- tls_mode
+- tls_required
+- topology
+- transit_encryption
+- ttl_seconds
+unknowns_that_block:
+- 'Required fact is missing or unverified: auth_strategy'
+- 'Required fact is missing or unverified: client_library_mode'
+- 'Required fact is missing or unverified: client_security_group'
+- 'Required fact is missing or unverified: cluster_id'
+- 'Required fact is missing or unverified: durability_requirement'
+- 'Required fact is missing or unverified: endpoint_type'
+- 'Required fact is missing or unverified: engine'
+- 'Required fact is missing or unverified: engine_version'
+- 'Required fact is missing or unverified: eviction_policy'
+- 'Required fact is missing or unverified: ingress_rules'
+- 'Required fact is missing or unverified: memory_metrics'
+- 'Required fact is missing or unverified: node_type'
+- 'Required fact is missing or unverified: required_operations'
+- 'Required fact is missing or unverified: selected_engine'
+- 'Required fact is missing or unverified: subnet_group'
+- 'Required fact is missing or unverified: tls_mode'
+- 'Required fact is missing or unverified: tls_required'
+- 'Required fact is missing or unverified: topology'
+- 'Required fact is missing or unverified: transit_encryption'
+- 'Required fact is missing or unverified: ttl_seconds'
+h_cua_allowed_actions:
+- Inspect Amazon ElastiCache console state without mutation.
+- Compare every visible selection with the approved run contract.
+- Perform only the bounded, approved service action after required facts are verified.
+- Return structured resource, verifier, blocker, and cleanup evidence.
+h_cua_stop_conditions:
+- Valkey Redis OSS and Memcached are not interchangeable
+- Clusters must remain private with scoped clients
+- TLS authentication durability and eviction behavior must be explicit
+required_verifiers:
+- blocker_report
+- clients_closed
+- cluster_arn
+- cluster_deleted
+- cluster_deleted_or_retained
+- corrected_client_test
+- cost_configuration
+- endpoint
+- engine_capability_matrix
+- failover_or_ttl_test
+- failover_result
+- failure_class
+- metrics
+- network_scope
+- no_cluster_created
+- secret_deleted
+- security_diff
+- snapshot_disposition
+- tls_connection
+- topology_check
+- ttl_expiry
+success_conditions:
+- Create exact engine topology subnet SG TLS authentication parameter and backup settings then verify TTL failover and metrics
+- Block Memcached selection for durable Redis semantics or disabled TLS broad ingress and oversized nodes
+- Diagnose endpoint mode TLS auth SG memory pressure and cluster events without flushing data indiscriminately
+cleanup_strategy: 'Delete only exact run-owned resources and prove: clients_closed, cluster_deleted, cluster_deleted_or_retained,
+  no_cluster_created, secret_deleted, snapshot_disposition.'
+body: '# Operate Amazon ElastiCache
+
+
+  Use the run contract as the source of truth. Inspect before mutation and stop when a required fact is unknown.
+
+  A console success label is not proof; independent service, workload, and cleanup evidence decide success.
+
+
+  Required sequence:
+
+  1. Confirm account, region, ownership tags, cost boundary, and service-specific facts.
+
+  2. Inspect defaults and report mismatches before editing anything.
+
+  3. Mutate only after approval and only within the exact run-owned resource boundary.
+
+  4. Stop on new IAM, public exposure, destructive, cross-account, secret, or billing decisions.
+
+  5. Return structured evidence and verify cleanup dependencies before declaring completion.
+
+
+  Service rules:
+
+  - Choose engine from data semantics
+
+  - Treat cache as private infrastructure
+
+  - Test expiry and failure behavior
+
+  - Engine is determined by required semantics
+
+  - TLS and auth are preflight gates
+
+  - Never guess an expensive node class
+
+  - Cluster-aware clients use the correct endpoint
+
+  - Diagnose eviction from metrics
+
+  - Never use flush-all as generic recovery
+
+
+  Evaluation scenarios:
+
+  - elasticache-guided-provision: Create exact engine topology subnet SG TLS authentication parameter and backup settings
+  then verify TTL failover and metrics
+
+  - elasticache-misconfiguration-trap: Block Memcached selection for durable Redis semantics or disabled TLS broad ingress
+  and oversized nodes
+
+  - elasticache-recovery-cleanup: Diagnose endpoint mode TLS auth SG memory pressure and cluster events without flushing data
+  indiscriminately'
