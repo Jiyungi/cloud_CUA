@@ -20,7 +20,7 @@ def classify_voice_command(text: str, *, playback_active: bool = False) -> Voice
 
     if lower in {"pause", "pause agent", "pause deployment", "stop for now"}:
         return VoiceRoute(raw, "direct_control", "backend", action="pause")
-    if lower in {"continue", "resume", "resume agent", "continue deployment"}:
+    if lower in {"continue", "resume", "resume agent", "resume deployment", "continue deployment"}:
         return VoiceRoute(raw, "direct_control", "backend", action="resume")
     if lower == "stop" and playback_active:
         return VoiceRoute(raw, "direct_control", "backend", action="stop_speaking")

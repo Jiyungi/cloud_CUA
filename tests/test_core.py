@@ -56,6 +56,7 @@ def test_voice_router_stop_is_contextual():
 
 
 def test_voice_router_supports_status_cleanup_and_exact_approval():
+    assert classify_voice_command("resume deployment.").action == "resume"
     assert classify_voice_command("deployment status").action == "status"
     assert classify_voice_command("cleanup preview").action == "cleanup_preview"
     approval = classify_voice_command("Approve Create ECS service")
