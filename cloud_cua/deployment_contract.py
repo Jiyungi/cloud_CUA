@@ -26,6 +26,8 @@ class DeploymentContract:
     cloud_region: str = ""
     container_image_uri: str = ""
     ecr_repository: str = ""
+    expected_account_id: str = ""
+    runtime_secret_references: dict[str, str] = field(default_factory=dict)
     required_tags: dict[str, str] = field(default_factory=dict)
     container_ports: list[ContainerPortFact] = field(default_factory=list)
     selected_container_port: int | None = None
@@ -57,6 +59,10 @@ class DeploymentContract:
         if self.required_tags:
             lines.append("- required_tags:")
             lines.extend(f"  - {key}={value}" for key, value in sorted(self.required_tags.items()))
+        if self.runtime_secret_references:
+            lines.append("- runtime_secret_references:")
+            lines.extend(f"  - {key}={value}" for key, value in sorted(self.runtime_secret_references.items()))
+            lines.append("- use only these cloud secret references; never ask for or expose their plaintext values")
         if self.container_ports:
             lines.append("- detected_container_port_candidates:")
             for fact in self.container_ports:
@@ -84,6 +90,8 @@ class DeploymentContract:
         container_image_uri: str = "",
         ecr_repository: str = "",
         repo_name: str = "",
+        expected_account_id: str = "",
+        runtime_secret_references: dict[str, str] | None = None,
     ) -> "DeploymentContract":
         return replace(
             self,
@@ -94,6 +102,8 @@ class DeploymentContract:
             cloud_region=cloud_region,
             container_image_uri=container_image_uri,
             ecr_repository=ecr_repository,
+            expected_account_id=expected_account_id,
+            runtime_secret_references=runtime_secret_references or {},
             required_tags={
                 "cloud-cua": "true",
                 "cloud-cua-repo": repo_name,

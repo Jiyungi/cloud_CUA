@@ -99,6 +99,13 @@ class CodexMessageRequest(BaseModel):
     message: str
 
 
+class RuntimeConfigurationRequest(BaseModel):
+    repo_path: str
+    values: dict[str, str] = {}
+    existing_references: dict[str, str] = {}
+    region: str = "us-east-1"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
     service_token = os.environ.get("CLOUD_CUA_SERVICE_TOKEN", "")
@@ -211,6 +218,27 @@ def create_app() -> FastAPI:
     @app.get("/runs/{run_id}/h-job")
     def h_job(run_id: str, repo_path: str):
         return get_h_session_manager().get(repo_path, run_id) or {"status": "idle"}
+
+    @app.get("/runs/{run_id}/runtime-configuration")
+    def runtime_configuration(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_runtime_configuration(run_id)
+
+    @app.post("/runs/{run_id}/runtime-configuration")
+    def configure_runtime(run_id: str, req: RuntimeConfigurationRequest):
+        result = Orchestrator(req.repo_path).configure_runtime(
+            run_id,
+            dict(req.values),
+            dict(req.existing_references),
+            req.region,
+        )
+        if result.get("status") == "ready":
+            get_h_session_manager().schedule(
+                req.repo_path,
+                run_id,
+                "approved-deployment",
+                lambda: Orchestrator(req.repo_path).resume_approved_deployment(run_id),
+            )
+        return result
 
     @app.post("/runs/{run_id}/h-inspect")
     def h_inspect(run_id: str, req: HTaskRequest):

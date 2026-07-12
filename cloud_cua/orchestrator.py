@@ -9,6 +9,7 @@ from pathlib import Path
 from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
+from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
 from .browser_profile import launch_dedicated_browser
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
@@ -266,6 +267,21 @@ class Orchestrator:
             self.store.save_run(run)
             return {"status": "blocked", "summary": "Approval required before H CUA can run the AWS deployment task.", "approval": asdict(approval), "aws_plan": plan.to_dict()}
 
+        runtime_config = load_runtime_configuration(self.store.run_dir(run_id), ctx.env_vars)
+        if runtime_config.status != "ready":
+            run.status = "waiting_for_configuration"
+            run.current_step = "runtime_configuration_required"
+            run.target = option.target
+            self.store.save_run(run)
+            self.store.append_event(
+                run_id,
+                "system",
+                "approval",
+                "Secure runtime configuration is required before cloud deployment can continue.",
+                {"required_names": runtime_config.required_names, "missing_names": runtime_config.missing_names, "public_build_names": runtime_config.public_build_names},
+            )
+            return runtime_config.to_dict()
+
         if not self.store.acquire_lock(run_id, "deployment"):
             run = self.store.load_run(run_id)
             return {"status": "running", "summary": "Deployment work is already running for this run.", "current_step": run.current_step}
@@ -347,6 +363,7 @@ class Orchestrator:
                 container_image_uri=prepared_inputs.get("container_image_uri", ""),
                 ecr_repository=prepared_inputs.get("ecr_repository", ""),
                 repo_name=self.repo_path.name,
+                runtime_secret_references=runtime_config.reference_map(),
             )
             save_contract(self.store.contract_path(run_id), contract)
 
@@ -639,6 +656,9 @@ class Orchestrator:
             run.status = "running"
             run.current_step = "approval_approved"
             self.store.save_run(run)
+        elif run.current_step == "runtime_configuration_ready":
+            run.status = "running"
+            self.store.save_run(run)
         elif run.current_step not in {"approval_required", "approval_approved"}:
             return {"status": "skipped", "summary": f"Approved deployment gate is not resumable from step {run.current_step}.", "current_step": run.current_step}
 
@@ -649,6 +669,52 @@ class Orchestrator:
         if approval.action == "Run GCP Cloud Run deployment task":
             return self.run_gcp_deployment_task(run_id)
         return {"status": "skipped", "summary": f"Approved action is not resumable: {approval.action}"}
+
+    def get_runtime_configuration(self, run_id: str) -> dict:
+        ctx = analyze_repo(self.repo_path)
+        return load_runtime_configuration(self.store.run_dir(run_id), ctx.env_vars).to_dict()
+
+    def configure_runtime(
+        self,
+        run_id: str,
+        values: dict[str, str],
+        existing_references: dict[str, str],
+        region: str = "us-east-1",
+    ) -> dict:
+        run = self.store.load_run(run_id)
+        if run.cloud != "aws":
+            return {"status": "blocked", "message": "AWS SSM runtime configuration requires an AWS run."}
+        if run.status == "waiting_for_login":
+            return {"status": "blocked", "message": "Verify cloud login before provisioning runtime configuration."}
+        identity = verify_aws_identity()
+        try:
+            account_id = str(json.loads(identity.summary).get("Account") or "")
+        except (TypeError, json.JSONDecodeError):
+            account_id = ""
+        if identity.status != "passed" or not account_id:
+            return {"status": "blocked", "message": "AWS CLI identity must be verified before provisioning SSM parameters."}
+        ctx = analyze_repo(self.repo_path)
+        result = provision_aws_runtime_configuration(
+            self.store.run_dir(run_id),
+            run_id,
+            self.repo_path.name,
+            ctx.env_vars,
+            values,
+            existing_references,
+            region=region,
+            account_id=account_id,
+        )
+        run.status = "running"
+        run.current_step = "runtime_configuration_ready"
+        self.store.save_run(run)
+        self.store.append_event(
+            run_id,
+            "system",
+            "result",
+            result.message,
+            {"references": [asdict(item) for item in result.references], "public_build_names": result.public_build_names},
+        )
+        return result.to_dict()
 
     def list_approvals(self, run_id: str) -> list[dict]:
         return [asdict(item) for item in load_approvals(self.store.run_dir(run_id))]

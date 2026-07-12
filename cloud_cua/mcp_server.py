@@ -170,6 +170,12 @@ def cloud_cua_cancel_h_cua(repo_path: str, run_id: str) -> Any:
 
 
 @mcp.tool()
+def cloud_cua_get_runtime_configuration_status(repo_path: str, run_id: str) -> Any:
+    """Return missing runtime variable names and cloud references; secret values are never accepted through MCP."""
+    return _client().get(f"/runs/{run_id}/runtime-configuration", {"repo_path": repo_path})
+
+
+@mcp.tool()
 def cloud_cua_run_verifier(repo_path: str, run_id: str, verifier_name: str = "default", url: str | None = None) -> Any:
     return _client().post(
         f"/runs/{run_id}/verify",
