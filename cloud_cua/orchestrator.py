@@ -869,12 +869,18 @@ class Orchestrator:
 
     def _h_event_callback(self, run_id: str, milestone: str):
         def record(event: dict) -> None:
+            evidence = {"milestone": milestone, "h_event_type": event.get("type", "trajectory_event")}
+            data = event.get("data")
+            if isinstance(data, dict):
+                for key in ("session_id", "agent_view_url", "status", "outcome"):
+                    if data.get(key) not in {None, ""}:
+                        evidence[key] = data[key]
             self.store.append_event(
                 run_id,
                 "h_cua",
                 "trajectory",
                 summarize_h_event(event),
-                {"milestone": milestone, "h_event_type": event.get("type", "trajectory_event")},
+                evidence,
             )
 
         return record

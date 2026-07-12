@@ -550,6 +550,24 @@ def test_h_supervisor_detects_agent_observation_errors():
     assert intervention["data"]["status"] == "forcing_answer"
 
 
+def test_h_session_identity_is_saved_in_timeline(tmp_path: Path):
+    from cloud_cua.orchestrator import Orchestrator
+
+    orchestrator = Orchestrator(tmp_path)
+    run = orchestrator.store.create_run("aws", "vibe")
+    callback = orchestrator._h_event_callback(run.run_id, "inspect_ecs_express_form")
+    callback(
+        {
+            "type": "HSessionStarted",
+            "data": {"status": "running", "session_id": "session-1", "agent_view_url": "https://example.test/session-1"},
+        }
+    )
+
+    event = orchestrator.store.read_events(run.run_id, limit=1)[0]
+    assert event["evidence"]["session_id"] == "session-1"
+    assert event["evidence"]["agent_view_url"].endswith("session-1")
+
+
 def test_orphaned_chromedriver_cleanup_parses_stopped_ids(monkeypatch):
     from cloud_cua.h_runner import cleanup_orphaned_chromedrivers
 
