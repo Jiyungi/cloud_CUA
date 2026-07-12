@@ -34,7 +34,7 @@ class FakeHClient:
             return FakeResponse(
                 payload={
                     "items": [
-                        {"id": "cloud-1", "status": "running", "agent": "cloud-cua-local-browser"},
+                        {"id": "cloud-1", "status": "running", "agent": {"name": "cloud-cua-local-browser"}},
                         {"id": "other-1", "status": "running", "agent": "another-product"},
                     ]
                 }

@@ -61,16 +61,17 @@ def cleanup_h_sessions(repo_path: str | None = None) -> HCleanupResult:
         cloud_cua_ids: set[str] = set()
         bridge_ids: set[str] = set()
         for item in sessions.json().get("items", []):
-            if item.get("agent") != "cloud-cua-local-browser":
-                continue
             sid = item.get("id")
             if not sid:
                 continue
-            cloud_cua_ids.add(sid)
             detail = client.get(f"/api/v2/sessions/{sid}")
-            if detail.status_code == 200:
-                bridge_ids.update(_session_bridge_ids(detail.json()))
-            if item.get("status") in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{sid}"):
+            full = detail.json() if detail.status_code == 200 else item
+            if _session_agent_name(full) != "cloud-cua-local-browser":
+                continue
+            cloud_cua_ids.add(sid)
+            bridge_ids.update(_session_bridge_ids(full))
+            status = _session_status(full) or str(item.get("status") or "")
+            if status in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{sid}"):
                 cancelled.append(sid)
 
         trajectories = client.get("/api/v1/trajectories/")
@@ -145,6 +146,8 @@ def _session_agent_name(item: dict) -> str:
     agent = item.get("agent")
     if isinstance(agent, str):
         return agent
+    if isinstance(agent, dict) and agent.get("name"):
+        return str(agent["name"])
     request = item.get("request") if isinstance(item.get("request"), dict) else {}
     inline_agent = request.get("agent") if isinstance(request.get("agent"), dict) else {}
     return str(inline_agent.get("name") or "")
