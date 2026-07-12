@@ -15,7 +15,7 @@ The current build is the local MVP shell:
 - browser microphone recording and TTS playback in the dashboard when Gradium is configured
 - independent verifier framework
 - deployment report writer
-- generalized AWS deployment planner for Amplify, App Runner, ECS, Lambda, S3 static hosting, and IaC discovery
+- generalized AWS deployment planner for Amplify, ECS Express Mode, Lambda, S3 static hosting, and IaC discovery
 - H session cleanup for stale local browser bridge sessions
 - Cloud-CUA-tagged AWS cleanup dry run and delete command
 
@@ -129,7 +129,8 @@ Cloud CUA now treats Amplify as one AWS target, not the whole product.
 The AWS planner maps repo shape to deployment options:
 
 - frontend/static and Next.js: AWS Amplify first, S3 static hosting as an alternate
-- Dockerized web apps and API services: AWS App Runner first, ECS Fargate as the heavier alternate
+- Dockerized web apps and API services: ECS Express Mode first; Cloud CUA builds/pushes a Docker image to ECR before asking H CUA to operate the ECS console
+- AWS App Runner: blocked for new AWS accounts and listed only as a deprecated option, because AWS closed App Runner to new customers and recommends ECS Express Mode
 - serverless repos: Lambda/SAM-style inspection
 - Terraform/CDK/IaC repos: console inspection and verifier support, not blind console drift
 - unknown repos: CUA discovery, then stop with a recommendation
@@ -172,7 +173,7 @@ This repo currently has the product shell and verifier framework. Real cloud ope
 
 - H Company Python SDK for real H CUA browser control
 - Chrome with remote debugging for local browser control
-- AWS CLI for AWS verifiers and Amplify checks, with `aws sts get-caller-identity --profile cloud-cua-dev` passing
+- AWS CLI for AWS verifiers, ECR image preparation, and target-service checks, with `aws sts get-caller-identity --profile cloud-cua-dev` passing
 - gcloud CLI for future GCP checks
 
 If those tools are missing, Cloud CUA fails closed with `blocked` or `skipped` status rather than pretending deployment succeeded.
@@ -208,7 +209,7 @@ User voice -> Gradium STT -> Cloud CUA Voice Router
 
 Fast commands like `pause`, `continue`, `switch to Teach mode`, and `run verifier` execute directly in the backend.
 
-Questions like `why Amplify?` route to Codex or the explanation path.
+Questions like `why this service?` route to Codex or the explanation path.
 
 Cloud operation requests become planned, approval-gated tasks. Raw voice is never sent directly to H CUA.
 

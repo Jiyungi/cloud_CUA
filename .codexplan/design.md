@@ -11,7 +11,7 @@ The MVP has two phases:
 1. **Local control loop MVP**: Codex calls Cloud CUA through MCP, dashboard opens, login modal blocks, H CUA performs inspect-only browser tasks, independent verifiers run, event log and report are written.
 2. **First deployment MVP**: Cloud CUA proves a low-cost AWS deployment path, records approvals, verifies resources independently, and cleans up tagged resources. H CUA console deployment remains gated by manual login in the H-controlled browser profile.
 
-AWS is now generalized across Amplify, S3 static hosting, App Runner, ECS inspection, Lambda, and IaC discovery. GCP Cloud Run has an approval-gated plan and verifier path, but needs local `gcloud` auth before real deployment.
+AWS is now generalized across Amplify, S3 static hosting, ECS Express Mode, Lambda, and IaC discovery. App Runner is blocked/deprecated for new AWS accounts. GCP Cloud Run has an approval-gated plan and verifier path, but needs local `gcloud` auth before real deployment.
 
 ## Design Principles
 
@@ -20,7 +20,7 @@ AWS is now generalized across Amplify, S3 static hosting, App Runner, ECS inspec
 3. **Local-first for login and trust.** The user logs into cloud consoles on their own machine. Secrets stay local by default.
 4. **Small tool calls beat vague autonomy.** Every H CUA task is short, scoped, and has success criteria.
 5. **Mode is policy.** Vibe, Teach, and Expert mode change behavior, not architecture.
-6. **First target must be narrow and real.** AWS Amplify is first because it gives meaningful console work and a verifiable deployed URL.
+6. **Targets must follow current cloud reality.** Frontend repos can use Amplify, Docker repos should use ECS Express Mode, and blocked/deprecated AWS services must not be selected for new accounts.
 
 ## High-Level Architecture
 
@@ -309,7 +309,7 @@ Codex can refine this analysis, but Cloud CUA should have deterministic local sc
 
 ## Deployment Adapters
 
-### AWS Amplify Adapter - First Real Target
+### AWS Frontend Adapter - Amplify Or S3
 
 Supported repo category:
 
@@ -347,17 +347,22 @@ UpdateApp
 UpdateBranch
 ```
 
-### ECS Express Mode Adapter - Planned/Inspect Only
+### ECS Express Mode Adapter - Container Target
 
-Use after MVP when containerized apps are supported.
+Use for containerized web/API repos with a Dockerfile.
 
-Required before enabling:
+Implemented:
 
 - Dockerfile generation or validation;
-- container image build/push story;
+- container image build/push to ECR before H CUA operates AWS;
 - ECS service verifier;
-- ALB/live URL verifier;
 - cost approval gate.
+
+Still required before full confidence:
+
+- real H CUA console success on the user's AWS account;
+- resource-specific ECS Express service URL extraction;
+- ALB/live URL verifier tied to the exact run id.
 
 ### GCP Cloud Run Adapter - Implemented Planning Path
 
@@ -543,7 +548,7 @@ Codex is not called for fast-lane commands. H CUA is not called for fast-lane co
 Use this path for questions or instructions that need repo/cloud reasoning:
 
 ```text
-why Amplify?
+why this service?
 what is IAM?
 is this cheaper than Vercel?
 explain this error

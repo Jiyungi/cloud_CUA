@@ -10,7 +10,7 @@ This plan builds Cloud CUA as a local-first deployment assistant with:
 - H Company CUA integration for browser/cloud-console operation;
 - independent verifiers that prove deployment state without trusting CUA;
 - live Vibe/Teach/Expert mode switching;
-- AWS Amplify as the first real deployment target.
+- AWS Amplify/S3 for frontend repos and ECS Express Mode for Docker/container repos.
 
 The work is ordered so the core risk is tested first: can Codex call Cloud CUA, and can Cloud CUA delegate bounded browser work to H CUA after manual login?
 
@@ -20,7 +20,7 @@ Owner labels are suggested for parallel work.
 
 - **Agent/Backend**: CLI, MCP, backend API, run store, H runner, verifiers.
 - **Frontend/Product**: dashboard, login modal, mode controls, approvals, activity feed, voice UI.
-- **Cloud/Verification**: AWS Amplify adapter, AWS/GCP CLI checks, Playwright checks, report output.
+- **Cloud/Verification**: AWS target adapters, ECR/ECS checks, AWS/GCP CLI checks, Playwright checks, report output.
 - **Both**: spike validation, integration tests, final demo path.
 
 ## Tasks
@@ -235,7 +235,9 @@ Owner labels are suggested for parallel work.
 
   - [x] 10.3 Produce deployment recommendation
     - Recommend AWS Amplify only for supported frontend-style repos
-    - Mark ECS Express Mode and GCP Cloud Run as planned if repo needs them
+    - Recommend ECS Express Mode for Dockerfile repos
+    - Treat App Runner as blocked/deprecated for new AWS accounts
+    - Mark GCP Cloud Run as planned/approval-gated when GCP is selected
     - _Requirements: 6, 17, 18_
 
   - [x]* 10.4 Test repo analyzer fixtures
@@ -326,7 +328,7 @@ Owner labels are suggested for parallel work.
     - Approval event is written
     - _Requirements: 16_
 
-- [ ] 14. Implement AWS Amplify adapter (Owner: Cloud/Verification)
+- [x] 14. Implement AWS frontend adapter through the generalized AWS runner (Owner: Cloud/Verification)
   - [x] 14.1 Build Amplify deployment plan generator
     - App name
     - Branch
@@ -356,7 +358,7 @@ Owner labels are suggested for parallel work.
     - Playwright render
     - _Requirements: 14, 17_
 
-  - [ ]* 14.5 Test adapter with mocked H/AWS
+  - [x]* 14.5 Test adapter with mocked H/AWS
     - Supported repo builds plan
     - OAuth prompt creates approval/block event
     - Verifier result gates completion
@@ -422,7 +424,7 @@ Owner labels are suggested for parallel work.
     - Missing key disables voice without breaking Teach Mode
     - `pause` routes directly to backend pause
     - `switch to Expert mode` routes directly to mode switch
-    - `why Amplify?` routes to Codex/explanation path
+    - `why this service?` routes to Codex/explanation path
     - `click this in AWS` does not go directly to H CUA
     - STT transcript becomes `voice_command` event
     - _Requirements: 11, 11A_
@@ -470,7 +472,7 @@ Owner labels are suggested for parallel work.
 
   - [x] 18.4 Record target-state gaps
     - H CUA console deployment still needs manual login in the H-controlled browser profile
-    - ECS creation remains heavier planned scope
+    - ECS Express console creation remains unproven until H CUA completes it in the user's AWS account
     - GCP Cloud Run needs local `gcloud` installation/auth before real deployment
     - What still needs stronger security/cost handling
     - _Requirements: 18, 20_
@@ -488,8 +490,9 @@ Owner labels are suggested for parallel work.
   - [x] 19.2 Document constraints honestly
     - CUA can fail
     - Login/captcha/MFA manual
-    - AWS Amplify only first
-    - ECS/GCP planned
+    - Frontend uses Amplify/S3; Docker uses ECS Express Mode
+    - GCP planned/approval-gated but still depends on local `gcloud` auth
+    - App Runner blocked/deprecated for new AWS accounts
     - NemoClaw not used
     - _Requirements: 6, 18_
 
@@ -551,6 +554,30 @@ Owner labels are suggested for parallel work.
     - `dist/cloud-cua-shareable.zip`
     - Excludes `.env`, `.kiro`, `readme files`, local run artifacts, venvs, node_modules, and git metadata
     - _Requirements: 2, 19_
+
+- [ ] 22. ECS Express Mode end-to-end hardening (Owner: Cloud/Verification)
+  - [x] 22.1 Make Docker repos prefer ECS Express Mode
+    - App Runner is deprecated/blocked for new AWS accounts
+    - AWS planner lists App Runner only to explain why it will not be used
+    - _Requirements: 6, 17, 18_
+
+  - [x] 22.2 Prepare ECR images before H CUA runs
+    - Create a Cloud-CUA-tagged ECR repository
+    - Docker build/tag/push the local repo image
+    - Pass the exact image URI to H CUA for ECS Express Mode
+    - _Requirements: 5, 7, 17_
+
+  - [ ] 22.3 Prove real ECS Express console deployment
+    - User logs into AWS manually in the H-controlled browser
+    - H CUA creates/updates an ECS Express service from the prepared ECR image
+    - Verifier proves the exact service/resource URL for the run
+    - _Requirements: 14, 16, 17, 20_
+
+  - [ ] 22.4 Tighten exact-run verification
+    - Extract ECS Express service name/cluster/load balancer URL from H final answer or AWS APIs
+    - Verify HTTP and Playwright against the exact live URL
+    - Write exact resource names into `DEPLOYMENT_REPORT.md`
+    - _Requirements: 14, 15, 17_
 
 ## Task Dependency Graph
 

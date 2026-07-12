@@ -23,7 +23,7 @@ This is one product with three surfaces:
 - Local dashboard for the human user.
 - CLI for installation, startup, credentials, and MCP registration.
 
-The product now supports generalized AWS deployment planning across Amplify, S3 static hosting, App Runner, ECS inspection, Lambda, and IaC discovery. GCP Cloud Run has a real approval-gated plan and verifier path, but still requires `gcloud` auth and manual GCP browser login.
+The product now supports generalized AWS deployment planning across Amplify, S3 static hosting, ECS Express Mode, Lambda, and IaC discovery. App Runner is treated as blocked/deprecated for new AWS accounts. GCP Cloud Run has a real approval-gated plan and verifier path, but still requires `gcloud` auth and manual GCP browser login.
 
 ## Non-Negotiable Rules
 
@@ -128,7 +128,7 @@ The product now supports generalized AWS deployment planning across Amplify, S3 
 
 1. FOR frontend-style repos, THE Cloud_CUA_System SHALL support AWS Amplify planning and approval-gated H CUA tasks.
 2. FOR static frontend repos, THE Cloud_CUA_System SHALL support S3 static hosting as a low-cost AWS target with cleanup and verifier support.
-3. FOR containerized/API repos, THE Cloud_CUA_System SHALL recommend AWS App Runner first and ECS Fargate only as a heavier inspected option.
+3. FOR containerized/API repos with a Dockerfile, THE Cloud_CUA_System SHALL recommend AWS ECS Express Mode first, prepare an ECR image when possible, and SHALL NOT recommend AWS App Runner for new AWS accounts.
 4. FOR GCP, THE Cloud_CUA_System SHALL support Cloud Run planning, approval gating, and `gcloud run services list` verification.
 5. WHEN the repo does not fit an implemented target, THE Cloud_CUA_System SHALL stop before cloud changes and report the unsupported reason.
 6. THE Cloud_CUA_System SHALL NOT pretend to support a target that has no verifier implementation.
@@ -204,7 +204,7 @@ The product now supports generalized AWS deployment planning across Amplify, S3 
 
 1. WHEN Gradium STT returns text, THE Voice_Command_Router SHALL classify it before sending it to Codex or H CUA.
 2. IF the STT text is a direct control command such as pause, continue, stop, switch to Vibe mode, switch to Teach mode, switch to Expert mode, open logs, mute voice, or run verifier, THEN THE Cloud_CUA_System SHALL execute the backend/dashboard action directly.
-3. IF the STT text is a reasoning question such as "why Amplify?", "what is IAM?", "is this cheaper?", or "explain this error", THEN THE Cloud_CUA_System SHALL route it to Codex or the explanation engine.
+3. IF the STT text is a reasoning question such as "why this service?", "what is IAM?", "is this cheaper?", or "explain this error", THEN THE Cloud_CUA_System SHALL route it to Codex or the explanation engine.
 4. IF the STT text requests a cloud operation, THEN THE Cloud_CUA_System SHALL convert it into a bounded planned action and SHALL require approval when the action affects cost, security, public exposure, secrets, or destructive changes.
 5. THE Cloud_CUA_System SHALL never send raw voice text directly to H CUA as an instruction.
 6. THE Voice_Command_Router SHALL write a `voice_command` event with the transcript, classification, and selected route.
@@ -294,7 +294,7 @@ The product now supports generalized AWS deployment planning across Amplify, S3 
 
 #### Acceptance Criteria
 
-1. THE Cloud_CUA_System SHALL identify ECS Express Mode as a heavier planned/inspected target until creation and cleanup verifiers are complete.
+1. THE Cloud_CUA_System SHALL identify App Runner as blocked/deprecated for new AWS accounts and SHALL steer containerized web apps toward ECS Express Mode.
 2. THE Cloud_CUA_System SHALL identify GCP Cloud Run as implemented for planning and verification, but blocked until local `gcloud` auth and manual browser login are available.
 3. THE Cloud_CUA_System SHALL identify databases, queues, domains, and production networking as planned advanced scope unless implemented with verifiers.
 4. THE Cloud_CUA_System SHALL stop and report unsupported scope rather than improvising unverified deployment paths.
