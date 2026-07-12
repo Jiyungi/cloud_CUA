@@ -1,0 +1,126 @@
+name: cloud-cua/aws-kinesis
+description: Operate Amazon Kinesis Data Streams through its AWS console with reviewed facts, safety stops, proof, and cleanup
+  gates.
+target: aws_kinesis
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA/blob/main/docs/aws-h-evaluation-catalog.md
+url_pattern: https://console.aws.amazon.com/kinesis/home
+required_facts:
+- candidate_partition_keys
+- capacity_mode
+- consumer_checkpoints
+- consumer_count
+- event_rate
+- event_size
+- iterator_age
+- kms_key_arn
+- partition_key_strategy
+- per_key_distribution
+- replay_window
+- retention_hours
+- shard_metrics
+- stream_arn
+- write_throttles
+unknowns_that_block:
+- 'Required fact is missing or unverified: candidate_partition_keys'
+- 'Required fact is missing or unverified: capacity_mode'
+- 'Required fact is missing or unverified: consumer_checkpoints'
+- 'Required fact is missing or unverified: consumer_count'
+- 'Required fact is missing or unverified: event_rate'
+- 'Required fact is missing or unverified: event_size'
+- 'Required fact is missing or unverified: iterator_age'
+- 'Required fact is missing or unverified: kms_key_arn'
+- 'Required fact is missing or unverified: partition_key_strategy'
+- 'Required fact is missing or unverified: per_key_distribution'
+- 'Required fact is missing or unverified: replay_window'
+- 'Required fact is missing or unverified: retention_hours'
+- 'Required fact is missing or unverified: shard_metrics'
+- 'Required fact is missing or unverified: stream_arn'
+- 'Required fact is missing or unverified: write_throttles'
+h_cua_allowed_actions:
+- Inspect Amazon Kinesis Data Streams console state without mutation.
+- Compare every visible selection with the approved run contract.
+- Perform only the bounded, approved service action after required facts are verified.
+- Return structured resource, verifier, blocker, and cleanup evidence.
+h_cua_stop_conditions:
+- Partition keys control distribution
+- Retention and enhanced fan-out affect cost
+- Replays require idempotent consumers
+required_verifiers:
+- blocker_report
+- bounded_replay_result
+- checkpoint_state
+- consumer_arn
+- consumers_deregistered
+- distribution_metrics
+- downstream_duplicates_checked
+- encryption_state
+- hot_key_evidence
+- key_distribution
+- lag_metric
+- no_stream_created
+- ordering_requirement
+- recovered_lag
+- shard_metric_summary
+- shard_or_mode_state
+- stream_arn
+- stream_deleted
+- throughput_calculation
+success_conditions:
+- Create exact capacity mode retention KMS policy partition strategy and registered consumer then prove distribution and lag
+- Block a stream whose proposed partition key is a constant tenant or timestamp bucket that concentrates expected load
+- Diagnose producer throttling consumer lag hot keys and checkpoint failure before resharding or replay
+cleanup_strategy: 'Delete only exact run-owned resources and prove: consumers_deregistered, downstream_duplicates_checked,
+  no_stream_created, stream_deleted.'
+body: '# Operate Amazon Kinesis Data Streams
+
+
+  Use the run contract as the source of truth. Inspect before mutation and stop when a required fact is unknown.
+
+  A console success label is not proof; independent service, workload, and cleanup evidence decide success.
+
+
+  Required sequence:
+
+  1. Confirm account, region, ownership tags, cost boundary, and service-specific facts.
+
+  2. Inspect defaults and report mismatches before editing anything.
+
+  3. Mutate only after approval and only within the exact run-owned resource boundary.
+
+  4. Stop on new IAM, public exposure, destructive, cross-account, secret, or billing decisions.
+
+  5. Return structured evidence and verify cleanup dependencies before declaring completion.
+
+
+  Service rules:
+
+  - Test partition distribution with representative keys
+
+  - Separate producer success from consumer lag
+
+  - Replay contracts require checkpoints and idempotency
+
+  - Kinesis limits apply per shard and key distribution
+
+  - Ordering scope decides key design
+
+  - On-demand mode does not excuse a pathological key
+
+  - Inspect shard-level metrics
+
+  - Bound replay by sequence or time
+
+  - Validate downstream idempotency before replay
+
+
+  Evaluation scenarios:
+
+  - kinesis-guided-provision: Create exact capacity mode retention KMS policy partition strategy and registered consumer then
+  prove distribution and lag
+
+  - kinesis-misconfiguration-trap: Block a stream whose proposed partition key is a constant tenant or timestamp bucket that
+  concentrates expected load
+
+  - kinesis-recovery-cleanup: Diagnose producer throttling consumer lag hot keys and checkpoint failure before resharding
+  or replay'
