@@ -30,7 +30,7 @@ async def handle_voice_stream(websocket: WebSocket, repo_path: str, run_id: str,
     except (FileNotFoundError, ValueError, json.JSONDecodeError):
         await websocket.close(code=4404, reason="Cloud CUA run was not found for this repository.")
         return
-    if not orchestrator.store.acquire_lock(run_id, "voice-stream"):
+    if not orchestrator.store.acquire_lock(run_id, "voice-stream", stale_after_seconds=MAX_VOICE_SECONDS + 15):
         await websocket.accept()
         await websocket.send_json({"type": "error", "state": "failed", "message": "Another voice turn is already active for this run."})
         await websocket.close(code=4409)

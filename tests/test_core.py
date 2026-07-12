@@ -92,6 +92,17 @@ def test_run_store_writes_run_atomically(tmp_path: Path):
     run.status = "running"
     store.save_run(run)
     assert store.load_run(run.run_id).status == "running"
+
+
+def test_run_lock_recovers_dead_owner(tmp_path: Path):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    lock = store.run_dir(run.run_id) / "locks" / "voice-stream.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(json.dumps({"time": "old", "pid": 99999999}), encoding="utf-8")
+
+    assert store.acquire_lock(run.run_id, "voice-stream", stale_after_seconds=75) is True
+    assert json.loads(lock.read_text(encoding="utf-8"))["pid"] == __import__("os").getpid()
     assert not store.run_path(run.run_id).with_suffix(".tmp").exists()
 
 

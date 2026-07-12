@@ -81,16 +81,24 @@ class RunStore:
     def milestones_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "milestones.json"
 
-    def acquire_lock(self, run_id: str, name: str) -> bool:
+    def acquire_lock(self, run_id: str, name: str, *, stale_after_seconds: float | None = None) -> bool:
         path = self.run_dir(run_id) / "locks" / f"{name}.lock"
         path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return False
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(now_iso())
-        return True
+        for attempt in range(2):
+            try:
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                if attempt == 0 and _lock_is_stale(path, stale_after_seconds):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue
+                return False
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"time": now_iso(), "pid": os.getpid()}, f)
+            return True
+        return False
 
     def release_lock(self, run_id: str, name: str) -> None:
         path = self.run_dir(run_id) / "locks" / f"{name}.lock"
@@ -164,3 +172,23 @@ class RunStore:
                 except Exception:
                     continue
         return runs
+
+
+def _lock_is_stale(path: Path, stale_after_seconds: float | None) -> bool:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pid = int(data.get("pid", 0))
+        if pid:
+            try:
+                os.kill(pid, 0)
+                return False
+            except OSError:
+                return True
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        pass
+    if stale_after_seconds is None:
+        return False
+    try:
+        return (datetime.now(UTC).timestamp() - path.stat().st_mtime) >= stale_after_seconds
+    except OSError:
+        return True
