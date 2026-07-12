@@ -15,8 +15,7 @@ COPY cloud_cua ./cloud_cua
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install -e ".[h,dev]" \
-    && npm ci \
-    && npx playwright install chromium
+    && npm ci
 
 EXPOSE 3000
 

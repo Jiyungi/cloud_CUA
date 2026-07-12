@@ -116,6 +116,12 @@ http://127.0.0.1:3000
 
 Docker mounts your local `.aws`, `.config/gcloud`, and `.cloud-cua` folders read-only. It does not remove the need for manual cloud login in a browser. H local browser takeover still depends on a host browser session, because the cloud-console login, MFA, and Chrome profile live on your machine.
 
+The Docker image keeps build time low and does not download Playwright browsers during image build. If you want container-side Playwright rendering checks, run:
+
+```powershell
+docker compose run --rm cloud-cua npx playwright install chromium
+```
+
 ## AWS Deployment Scope
 
 Cloud CUA now treats Amplify as one AWS target, not the whole product.
