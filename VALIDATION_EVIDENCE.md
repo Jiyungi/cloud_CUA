@@ -45,9 +45,37 @@ The later global audit also removed a retained ECS task definition and CloudWatc
 
 ## Dashboard And Tests
 
-- Development suite: 118 tests passed after the S3 and managed Playwright fixes.
-- Browser smoke: 28 checks passed across desktop, mobile, login modal, runtime-secret modal, and cost-action modal.
+- Development suite: 135 tests passed after asynchronous H control, runtime-secret, cost-monitor, Docker, and Amplify picker hardening.
+- Browser smoke: 30 checks passed across desktop, mobile, login modal, runtime-secret modal, and cost-action modal.
 - Browser checks include JavaScript console errors and horizontal overflow.
+
+## Asynchronous H Controls And Recovery
+
+- Real H run `20260712T105238Z-0ca30198` reached hosted `paused`, returned to `running`, and ended hosted `interrupted` after cancel.
+- The local manager polls hosted state before reporting success, retries asynchronous control delivery, prevents duplicate workers, and persists the H session/milestone/heartbeat cursor.
+- A backend-restart exercise proved that the local browser bridge cannot be reattached across process death. Cloud CUA now cancels only the exact Cloud CUA H session and bridge and blocks at `h_job_recovery_required` instead of replaying a submit milestone.
+- Final H quota audit reported limit 3, active 0, available 3.
+
+## Runtime Secrets And Cost Policy
+
+- Live run `20260712T112604Z-98de613c` provisioned two synthetic values as tagged SSM Standard `SecureString` parameters.
+- Plaintext marker scans found zero matches in run files; only SSM ARNs entered the contract. Exact cleanup removed both parameters.
+- AWS Price List resolution returned current Fargate vCPU/memory, load balancer, LCU, and ECR prices without fallback values.
+- Tests cover 50%, 80%, and 100% cost gates, restart recovery, approved cap extension, and clock freezing after cleanup.
+
+## Docker And Release Artifact
+
+- Docker Compose built and ran on a non-default host port with a mounted target repository and writable named state volume.
+- Container doctor passed Python, Node, npm, AWS CLI/identity, Docker, credentials, and Playwright. Host-only Chrome/H bridge checks were explicitly skipped.
+- A real MCP handshake inside the container discovered 31 tools and created an exact run/dashboard URL; host Playwright loaded that run without console errors.
+- The rebuilt shareable archive contains no `.env`, `.git`, or `.kiro` files.
+- Its wheel was installed in a fresh temporary virtual environment outside the repository. Under isolated Python, the MCP handshake discovered 31 tools and package imports passed.
+
+## Amplify Acceptance Status
+
+- Run `20260712T121251Z-41762fb7` reached the real Amplify manual-deploy form and correctly blocked before submit when AWS reported S3 source validation/access errors.
+- Cloud CUA now instructs H to use Browse S3 and select the exact contract bucket/object instead of typing an S3 URI; the staged object explicitly uses `bucket-owner-full-control`. Unit tests pass and the revised hosted H skill is synced.
+- Fresh run `20260712T122151Z-30d3fb6b` failed closed at browser identity because the dedicated H Chrome profile had logged out. A user must manually log into that dedicated browser once before the final real Amplify create/verify/cleanup smoke can run.
 
 ## Explicit Deferred Scope
 

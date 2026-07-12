@@ -172,15 +172,13 @@ Open:
 http://127.0.0.1:3000
 ```
 
+If port 3000 is already in use, set `CLOUD_CUA_DOCKER_PORT` before starting Compose. Set `CLOUD_CUA_REPO_PATH` to deploy a repository other than the directory containing this Compose file.
+
 Docker mounts your local `.aws`, `.config/gcloud`, `.cloud-cua`, and host Docker socket. It does not remove the need for manual cloud login in a browser. Full H local browser takeover still works best from the host-local Python app, because the cloud-console login, MFA, Chrome profile, and H browser bridge live on your machine.
 
 By default, Compose uses `AWS_PROFILE=cloud-cua-dev`, matching the setup profile in this repo. Override it before starting Docker if your AWS profile has another name.
 
-The Docker image keeps build time low and does not download a browser during image build. If you want container-side Playwright rendering checks, run:
-
-```powershell
-docker compose run --rm cloud-cua python -m playwright install --with-deps chromium
-```
+The Docker image includes Playwright Chromium, AWS CLI, Node, npm, and Docker CLI so dashboard, build, and independent rendering checks work without a second setup command. H's local Chrome bridge remains host-only and blocks honestly in container mode.
 
 ## AWS Deployment Scope
 

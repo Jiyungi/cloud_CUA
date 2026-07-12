@@ -671,6 +671,15 @@ Owner labels are suggested for parallel work.
   - GCP remains planning-only until these external prerequisites and acceptance tests pass.
   - _Requirements: 18, 20_
 
+- [ ] 26. Complete real Amplify manual-deploy acceptance (Owner: Cloud/Verification)
+  - [x] 26.1 Stage a private run-tagged S3 zip with owner ACL enabled
+  - [x] 26.2 Require H to select the exact bucket and object through AWS's Browse S3 picker
+  - [x] 26.3 Block before submit when AWS displays source validation or access errors
+  - [ ] 26.4 Log into AWS in the dedicated H-controlled Chrome profile
+  - [ ] 26.5 Run the three H milestones, verify the exact app/branch/job/live URL, write the report, and clean all run-tagged resources
+  - Run `20260712T121251Z-41762fb7` stopped before submit on AWS source validation errors. The picker/ACL workflow was corrected and synced to H. Fresh run `20260712T122151Z-30d3fb6b` then stopped at the required account check because the dedicated H browser had logged out.
+  - _Requirements: 7, 14, 17, 20, 21, 22_
+
 ## Task Dependency Graph
 
 ```json
