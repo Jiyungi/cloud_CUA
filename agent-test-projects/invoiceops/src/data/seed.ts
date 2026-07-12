@@ -2,6 +2,24 @@ import type { AppUser, Invoice } from "../models";
 
 export const TENANT_ID = "tenant-northstar-properties";
 
+export const FIXTURE_VENDORS = [
+  { id: "vendor-pacific-hvac", name: "Pacific HVAC Services" },
+  { id: "vendor-greenline-electric", name: "Greenline Electric" },
+] as const;
+
+export const FIXTURE_PROPERTIES = [
+  {
+    id: "property-harbor-center",
+    name: "Harbor Center",
+    assignedManagerId: "user-manager-priya",
+  },
+  {
+    id: "property-mission-square",
+    name: "Mission Square",
+    assignedManagerId: "user-manager-priya",
+  },
+] as const;
+
 export const SEEDED_USERS: AppUser[] = [
   {
     id: "user-vendor-rosa",
@@ -106,7 +124,7 @@ export const SEEDED_INVOICES: Invoice[] = [
     assignedManagerId: "user-manager-priya",
     invoiceNumber: "GE-7781",
     invoiceDate: "2026-07-03",
-    dueDate: "2026-07-17",
+    dueDate: "2026-07-10",
     workOrderNumber: "WO-4775",
     sourceFileName: "synthetic-greenline-invoice.pdf",
     subtotalCents: 820000,

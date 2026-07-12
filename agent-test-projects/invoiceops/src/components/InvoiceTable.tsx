@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { Invoice } from "../models";
 import { formatCents } from "../utils/money";
+import { DueDateFlag } from "./DueDateFlag";
 import { StatusBadge } from "./StatusBadge";
 
 interface InvoiceTableProps {
@@ -33,10 +34,12 @@ export function InvoiceTable({ invoices, emptyMessage }: InvoiceTableProps): Rea
             <tr key={invoice.id}>
               <td>
                 <strong>{invoice.vendorName}</strong>
-                <span>{invoice.invoiceNumber}</span>
+                <span>{invoice.invoiceNumber || "Number not extracted"}</span>
               </td>
               <td>{invoice.propertyName}</td>
-              <td>{new Date(`${invoice.dueDate}T12:00:00`).toLocaleDateString()}</td>
+              <td>
+                <DueDateFlag dueDate={invoice.dueDate} status={invoice.status} />
+              </td>
               <td className="table-amount">{formatCents(invoice.totalCents)}</td>
               <td>
                 <StatusBadge status={invoice.status} />
