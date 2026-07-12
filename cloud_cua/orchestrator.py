@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import base64
 import os
+import time
+from uuid import uuid4
 from dataclasses import asdict
 from pathlib import Path
 
@@ -41,6 +43,7 @@ from .deployments.amplify import (
 from .deployments.s3_static import build_s3_creation_task, review_s3_creation, s3_bucket_name
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
+from .explanations import explain_run_question
 from .h_runner import HTaskResult, run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
 from .h_session_manager import get_h_session_manager
@@ -53,7 +56,7 @@ from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
 from .skill_registry import get_skill, load_skills, skill_for_target
 from .static_artifact import prepare_static_artifact, upload_static_artifact
-from .run_store import RunStore
+from .run_store import RunStore, now_iso
 from .safety import approval_reason, detect_approval_triggers, risk_level
 from .supervisor import review_h_result
 from .verifier.aws import (
@@ -985,16 +988,81 @@ class Orchestrator:
     def voice_command(self, run_id: str, text: str) -> dict:
         route = classify_voice_command(text)
         self.store.append_event(run_id, "user", "voice_command", route.transcript, asdict(route))
+        response = ""
+        executed = False
+        ui_action = None
         if route.classification == "direct_control":
             if route.action == "pause":
                 self.pause(run_id)
+                response, executed = "Deployment paused.", True
             elif route.action == "resume":
                 self.resume(run_id)
+                response, executed = "Deployment resumed.", True
+            elif route.action == "stop":
+                self.cancel(run_id)
+                response, executed = "Deployment cancelled. Existing cloud resources were not deleted.", True
             elif route.action == "set_mode" and route.mode:
                 self.set_mode(run_id, route.mode)
+                response, executed = f"Switched to {route.mode} mode.", True
             elif route.action == "run_verifier":
                 self.run_verifier(run_id, "default")
-        return asdict(route)
+                response, executed = "Independent verification completed.", True
+            elif route.action == "open_logs":
+                response, executed, ui_action = "Opening the Activity timeline.", True, "open_logs"
+            elif route.action == "mute_voice":
+                response, executed, ui_action = "Voice playback muted for this dashboard session.", True, "mute_voice"
+        elif route.classification == "reasoning_question":
+            run = self.store.load_run(run_id)
+            context = analyze_repo(self.repo_path)
+            cost = self.get_cost_status(run_id) if (self.store.run_dir(run_id) / "cost-policy.json").exists() else None
+            response = explain_run_question(route.transcript, run, context, cost)
+            executed = True
+            self.store.append_event(run_id, "codex", "explanation", response, {"question": route.transcript})
+        elif route.classification == "planned_cloud_action":
+            pending = self._record_pending_action(run_id, route.transcript)
+            response = "Cloud operation request saved for planning and approval. It was not sent directly to H CUA."
+            executed = True
+            self.store.append_event(run_id, "codex", "plan", response, {"pending_action": pending})
+        else:
+            response = "Command not recognized. Try pause, resume, cancel, verify, switch mode, or ask why this service was selected."
+        return {**asdict(route), "executed": executed, "response": response, "ui_action": ui_action}
+
+    def get_pending_actions(self, run_id: str) -> list[dict]:
+        path = self.store.run_dir(run_id) / "pending-actions.json"
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        except (OSError, json.JSONDecodeError):
+            return []
+
+    def watch_run(self, run_id: str, cursor: int = 0, timeout_seconds: int = 20) -> dict:
+        timeout_seconds = max(0, min(timeout_seconds, 25))
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            events = self.store.read_events(run_id, 0)
+            run = self.store.load_run(run_id)
+            if len(events) > cursor or run.status in {"completed", "blocked", "failed", "cancelled", "cost_action_required"} or time.monotonic() >= deadline:
+                return {"cursor": len(events), "events": events[cursor:], "run": self.get_status(run_id), "pending_actions": self.get_pending_actions(run_id)}
+            time.sleep(0.25)
+
+    def _record_pending_action(self, run_id: str, request: str) -> dict:
+        path = self.store.run_dir(run_id) / "pending-actions.json"
+        items = self.get_pending_actions(run_id)
+        context = analyze_repo(self.repo_path)
+        item = {
+            "action_id": uuid4().hex,
+            "status": "needs_plan_and_approval",
+            "request": request,
+            "recommended_target": context.recommendation,
+            "created_at": now_iso(),
+        }
+        items.append(item)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        temporary.replace(path)
+        return item
 
     def speak(self, run_id: str, text: str) -> dict:
         self.store.append_event(run_id, "system", "command", "Requested Gradium TTS for a dashboard explanation.", {"text": text[:300]})

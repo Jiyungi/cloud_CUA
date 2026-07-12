@@ -94,6 +94,39 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert (tmp_path / "DEPLOYMENT_REPORT.md").exists()
 
 
+def test_voice_reasoning_returns_local_explanation(tmp_path):
+    client = TestClient(create_app())
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
+    response = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "why this service?"}).json()
+    assert response["executed"] is True
+    assert "aws_ecs_express" in response["response"]
+    events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
+    assert any(event["source"] == "codex" and event["type"] == "explanation" for event in events)
+
+
+def test_voice_cloud_request_becomes_pending_action_not_h_task(tmp_path):
+    client = TestClient(create_app())
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
+    response = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "create a database"}).json()
+    assert response["classification"] == "planned_cloud_action"
+    pending = client.get(f"/runs/{run['run_id']}/pending-actions", params={"repo_path": str(tmp_path)}).json()
+    assert pending[0]["status"] == "needs_plan_and_approval"
+    events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
+    assert not any(event["source"] == "h_cua" for event in events)
+
+
+def test_voice_cancel_reaches_real_run_cancel(tmp_path):
+    client = TestClient(create_app())
+    (tmp_path / "package.json").write_text('{"scripts":{"build":"vite build"},"dependencies":{"vite":"^5.0.0"}}', encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
+    response = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "cancel run"}).json()
+    assert response["executed"] is True
+    status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
+    assert status["status"] == "cancelled"
+
+
 def test_voice_transcribe_logs_transcript_and_route(tmp_path, monkeypatch):
     from cloud_cua.voice_gradium import STTResult
 

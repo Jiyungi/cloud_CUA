@@ -188,6 +188,14 @@ def create_app() -> FastAPI:
     def get_events(run_id: str, repo_path: str, limit: int = 100):
         return Orchestrator(repo_path).get_events(run_id, limit)
 
+    @app.get("/runs/{run_id}/watch")
+    def watch_run(run_id: str, repo_path: str, cursor: int = 0, timeout_seconds: int = 20):
+        return Orchestrator(repo_path).watch_run(run_id, cursor, timeout_seconds)
+
+    @app.get("/runs/{run_id}/pending-actions")
+    def pending_actions(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_pending_actions(run_id)
+
     @app.get("/runs/{run_id}/lesson")
     def get_lesson(run_id: str, repo_path: str):
         return Orchestrator(repo_path).get_lesson_candidate(run_id)

@@ -39,6 +39,21 @@ def cloud_cua_get_recent_events(repo_path: str, run_id: str, limit: int = 50) ->
 
 
 @mcp.tool()
+def cloud_cua_watch_run(repo_path: str, run_id: str, cursor: int = 0, timeout_seconds: int = 20) -> Any:
+    """Long-poll the shared run so Codex can supervise new H, user, and verifier events."""
+    return _client().get(
+        f"/runs/{run_id}/watch",
+        {"repo_path": repo_path, "cursor": cursor, "timeout_seconds": timeout_seconds},
+    )
+
+
+@mcp.tool()
+def cloud_cua_get_pending_actions(repo_path: str, run_id: str) -> Any:
+    """List voice/text cloud requests that require a Codex plan and user approval."""
+    return _client().get(f"/runs/{run_id}/pending-actions", {"repo_path": repo_path})
+
+
+@mcp.tool()
 def cloud_cua_get_lesson_candidate(repo_path: str, run_id: str) -> Any:
     return _client().get(f"/runs/{run_id}/lesson", {"repo_path": repo_path})
 
