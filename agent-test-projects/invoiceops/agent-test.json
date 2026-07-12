@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "fixture_id": "invoiceops",
+  "product_name": "InvoiceOps",
+  "audience": "b2b",
+  "industry": "commercial property management accounts payable",
+  "cloud": "aws",
+  "region": "us-east-1",
+  "git_branch": "jiyun-test",
+  "app_root": "agent-test-projects/invoiceops",
+  "backend_initial_state": "absent",
+  "expected_repo_analysis": {
+    "framework": "vite",
+    "category": "frontend_static",
+    "package_manager": "npm",
+    "build_command": "npm run build",
+    "output_directory": "dist",
+    "recommendation": "aws_amplify"
+  },
+  "roles": [
+    "vendor",
+    "ap_clerk",
+    "property_manager",
+    "finance_admin"
+  ],
+  "invoice_states": [
+    "UPLOADED",
+    "EXTRACTING",
+    "PENDING_REVIEW",
+    "PENDING_APPROVAL",
+    "APPROVED",
+    "REJECTED"
+  ],
+  "public_environment_variables": [
+    "VITE_DATA_MODE",
+    "VITE_AWS_REGION",
+    "VITE_API_BASE_URL",
+    "VITE_COGNITO_USER_POOL_ID",
+    "VITE_COGNITO_USER_POOL_CLIENT_ID",
+    "VITE_COGNITO_DOMAIN"
+  ],
+  "api_routes": [
+    "GET /health",
+    "GET /me",
+    "GET /invoices",
+    "GET /invoices/{id}",
+    "POST /invoices/upload-url",
+    "PATCH /invoices/{id}/extracted-fields",
+    "POST /invoices/{id}/decision"
+  ],
+  "required_aws_services": [
+    "Amplify Hosting",
+    "Cognito",
+    "API Gateway",
+    "Lambda",
+    "S3",
+    "KMS",
+    "Textract",
+    "SNS",
+    "SQS",
+    "DynamoDB",
+    "Step Functions",
+    "EventBridge Scheduler",
+    "SES",
+    "IAM",
+    "CloudWatch",
+    "CloudTrail"
+  ],
+  "forbidden_platform_substitutions": [
+    "Vercel backend",
+    "Supabase",
+    "Firebase"
+  ],
+  "current_agent_expected_result": "Amplify frontend recognized; unsupported backend reported as blocked",
+  "target_agent_expected_result": "Real AWS invoice workflow provisioned and independently verified",
+  "required_status_badges": {
+    "mock": "DEMO DATA",
+    "aws": "AWS CONNECTED"
+  },
+  "local_success_checks": [
+    "unit tests pass",
+    "component tests pass",
+    "production build passes",
+    "Playwright upload-review-decision flow passes",
+    "mock mode makes zero network requests",
+    "role-sensitive controls match the active fixture user"
+  ],
+  "aws_success_checks": [
+    "Amplify jiyun-test branch deployment succeeds",
+    "Cognito groups and test users are verified",
+    "protected API rejects unauthenticated and unauthorized requests",
+    "private versioned SSE-KMS invoice upload succeeds",
+    "Textract job reaches pending review",
+    "authorized approval completes the Step Functions execution",
+    "DynamoDB contains immutable transition audit items",
+    "overdue reminder produces SES simulator evidence",
+    "happy-path DLQs are empty",
+    "service-specific CLI or API verifiers pass",
+    "CloudTrail contains expected provisioning actions"
+  ],
+  "resource_prefix": "invoiceops-test-<run-id>",
+  "required_tags": {
+    "Project": "InvoiceOps",
+    "Environment": "test",
+    "ManagedBy": "Cloud-CUA",
+    "TestFixture": "invoiceops"
+  }
+}
