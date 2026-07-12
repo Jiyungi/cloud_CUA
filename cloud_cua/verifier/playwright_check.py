@@ -8,7 +8,12 @@ def verify_playwright_url(url: str) -> VerifierResult:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(channel="chrome", headless=True)
+            try:
+                browser = playwright.chromium.launch(channel="chrome", headless=True)
+                browser_source = "installed Chrome"
+            except Exception:
+                browser = playwright.chromium.launch(headless=True)
+                browser_source = "Playwright Chromium"
             page = browser.new_page()
             response = page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             title = page.title()
@@ -20,8 +25,8 @@ def verify_playwright_url(url: str) -> VerifierResult:
         return VerifierResult(
             "playwright_render",
             "passed",
-            "playwright chromium channel=chrome",
-            f"Rendered HTTP {status}; title={title!r}; bodyLength={len(body)}.",
+            f"playwright {browser_source}",
+            f"Rendered HTTP {status} with {browser_source}; title={title!r}; bodyLength={len(body)}.",
         )
     except Exception as exc:
         return VerifierResult("playwright_render", "failed", "playwright chromium channel=chrome", f"Playwright render failed: {type(exc).__name__}: {exc}")
