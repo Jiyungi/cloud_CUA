@@ -99,6 +99,8 @@ Apply these supervisor corrections:
 
 Set the exact image URI, container port, health check path, and all required tags. Leave the optional task role empty and leave default networking unchanged because the contract does not specify either. Do not create IAM roles.
 
+Use a one-pass checklist: go to the top once; rewrite the exact image, port, and health path with enter=false; then move downward only and record the required tags. Do not revisit a field already written or directly observed in this milestone. Return immediately when the checklist is complete instead of exploring optional sections.
+
 Return the selected values through the structured answer schema. Set ready_to_submit=true only when every reported value exactly matches the contract and the form is still unsubmitted.
 """
 

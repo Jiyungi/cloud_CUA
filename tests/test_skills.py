@@ -21,6 +21,8 @@ def test_ecs_skill_requires_contract_facts_without_fixed_port():
     skill = skill_for_target("aws_ecs_express")
     assert skill is not None
     assert "selected_container_port" in skill.required_facts
+    assert "one-pass evidence checklist" in skill.body
+    assert "Do not scroll back" in skill.body
     assert "container_image_uri" in skill.required_facts
     assert "3000" not in skill.body
     assert skill.autonomy_level == 2
