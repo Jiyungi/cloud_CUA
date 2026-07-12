@@ -122,9 +122,12 @@ def build_cost_policy(target: str, region: str, max_spend_usd: float, pricing: P
         add("ECR storage", "AmazonECR", "TimedStorage-ByteHrs", 0.5, "monthly_to_hourly", family="EC2 Container Registry")
         assumptions.extend(["One running Linux task: 0.5 vCPU and 1 GB memory.", "One Application Load Balancer and one LCU-hour.", "0.5 GB of ECR image storage.", "Traffic and internet data transfer can add variable cost."])
     elif target == "aws_amplify":
-        add("Amplify build", "AWSAmplify", "BuildDuration", 5.0, "one_time")
-        add("Amplify storage", "AWSAmplify", "DataStorage", 0.5, "monthly_to_hourly")
-        add("Amplify transfer", "AWSAmplify", "DataTransferOut", 1.0, "one_time")
+        prefix = "USE1-" if region == "us-east-1" else ""
+        if not prefix:
+            missing.append(f"Amplify live-price usage prefix is not implemented for region {region}.")
+        add("Amplify build", "AWSAmplify", f"{prefix}BuildDuration", 5.0, "one_time", family="AWS Amplify")
+        add("Amplify storage", "AWSAmplify", f"{prefix}DataStorage", 0.5, "monthly_to_hourly", family="AWS Amplify")
+        add("Amplify transfer", "AWSAmplify", f"{prefix}DataTransferOut", 1.0, "one_time", family="AWS Amplify")
         assumptions.extend(["Five build minutes.", "0.5 GB hosted storage.", "1 GB outbound transfer; additional traffic is variable."])
     elif target == "aws_s3_static_site":
         add("S3 Standard storage", "AmazonS3", "TimedStorage-ByteHrs", 0.5, "monthly_to_hourly", family="Storage")
