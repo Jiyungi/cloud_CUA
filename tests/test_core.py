@@ -11,7 +11,7 @@ from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
 from cloud_cua.container_image import prepare_ecr_image, prepare_ecr_image_with_progress
 from cloud_cua.deployment_contract import build_deployment_contract, load_contract, save_contract
-from cloud_cua.deployment_milestones import review_ecs_inspection, review_ecs_prepared_form
+from cloud_cua.deployment_milestones import build_ecs_submit_task, review_ecs_inspection, review_ecs_prepared_form
 from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
 from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
@@ -680,6 +680,12 @@ def test_prepared_ecs_form_must_match_contract(tmp_path: Path):
     review = review_ecs_prepared_form(result, contract)
     assert review.status == "blocked"
     assert any("container port" in item for item in review.objections)
+
+
+def test_ecs_submit_uses_checkpoint_and_forbids_second_click(tmp_path: Path):
+    task = build_ecs_submit_task(_ecs_contract_fixture(tmp_path))
+    assert "Trust the checkpoint" in task
+    assert "never click Create a second time" in task
 
 
 def test_supervisor_blocks_structured_h_failure(tmp_path: Path):

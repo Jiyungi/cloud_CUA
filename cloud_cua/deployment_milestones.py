@@ -131,12 +131,12 @@ def review_ecs_prepared_form(result: HTaskResult, contract: DeploymentContract) 
 def build_ecs_submit_task(contract: DeploymentContract) -> str:
     return f"""Milestone: create_ecs_express_service
 
-The ECS Express form was prepared in a previous milestone and the supervisor verified its reported values. Do not type into fields and do not press Enter.
+The immediately preceding ECS Express preparation milestone produced a saved, contract-matching checkpoint. No form mutation is allowed between that checkpoint and this submit-only milestone. Trust the checkpoint instead of re-reading truncated text fields. Do not type into fields and do not press Enter.
 
-Before submitting, visually confirm the image URI, container port, health path, and required tags still match this contract:
+Confirm only that this is still the same unsubmitted ECS Express create form and that no new validation, IAM, billing, login, or permission blocker is visible. The saved checkpoint already proved these values:
 {json.dumps(contract.to_dict(), indent=2)}
 
-If any value is missing or different, do not submit and return status=blocked. Otherwise click the visible Create button exactly once. Observe the resulting service until AWS shows a stable success, failure, or user-action blocker, then return the required structured answer.
+If a new blocker is visible, do not submit and return status=blocked. Otherwise scroll to the visible Create button and click it exactly once. If the page appears unchanged, wait and inspect AWS's response; never click Create a second time. Once AWS shows a service identifier or stable error, return the required structured answer. Independent verifiers check provisioning, health, tags, and the public URL.
 """
 
 
