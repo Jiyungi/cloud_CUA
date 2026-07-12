@@ -195,6 +195,28 @@ def test_ecs_inspection_blocks_when_form_cannot_apply_contract(tmp_path: Path):
     assert any("cannot be applied" in item for item in review.objections)
 
 
+def test_ecs_inspection_keeps_nonblocking_notes_when_contract_is_applicable(tmp_path: Path):
+    contract = _ecs_contract_fixture(tmp_path)
+    result = HTaskResult(
+        "completed",
+        json.dumps(
+            {
+                "milestone": "inspect_ecs_express_form",
+                "status": "observed",
+                "service_target": "aws_ecs_express",
+                "region": "us-east-1",
+                "visible_defaults": {"container_port": 80, "health_check_path": "/"},
+                "can_apply_contract": True,
+                "required_corrections": [],
+                "blockers": ["No cost estimate is visible."],
+            }
+        ),
+    )
+    review = review_ecs_inspection(result, contract)
+    assert review.status == "clear"
+    assert "Inspection note" in review.corrections[0]
+
+
 def _ecs_contract_fixture(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
     return build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(

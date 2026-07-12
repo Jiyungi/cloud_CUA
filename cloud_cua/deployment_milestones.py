@@ -68,11 +68,14 @@ def review_ecs_inspection(result: HTaskResult, contract: DeploymentContract) -> 
         objections.append("H returned the wrong milestone result.")
     if observation.get("service_target") != contract.target:
         objections.append(f"H inspected {observation.get('service_target')!r}, expected {contract.target!r}.")
-    if observation.get("can_apply_contract") is not True:
+    can_apply = observation.get("can_apply_contract") is True
+    if not can_apply:
         objections.append("H reported that the contract cannot be applied to the visible form.")
     blockers = observation.get("blockers") or []
-    if blockers:
+    if blockers and not can_apply:
         objections.append("H reported blockers: " + "; ".join(str(item) for item in blockers))
+    elif blockers:
+        corrections.extend(f"Inspection note: {item}" for item in blockers)
 
     visible = observation.get("visible_defaults") if isinstance(observation.get("visible_defaults"), dict) else {}
     _compare_if_present(objections, "region", observation.get("region"), contract.cloud_region)
