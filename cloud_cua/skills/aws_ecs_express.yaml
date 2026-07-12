@@ -13,7 +13,7 @@ required_facts:
 unknowns_that_block:
   - The application container port is unknown or ambiguous.
   - The prepared image URI is missing.
-  - The AWS console proposes a different port, region, image, or service type than the contract.
+  - The AWS form cannot accept the contracted port, region, image, health path, tags, or service type.
 h_cua_allowed_actions:
   - Inspect ECS Express Mode forms without changing cloud resources.
   - Fill a deployment form only with values from the contract.
@@ -22,7 +22,7 @@ h_cua_allowed_actions:
 h_cua_stop_conditions:
   - Login, MFA, captcha, OAuth, secrets, or account linking requires the user.
   - A required value is absent from the contract.
-  - AWS shows a port, image, region, service type, IAM scope, or price that conflicts with the contract.
+  - A contracted value cannot be entered or selected, or an unapproved IAM or price choice is required.
   - AWS reports failed health checks, no running tasks, AccessDenied, or an unexpected paid option.
 required_verifiers:
   - aws_identity
@@ -46,7 +46,7 @@ body: |
   Work in milestones:
 
   1. Inspect the ECS Express form without changing resources. Report the visible service type, region, image field, port default, health path default, tags, IAM choices, and estimated cost.
-  2. Stop if a required fact is missing or a visible default conflicts with the contract. Return structured JSON describing each visible value and conflict.
+  2. Report editable defaults that differ from the contract as required corrections. Stop only if a required fact is missing or the form cannot accept the contracted value.
   3. After explicit approval, fill only contract values. Stop before OAuth, secrets, broad IAM, billing changes, or destructive actions not named in the approval.
   4. Submit the service, then observe until AWS shows a stable success, failure, or user-action blocker. Do not call provisioning or an Active label proof that the app works.
   5. Return structured JSON with milestone, status, region, service name and ARN, task definition, image URI, container port, target health, public app URL, console URL, created resources, blockers, and assumptions.

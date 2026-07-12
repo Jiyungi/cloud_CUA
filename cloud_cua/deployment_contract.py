@@ -135,7 +135,7 @@ def build_deployment_contract(repo_path: str | Path, ctx: RepoContext, target: s
         selected_container_port=selected_port,
         missing_facts=missing,
         stop_conditions=[
-            "The cloud console defaults to a port that differs from selected_container_port.",
+            "The cloud console cannot accept the selected_container_port or another required contract value.",
             "The deployment shows AccessDenied, missing IAM capability, failed target health, or no running tasks.",
             "Only an AWS Console URL is available; no public application URL is visible.",
             "The public application URL returns a non-2xx/3xx response.",

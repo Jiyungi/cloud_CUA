@@ -339,7 +339,7 @@ class Orchestrator:
                         "contract": contract.to_dict(),
                     }
 
-                task_text = build_ecs_creation_task(contract)
+                task_text = build_ecs_creation_task(contract, inspection_review.corrections)
             else:
                 task_text = build_general_aws_h_task(
                     self.repo_path.name,

@@ -14,6 +14,7 @@ class MilestoneReview:
     status: str
     observation: dict[str, Any] = field(default_factory=dict)
     objections: list[str] = field(default_factory=list)
+    corrections: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -25,6 +26,8 @@ def build_ecs_inspection_task(contract: DeploymentContract) -> str:
 Navigate to the Amazon ECS Express Mode create-service form in {contract.cloud_region}. Do not type into fields, submit forms, create resources, change IAM, or modify AWS.
 
 Inspect the visible service type, region, image field/default, container port default, health-check path default, tag controls, IAM choices, networking/public exposure choices, estimated cost, and any blockers. Compare nothing silently and do not guess hidden values.
+
+A visible default that differs from the contract is not itself a blocker when the field can be edited. Put the needed change in required_corrections and set can_apply_contract=true. Set can_apply_contract=false only when the form cannot accept a required contract value.
 
 Cloud CUA contract:
 {json.dumps(contract.to_dict(), indent=2)}
@@ -45,6 +48,7 @@ Return one JSON object and no Markdown:
   }},
   "required_inputs_visible": [],
   "can_apply_contract": true,
+  "required_corrections": [],
   "blockers": [],
   "console_url": "current AWS Console URL"
 }}
@@ -59,6 +63,7 @@ def review_ecs_inspection(result: HTaskResult, contract: DeploymentContract) -> 
         return MilestoneReview("blocked", objections=["H inspection did not return the required structured JSON object."])
 
     objections: list[str] = []
+    corrections = [str(item) for item in observation.get("required_corrections", [])]
     if observation.get("milestone") != "inspect_ecs_express_form":
         objections.append("H returned the wrong milestone result.")
     if observation.get("service_target") != contract.target:
@@ -71,19 +76,23 @@ def review_ecs_inspection(result: HTaskResult, contract: DeploymentContract) -> 
 
     visible = observation.get("visible_defaults") if isinstance(observation.get("visible_defaults"), dict) else {}
     _compare_if_present(objections, "region", observation.get("region"), contract.cloud_region)
-    _compare_if_present(objections, "image URI", visible.get("image_uri"), contract.container_image_uri)
-    _compare_if_present(objections, "container port", visible.get("container_port"), contract.selected_container_port)
-    _compare_if_present(objections, "health check path", visible.get("health_check_path"), contract.health_check_path)
-    return MilestoneReview("blocked" if objections else "clear", observation=observation, objections=objections)
+    _correction_if_different(corrections, "image URI", visible.get("image_uri"), contract.container_image_uri)
+    _correction_if_different(corrections, "container port", visible.get("container_port"), contract.selected_container_port)
+    _correction_if_different(corrections, "health check path", visible.get("health_check_path"), contract.health_check_path)
+    return MilestoneReview("blocked" if objections else "clear", observation=observation, objections=objections, corrections=corrections)
 
 
-def build_ecs_creation_task(contract: DeploymentContract) -> str:
+def build_ecs_creation_task(contract: DeploymentContract, corrections: list[str] | None = None) -> str:
+    correction_text = "\n".join(f"- {item}" for item in (corrections or [])) or "- No editable defaults require correction."
     return f"""Milestone: create_ecs_express_service
 
 User approval is granted for this exact Cloud CUA deployment contract. Use the loaded cloud-cua/aws-ecs-express skill and only the values below. Do not substitute defaults that conflict with the contract. Stop before any new OAuth, secret entry, broad IAM, billing change, destructive action, or cost above $5.
 
 Cloud CUA contract:
 {json.dumps(contract.to_dict(), indent=2)}
+
+Supervisor corrections from the inspection milestone:
+{correction_text}
 
 Create the ECS Express Mode service, then observe AWS until it reports a stable success, failure, or user-action blocker. Return one JSON object and no Markdown:
 {{
@@ -127,3 +136,12 @@ def _compare_if_present(objections: list[str], label: str, visible: Any, expecte
         return
     if str(visible).strip() != str(expected).strip():
         objections.append(f"Visible {label} {visible!r} conflicts with contract value {expected!r}.")
+
+
+def _correction_if_different(corrections: list[str], label: str, visible: Any, expected: Any) -> None:
+    if visible in {None, "", "unknown", "not set"}:
+        return
+    if str(visible).strip() != str(expected).strip():
+        message = f"Set {label} from visible default {visible!r} to contract value {expected!r}."
+        if message not in corrections:
+            corrections.append(message)
