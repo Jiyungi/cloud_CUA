@@ -11,6 +11,7 @@ from typing import Callable
 from uuid import uuid4
 
 from .credentials import load_secret_values
+from .h_admin import cleanup_h_session
 from .run_store import RunStore, now_iso, sanitize_obj
 
 
@@ -278,11 +279,12 @@ class HSessionManager:
             return
         remote_status, error = self._call_h_and_confirm(job.session_id, "cancel")
         if error:
+            targeted = cleanup_h_session(job.session_id, str(store.repo_path))
             self._block_interrupted(
                 store,
                 job,
                 "Backend restarted during H local-browser control. The browser bridge cannot be reattached and "
-                f"the hosted session could not be stopped automatically: {error}",
+                f"normal cancellation was not confirmed. Targeted cleanup status: {targeted.status}. {error}",
             )
             return
         self._block_interrupted(

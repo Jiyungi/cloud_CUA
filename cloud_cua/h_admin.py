@@ -58,18 +58,21 @@ def cleanup_h_sessions(repo_path: str | None = None) -> HCleanupResult:
         before = _quota(client)
         sessions = client.get("/api/v2/sessions", params={"size": 50})
         sessions.raise_for_status()
+        cloud_cua_ids: set[str] = set()
         for item in sessions.json().get("items", []):
-            if item.get("status") in NON_TERMINAL:
+            if item.get("agent") == "cloud-cua-local-browser" and item.get("status") in NON_TERMINAL:
                 sid = item.get("id")
-                if sid and client.delete(f"/api/v2/sessions/{sid}").status_code in {200, 202, 204}:
+                if sid:
+                    cloud_cua_ids.add(sid)
+                if sid and _delete_ok(client, f"/api/v2/sessions/{sid}"):
                     cancelled.append(sid)
 
         trajectories = client.get("/api/v1/trajectories/")
         trajectories.raise_for_status()
         for item in trajectories.json().get("items", []):
-            if item.get("status") in NON_TERMINAL and item.get("agent") == "surferh":
+            if item.get("status") in NON_TERMINAL and item.get("id") in cloud_cua_ids:
                 tid = item.get("id")
-                if tid and client.delete(f"/api/v1/trajectories/{tid}").status_code in {200, 202, 204}:
+                if tid and _delete_ok(client, f"/api/v1/trajectories/{tid}"):
                     deleted.append(tid)
         after = _quota(client)
 
@@ -83,6 +86,35 @@ def cleanup_h_sessions(repo_path: str | None = None) -> HCleanupResult:
     )
 
 
+def cleanup_h_session(session_id: str, repo_path: str | None = None) -> HCleanupResult:
+    """Stop one Cloud CUA session and its matching local-browser trajectory."""
+    api_key = load_secret_values(repo_path).get("HAI_API_KEY")
+    if not api_key:
+        return HCleanupResult("skipped", None, None, [], [], "HAI_API_KEY is not configured.")
+    deleted: list[str] = []
+    cancelled: list[str] = []
+    with httpx.Client(base_url=H_BASE_URL, headers=_headers(api_key), timeout=20, follow_redirects=True) as client:
+        before = _quota(client)
+        session = client.get(f"/api/v2/sessions/{session_id}")
+        if session.status_code == 200:
+            item = session.json()
+            if item.get("agent") != "cloud-cua-local-browser":
+                return HCleanupResult("failed", before, before, [], [], "Refused to clean a session not owned by Cloud CUA.")
+            if item.get("status") in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{session_id}"):
+                cancelled.append(session_id)
+        if _delete_ok(client, f"/api/v1/trajectories/{session_id}", allow_not_found=True):
+            deleted.append(session_id)
+        after = _quota(client)
+    return HCleanupResult(
+        "passed",
+        before,
+        after,
+        deleted,
+        cancelled,
+        f"Cleaned Cloud CUA session {session_id} and its local browser trajectory.",
+    )
+
+
 def _quota(client: httpx.Client) -> HQuota:
     resp = client.get("/api/v2/sessions/quota")
     resp.raise_for_status()
@@ -92,3 +124,8 @@ def _quota(client: httpx.Client) -> HQuota:
 
 def _headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Accept": "application/json", "Content-Type": "application/json"}
+
+
+def _delete_ok(client: httpx.Client, path: str, *, allow_not_found: bool = False) -> bool:
+    status = client.delete(path).status_code
+    return status in {200, 202, 204} or (allow_not_found and status == 404)

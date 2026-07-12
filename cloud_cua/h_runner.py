@@ -8,6 +8,7 @@ import queue
 import threading
 import time
 import traceback
+from uuid import uuid4
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import asdict
@@ -16,9 +17,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .credentials import load_secret_values
-from .h_admin import cleanup_h_sessions, get_h_quota
+from .h_admin import get_h_quota
 from .mode_policy import policy_for
 from .models import Mode
+from .paths import user_config_dir
 
 
 @dataclass(frozen=True)
@@ -211,7 +213,6 @@ def _run_h_task_sdk(
             summary="HAI_API_KEY is not configured. Add it before running H browser control.",
         )
     try:
-        cleanup_h_sessions()
         orphaned_drivers = cleanup_orphaned_chromedrivers()
         if orphaned_drivers and event_callback:
             event_callback(
@@ -280,10 +281,6 @@ def _run_h_task_sdk(
             except Exception as exc:
                 if attempt == 1 and "local web bridge" in str(exc).lower():
                     stopped = cleanup_orphaned_chromedrivers()
-                    try:
-                        cleanup_h_sessions()
-                    except Exception:
-                        pass
                     if event_callback:
                         event_callback(
                             {
@@ -342,10 +339,6 @@ def _run_h_task_sdk(
             error=str(exc),
         )
     finally:
-        try:
-            cleanup_h_sessions()
-        except Exception:
-            pass
         cleanup_orphaned_chromedrivers()
 
 
@@ -358,6 +351,12 @@ def run_h_task(
     event_callback: Callable[[dict[str, Any]], None] | None = None,
     answer_schema_name: str | None = None,
 ) -> HTaskResult:
+    lock_token = _acquire_local_browser_lock()
+    if not lock_token:
+        return HTaskResult(
+            status="blocked",
+            summary="Another Cloud CUA run already owns the host-local H browser bridge. Finish or cancel that H job before retrying.",
+        )
     payload = {
         "task": task,
         "mode": mode,
@@ -392,6 +391,8 @@ def run_h_task(
         return HTaskResult(status="timed_out", summary=str(exc))
     except Exception as exc:
         return HTaskResult(status="failed", summary=f"H worker failed to start: {type(exc).__name__}: {exc}", error=str(exc))
+    finally:
+        _release_local_browser_lock(lock_token)
     if proc.returncode != 0:
         raw = ((stdout or "") + "\n" + (stderr or "")).strip()
         return HTaskResult(status="failed", summary=f"H worker failed with exit code {proc.returncode}.", raw=raw[-2000:])
@@ -401,6 +402,63 @@ def run_h_task(
     except Exception as exc:
         raw = ((stdout or "") + "\n" + (stderr or "")).strip()
         return HTaskResult(status="failed", summary=f"H worker returned invalid output: {exc}", raw=raw[-2000:])
+
+
+def _acquire_local_browser_lock() -> str | None:
+    path = user_config_dir() / "h-local-browser.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid4().hex
+    for _ in range(2):
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                owner = json.loads(path.read_text(encoding="utf-8"))
+                if _pid_alive(int(owner.get("pid", 0))):
+                    return None
+                path.unlink()
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                try:
+                    path.unlink()
+                except OSError:
+                    return None
+            continue
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump({"pid": os.getpid(), "token": token}, handle)
+        return token
+    return None
+
+
+def _release_local_browser_lock(token: str) -> None:
+    path = user_config_dir() / "h-local-browser.lock"
+    try:
+        owner = json.loads(path.read_text(encoding="utf-8"))
+        if owner.get("token") == token:
+            path.unlink()
+    except (OSError, json.JSONDecodeError):
+        return
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            process_query_limited_information = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
+            if not handle:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        except (AttributeError, OSError):
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def run_h_task_worker(
