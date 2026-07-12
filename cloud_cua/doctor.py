@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,7 @@ class DoctorCheck:
 
 def run_doctor(repo_path: str | Path | None = None, *, include_network: bool = True) -> list[DoctorCheck]:
     repo = str(Path(repo_path or ".").resolve())
+    container_mode = os.environ.get("CLOUD_CUA_CONTAINER") == "1"
     checks = [
         _python_check(),
         _command_check("node", ["node", "--version"]),
@@ -32,7 +34,7 @@ def run_doctor(repo_path: str | Path | None = None, *, include_network: bool = T
         _command_check("aws_cli", ["aws", "--version"]),
         _aws_identity_check(),
         _command_check("gcloud", ["gcloud", "--version"], required=False),
-        _chrome_check(),
+        _chrome_check(required=not container_mode),
         _chrome_debug_check(required=False),
         _playwright_check(required=False),
         _docker_check(required=False),
@@ -87,10 +89,11 @@ def _aws_identity_check() -> DoctorCheck:
         return DoctorCheck("aws_identity", "passed", f"AWS CLI identity is authenticated{profile_note}.")
 
 
-def _chrome_check() -> DoctorCheck:
+def _chrome_check(*, required: bool = True) -> DoctorCheck:
     chrome = find_chrome()
     if not chrome:
-        return DoctorCheck("chrome", "failed", "Chrome or Edge was not found.")
+        status = "failed" if required else "skipped"
+        return DoctorCheck("chrome", status, "Chrome or Edge was not found. In Docker, use host-local mode for H browser takeover.")
     return DoctorCheck("chrome", "passed", chrome)
 
 

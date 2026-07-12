@@ -102,7 +102,7 @@ Restart Codex after installing the MCP server so it reloads config.
 
 ## Docker Quickstart
 
-The Docker path runs the dashboard, MCP server code, repo analyzer, and verifiers in a container:
+The Docker path runs the dashboard, MCP server code, repo analyzer, AWS CLI verifiers, and Docker image prep in a container:
 
 ```powershell
 docker compose up --build
@@ -114,7 +114,9 @@ Open:
 http://127.0.0.1:3000
 ```
 
-Docker mounts your local `.aws`, `.config/gcloud`, and `.cloud-cua` folders read-only. It does not remove the need for manual cloud login in a browser. H local browser takeover still depends on a host browser session, because the cloud-console login, MFA, and Chrome profile live on your machine.
+Docker mounts your local `.aws`, `.config/gcloud`, `.cloud-cua`, and host Docker socket. It does not remove the need for manual cloud login in a browser. Full H local browser takeover still works best from the host-local Python app, because the cloud-console login, MFA, Chrome profile, and H browser bridge live on your machine.
+
+By default, Compose uses `AWS_PROFILE=cloud-cua-dev`, matching the setup profile in this repo. Override it before starting Docker if your AWS profile has another name.
 
 The Docker image keeps build time low and does not download Playwright browsers during image build. If you want container-side Playwright rendering checks, run:
 
