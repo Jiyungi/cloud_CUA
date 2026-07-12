@@ -502,8 +502,7 @@ function continueAfterApproval(approval) {
   const action = String(approval?.action || '');
   if (
     action.startsWith('Run AWS deployment task:') ||
-    action === 'Run GCP Cloud Run deployment task' ||
-    action === 'Create or update AWS Amplify app'
+    action === 'Run GCP Cloud Run deployment task'
   ) {
     post(`/runs/${currentRun.run_id}/resume-approved`, body()).then(refresh).catch(console.error);
   }
@@ -512,8 +511,7 @@ function maybeContinueApprovedApproval(items) {
   if (!currentRun || !['approval_required', 'approval_approved'].includes(currentRun.current_step)) return;
   const approval = items.find(a => a.status === 'approved' && (
     String(a.action || '').startsWith('Run AWS deployment task:') ||
-    a.action === 'Run GCP Cloud Run deployment task' ||
-    a.action === 'Create or update AWS Amplify app'
+    a.action === 'Run GCP Cloud Run deployment task'
   ));
   if (approval) continueAfterApproval(approval);
 }

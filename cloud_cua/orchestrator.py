@@ -78,12 +78,6 @@ class Orchestrator:
         )
         return asdict(run)
 
-    def get_amplify_plan(self, run_id: str) -> dict:
-        ctx = analyze_repo(self.repo_path)
-        plan = build_amplify_plan(self.repo_path.name, ctx)
-        self.store.append_event(run_id, "system", "plan", "Generated AWS Amplify plan.", {"amplify_plan": plan.to_dict()})
-        return plan.to_dict()
-
     def get_aws_plan(self, run_id: str) -> dict:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx)
@@ -159,59 +153,6 @@ class Orchestrator:
         if result.status in {"blocked", "failed", "timed_out"}:
             run.status = "blocked" if result.status == "blocked" else "failed"
             run.current_step = "h_cua_blocked"
-            self.store.save_run(run)
-        return asdict(result)
-
-    def run_amplify_deployment(self, run_id: str) -> dict:
-        run = self.store.load_run(run_id)
-        if run.status == "running" and run.current_step.startswith("h_cua_"):
-            return {"status": "running", "summary": "H CUA is already running for this deployment.", "current_step": run.current_step}
-        if run.status == "waiting_for_login":
-            return {"status": "blocked", "summary": "Manual AWS login is required first."}
-        if run.cloud != "aws" or run.target != "aws_amplify":
-            return {"status": "blocked", "summary": f"Amplify deployment is not supported for target {run.target} on {run.cloud}."}
-
-        action = "Create or update AWS Amplify app"
-        if not approval_is_approved(self.store.run_dir(run_id), action):
-            approval = create_approval(
-                self.store.run_dir(run_id),
-                action,
-                "This can create cloud resources, connect GitHub, expose a public URL, and may incur AWS costs.",
-                "high",
-                ["paid_resources", "public_exposure", "oauth", "secrets"],
-            )
-            self.store.append_event(run_id, "system", "approval", "Approval required before AWS Amplify modification.", asdict(approval))
-            run.status = "blocked"
-            run.current_step = "approval_required"
-            self.store.save_run(run)
-            return {"status": "blocked", "summary": "Approval required before creating or changing AWS Amplify resources.", "approval": asdict(approval)}
-
-        plan = self.get_amplify_plan(run_id)
-        if not plan.get("supported"):
-            return {"status": "blocked", "summary": "Repo is not supported by the AWS Amplify adapter.", "plan": plan}
-        task_text = (
-            f"Approval was granted for this action: {action}.\n"
-            f"Use the currently open AWS Console to create or configure an AWS Amplify app named {plan['app_name']} "
-            f"for branch {plan['branch']}. Build command: {plan.get('build_command')}. Output directory: {plan.get('output_directory')}. "
-            f"When tags are available, add cloud-cua=true, cloud-cua-repo={self.repo_path.name}, and cloud-cua-run={run_id}. "
-            "Stop and report before GitHub OAuth, billing, broad IAM permissions, deletion, replacement, or any unclear prompt. "
-            "When complete, report the app name, branch, and any visible live/deployment URL."
-        )
-        run.status = "running"
-        run.current_step = "h_cua_amplify_modify"
-        self.store.save_run(run)
-        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "approval": action})
-        result = run_h_task(task_text, run.mode, max_steps=35, max_time_s=420)
-        self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
-        if result.status == "completed":
-            self._record_resource_summary(run_id, run.cloud, "aws_amplify", result.summary)
-            run.current_step = "h_cua_completed_run_verifier_next"
-            run.status = "verifying"
-            self.store.save_run(run)
-            self.run_verifier(run_id, "default")
-        else:
-            run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
-            run.current_step = "h_cua_amplify_blocked"
             self.store.save_run(run)
         return asdict(result)
 
@@ -395,7 +336,6 @@ class Orchestrator:
                 and (
                     item.action.startswith("Run AWS deployment task:")
                     or item.action == "Run GCP Cloud Run deployment task"
-                    or item.action == "Create or update AWS Amplify app"
                 )
             ),
             None,
@@ -418,8 +358,6 @@ class Orchestrator:
             return self.run_aws_deployment_task(run_id, target=target)
         if approval.action == "Run GCP Cloud Run deployment task":
             return self.run_gcp_deployment_task(run_id)
-        if approval.action == "Create or update AWS Amplify app":
-            return self.run_amplify_deployment(run_id)
         return {"status": "skipped", "summary": f"Approved action is not resumable: {approval.action}"}
 
     def list_approvals(self, run_id: str) -> list[dict]:

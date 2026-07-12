@@ -33,9 +33,9 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert routed.status_code == 200
     assert routed.json()["classification"] == "direct_control"
 
-    plan = client.get(f"/runs/{run['run_id']}/amplify-plan", params={"repo_path": str(tmp_path)})
+    plan = client.get(f"/runs/{run['run_id']}/aws-plan", params={"repo_path": str(tmp_path)})
     assert plan.status_code == 200
-    assert plan.json()["supported"] is True
+    assert plan.json()["primary_target"] == "aws_amplify"
 
     caps = client.get("/capabilities", params={"repo_path": str(tmp_path)})
     assert caps.status_code == 200
@@ -75,7 +75,7 @@ def test_voice_transcribe_logs_transcript_and_route(tmp_path, monkeypatch):
     assert "STT routed to backend as direct_control." in messages
 
 
-def test_amplify_deploy_requires_approval(tmp_path):
+def test_frontend_aws_deploy_requires_approval(tmp_path):
     client = TestClient(create_app())
     (tmp_path / "package.json").write_text('{"scripts":{"build":"vite build"},"dependencies":{"vite":"^5.0.0"}}', encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
@@ -85,7 +85,10 @@ def test_amplify_deploy_requires_approval(tmp_path):
     saved.current_step = "login_confirmed"
     store.save_run(saved)
 
-    result = client.post(f"/runs/{run['run_id']}/amplify-deploy", json={"repo_path": str(tmp_path)})
+    result = client.post(
+        f"/runs/{run['run_id']}/aws-deploy",
+        json={"repo_path": str(tmp_path), "target": "aws_amplify", "max_spend_usd": 5},
+    )
 
     assert result.status_code == 200
     body = result.json()

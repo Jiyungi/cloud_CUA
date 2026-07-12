@@ -28,7 +28,7 @@ def test_voice_router_fast_lane_pause():
 
 
 def test_voice_router_reasoning_not_h_cua():
-    route = classify_voice_command("why Amplify?")
+    route = classify_voice_command("why this service?")
     assert route.classification == "reasoning_question"
     assert route.route == "codex"
 
@@ -66,7 +66,7 @@ def test_repo_analyzer_dockerfile_is_planned_ecs(tmp_path: Path):
     assert ctx.recommendation == "aws_ecs_express"
 
 
-def test_repo_analyzer_node_api_recommends_app_runner(tmp_path: Path):
+def test_repo_analyzer_node_api_recommends_lambda(tmp_path: Path):
     (tmp_path / "package.json").write_text(
         json.dumps({"scripts": {"start": "node server.js"}, "dependencies": {"express": "^5.0.0"}}),
         encoding="utf-8",
@@ -131,7 +131,7 @@ def test_gcp_cloud_run_plan_supports_docker_repo(tmp_path: Path):
 
 
 def test_approval_trigger_detection_is_specific():
-    triggers = detect_approval_triggers("Deploy public App Runner service with IAM role and GitHub OAuth")
+    triggers = detect_approval_triggers("Deploy public ECS service with IAM role and GitHub OAuth")
     codes = {trigger.code for trigger in triggers}
     assert {"paid_resources", "public_exposure", "broad_iam", "oauth"} <= codes
 
