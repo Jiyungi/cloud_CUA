@@ -622,7 +622,7 @@ Owner labels are suggested for parallel work.
     - Run host-local H inspection and creation milestones
     - Require every ECS contract verifier to pass
     - Run `20260712T054353Z-ddbc05cd` passed all 16 verifier checks, including HTTP 200 and Playwright render
-    - Tagged ECS task, ECS Express service, and ECR repository cleanup commands all passed
+    - Tagged ECS task, ECS Express service, and ECR repository cleanup commands all passed; final dry run found zero actions
     - _Requirements: 20, 21_
 
 ## Task Dependency Graph
@@ -653,4 +653,4 @@ Owner labels are suggested for parallel work.
 - Do not add NemoClaw tasks.
 - Current H status: hosted skills sync and attach successfully; host-local H completed the three-milestone ECS Express workflow. The runner cleans stale local bridges, exposes session IDs, bounds stalled milestones, and blocks repeated submit intent. Docker mode intentionally blocks H browser takeover; use host-local `python -m cloud_cua.cli start` for real H CUA work.
 - Current visual QA status: `npm run visual:dashboard` passes desktop/mobile/login-modal smoke checks and writes screenshots under `.cloud-cua/visual-checks/`, but this is not a full manual dashboard QA pass.
-- Current AWS smoke status: AWS CLI profile `cloud-cua-dev` has both the earlier S3 smoke and a real H-operated ECS Express smoke. The ECS run used exact run tags/image/port/health path, reached a healthy task, returned HTTP 200, rendered in Playwright, passed every verifier, and cleanup commands succeeded.
+- Current AWS smoke status: AWS CLI profile `cloud-cua-dev` has both the earlier S3 smoke and a real H-operated ECS Express smoke. The ECS run used exact run tags/image/port/health path, reached a healthy task, returned HTTP 200, rendered in Playwright, passed every verifier, and the final cleanup dry run found zero actions.

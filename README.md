@@ -213,7 +213,7 @@ Current local validation:
 - AWS CLI identity verification works with profile `cloud-cua-dev`.
 - H local browser control works after cleaning stale local bridge trajectories.
 - H hosted skills auto-sync and attach to the browser agent before skilled runs.
-- The verified ECS smoke used the exact ECR image, port, health path, and run tags, reached one healthy running task, returned HTTP 200, rendered in Playwright, and was then sent through tagged cleanup.
+- The verified ECS smoke used the exact ECR image, port, health path, and run tags, reached one healthy running task, returned HTTP 200, rendered in Playwright, and ended with zero remaining cleanup actions.
 - If H returns HTTP 429, run `python -m cloud_cua.cli h-cleanup`; stale `surferh` bridge trajectories can consume concurrency.
 
 ## Shareable Package
