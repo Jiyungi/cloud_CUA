@@ -142,6 +142,27 @@ def test_deployment_contract_round_trips_runtime_inputs(tmp_path: Path):
     assert loaded.required_tags["cloud-cua-run"] == "run-1"
 
 
+def test_milestone_checkpoint_requires_exact_contract(tmp_path: Path):
+    from cloud_cua.deployment_checkpoints import load_milestone_checkpoint, save_milestone_checkpoint
+
+    contract = _ecs_contract_fixture(tmp_path)
+    path = tmp_path / "milestones.json"
+    save_milestone_checkpoint(path, "inspect_ecs_express_form", contract, {"status": "completed"}, {"status": "clear"})
+
+    assert load_milestone_checkpoint(path, "inspect_ecs_express_form", contract) is not None
+    changed = contract.with_runtime_inputs(
+        run_id="run-2",
+        skill_name=contract.skill_name,
+        skill_hash=contract.skill_hash,
+        autonomy_level=contract.autonomy_level,
+        cloud_region=contract.cloud_region,
+        container_image_uri=contract.container_image_uri,
+        ecr_repository=contract.ecr_repository,
+        repo_name="demo",
+    )
+    assert load_milestone_checkpoint(path, "inspect_ecs_express_form", changed) is None
+
+
 def test_ecs_inspection_editable_default_becomes_correction(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
     contract = build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(
