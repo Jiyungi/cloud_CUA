@@ -268,17 +268,29 @@ class HSessionManager:
             from hai_agents import Client
 
             handle = Client(api_key=api_key).session(job.session_id)
-            status = str(handle.status())
+            snapshot = handle.status()
+            status = str(getattr(snapshot, "status", snapshot)).lower()
         except Exception as exc:
             self._block_interrupted(store, job, f"Could not reconnect to H session: {type(exc).__name__}: {exc}")
             return
-        if any(value in status.lower() for value in ("completed", "failed", "timed_out", "interrupted")):
+        if status in H_TERMINAL_STATES:
             self._block_interrupted(store, job, f"Recovered H session was already terminal ({status}); rerun the saved milestone.")
             return
-        job.status = "paused" if "paused" in status.lower() else "running"
-        job.heartbeat_at = now_iso()
-        self._save(store, job)
-        store.append_event(job.run_id, "system", "result", "Reconnected to an active hosted H session after backend restart.", {"session_id": job.session_id, "status": status})
+        remote_status, error = self._call_h_and_confirm(job.session_id, "cancel")
+        if error:
+            self._block_interrupted(
+                store,
+                job,
+                "Backend restarted during H local-browser control. The browser bridge cannot be reattached and "
+                f"the hosted session could not be stopped automatically: {error}",
+            )
+            return
+        self._block_interrupted(
+            store,
+            job,
+            "Backend restarted during H local-browser control. Cloud CUA stopped the hosted H session "
+            f"({remote_status}) and preserved the last milestone for a safe retry.",
+        )
 
     def _block_interrupted(self, store: RunStore, job: HJob, message: str) -> None:
         job.status = "interrupted"

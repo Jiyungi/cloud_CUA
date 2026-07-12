@@ -4,7 +4,7 @@ import sys
 import time
 from types import SimpleNamespace
 
-from cloud_cua.h_session_manager import HSessionManager
+from cloud_cua.h_session_manager import HJob, HSessionManager
 from cloud_cua.run_store import RunStore
 
 
@@ -102,3 +102,32 @@ def test_h_control_retries_until_remote_state_is_confirmed(monkeypatch):
     assert status == "paused"
     assert error is None
     assert calls == ["pause", "pause"]
+
+
+def test_recovery_stops_unattachable_local_browser_session(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    job = HJob(
+        job_id="job-1",
+        repo_path=str(tmp_path),
+        run_id=run.run_id,
+        operation="inspect",
+        status="running",
+        session_id="session-1",
+        worker_pid=12345,
+    )
+    manager = HSessionManager()
+    manager._save(store, job)
+    fake_handle = SimpleNamespace(status=lambda: SimpleNamespace(status="running"))
+    fake_module = SimpleNamespace(Client=lambda **_kwargs: SimpleNamespace(session=lambda _session_id: fake_handle))
+    monkeypatch.setitem(sys.modules, "hai_agents", fake_module)
+    monkeypatch.setattr("cloud_cua.h_session_manager.load_secret_values", lambda: {"HAI_API_KEY": "test"})
+    monkeypatch.setattr(manager, "_call_h_and_confirm", lambda *_args, **_kwargs: ("interrupted", None))
+
+    manager._recover_job(store, job)
+
+    saved = manager.get(tmp_path, run.run_id)
+    recovered_run = store.load_run(run.run_id)
+    assert saved["status"] == "interrupted"
+    assert recovered_run.status == "blocked"
+    assert recovered_run.current_step == "h_job_recovery_required"
