@@ -172,6 +172,9 @@ def _action_from_arn(arn: str) -> CleanupAction | None:
     if ":ecr:" in arn and ":repository/" in arn:
         name = arn.split(":repository/", 1)[-1]
         return CleanupAction("ecr", name, aws_command(["ecr", "delete-repository", "--repository-name", name, "--force"]))
+    if ":ssm:" in arn and ":parameter/" in arn:
+        name = "/" + arn.split(":parameter/", 1)[-1]
+        return CleanupAction("ssm", name, aws_command(["ssm", "delete-parameter", "--name", name]))
     return None
 
 
@@ -256,5 +259,5 @@ def _dedupe_actions(actions: list[CleanupAction]) -> list[CleanupAction]:
             continue
         seen.add(key)
         deduped.append(action)
-    priority = {"ecs-task": 0, "ecs-express": 1, "ecs": 1, "apprunner": 2, "amplify": 2, "lambda": 2, "cloudformation": 3, "s3": 4, "ecr": 9}
+    priority = {"ecs-task": 0, "ecs-express": 1, "ecs": 1, "apprunner": 2, "amplify": 2, "lambda": 2, "cloudformation": 3, "s3": 4, "ssm": 8, "ecr": 9}
     return sorted(deduped, key=lambda action: (priority.get(action.service, 5), action.service, action.resource))

@@ -569,6 +569,16 @@ def test_aws_cleanup_skips_already_stopping_task(monkeypatch):
     assert _action_from_arn(arn) is None
 
 
+def test_aws_cleanup_deletes_tagged_ssm_parameter():
+    from cloud_cua.aws_cleanup import _action_from_arn
+
+    action = _action_from_arn("arn:aws:ssm:us-east-1:123456789012:parameter/cloud-cua/run-1/DATABASE_URL")
+    assert action is not None
+    assert action.service == "ssm"
+    assert action.resource == "/cloud-cua/run-1/DATABASE_URL"
+    assert action.command[-2:] == ["--name", "/cloud-cua/run-1/DATABASE_URL"]
+
+
 def test_aws_command_uses_cloud_cua_profile_when_available(monkeypatch):
     class FakeProc:
         returncode = 0
