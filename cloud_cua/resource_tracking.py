@@ -23,7 +23,20 @@ class ResourceRecord:
 
 
 def extract_resource_record(run_id: str, cloud: str, target: str, text: str) -> ResourceRecord:
-    urls = sorted(set(match.rstrip(".,;") for match in URL_RE.findall(text or "")))
+    urls = set(match.rstrip(".,;") for match in URL_RE.findall(text or ""))
+    try:
+        structured = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        structured = None
+    if isinstance(structured, dict):
+        for key in ("public_app_url", "application_url", "live_url"):
+            value = structured.get(key)
+            if isinstance(value, str) and value.strip():
+                normalized = value.strip()
+                if not normalized.startswith(("http://", "https://")):
+                    normalized = "https://" + normalized
+                urls.add(normalized.rstrip(".,;"))
+    urls = sorted(urls)
     app_urls = sorted(url for url in urls if is_public_app_url(url))
     resources = sorted(set(match.rstrip(".,;") for match in RESOURCE_RE.findall(text or "")))
     return ResourceRecord(run_id=run_id, cloud=cloud, target=target, urls=urls, app_urls=app_urls, resource_names=resources, notes=(text or "")[:4000])

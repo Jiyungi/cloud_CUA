@@ -435,6 +435,16 @@ def test_resource_record_separates_console_and_app_urls():
     assert record.app_urls == ["https://abc.ecs.us-east-1.on.aws"]
 
 
+def test_resource_record_normalizes_structured_app_host_without_scheme():
+    record = extract_resource_record(
+        "run-123",
+        "aws",
+        "aws_ecs_express",
+        json.dumps({"public_app_url": "abc.ecs.us-east-1.on.aws", "console_url": "https://console.aws.amazon.com/ecs"}),
+    )
+    assert record.app_urls == ["https://abc.ecs.us-east-1.on.aws"]
+
+
 def test_ecs_h_task_includes_contract_port_and_prepared_image_uri(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 8080\n", encoding="utf-8")
     ctx = analyze_repo(tmp_path)
