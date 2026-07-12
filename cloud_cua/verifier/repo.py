@@ -10,12 +10,16 @@ from .base import VerifierResult, run_command
 
 
 def verify_git_diff(repo_path: str | Path) -> VerifierResult:
-    return run_command("repo_git_status", ["git", "status", "--short"], timeout=15, cwd=str(Path(repo_path).resolve()))
+    return _git_result("repo_git_status", ["git", "status", "--short"], Path(repo_path).resolve())
+
+
+def verify_git_diff_summary(repo_path: str | Path) -> VerifierResult:
+    return _git_result("repo_git_diff", ["git", "diff", "--stat", "HEAD"], Path(repo_path).resolve())
 
 
 def verify_repository(repo_path: str | Path, context: RepoContext, *, run_tests: bool = False) -> list[VerifierResult]:
     root = Path(repo_path).resolve()
-    results = [verify_git_diff(root)]
+    results = [verify_git_diff(root), verify_git_diff_summary(root)]
     if context.build_command:
         results.append(_run_repo_command("repo_build", context.build_command, root, timeout=600))
     else:
@@ -27,6 +31,14 @@ def verify_repository(repo_path: str | Path, context: RepoContext, *, run_tests:
         else:
             results.append(VerifierResult("repo_tests", "skipped", "", "No deterministic test command was detected."))
     return results
+
+
+def _git_result(name: str, command: list[str], root: Path) -> VerifierResult:
+    result = run_command(name, command, timeout=15, cwd=str(root))
+    if result.status == "failed" and "not a git repository" in result.summary.lower():
+        result.status = "skipped"
+        result.summary = "Repository is not inside a Git worktree."
+    return result
 
 
 def _run_repo_command(name: str, command: str, root: Path, *, timeout: int) -> VerifierResult:

@@ -12,6 +12,7 @@ def test_repo_verifier_runs_detected_build(tmp_path):
     build = next(item for item in results if item.name == "repo_build")
     assert build.status == "passed"
     assert "123" in build.summary
+    assert any(item.name == "repo_git_diff" for item in results)
 
 
 def test_repo_verifier_refuses_unknown_executable(tmp_path):
