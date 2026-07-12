@@ -68,6 +68,8 @@ def build_aws_deployment_plan(
     unknowns = list(ctx.risks)
     if not ctx.env_vars:
         unknowns.append("No env example found; runtime secrets may be missing.")
+    if ctx.category in {"containerized_web", "node_api", "python_api"}:
+        unknowns.append("AWS App Runner is closed to new customers; use ECS Express Mode or another active AWS service.")
 
     return AWSDeploymentPlan(
         repo_category=ctx.category,
@@ -86,6 +88,7 @@ def build_aws_deployment_plan(
             "Add tag cloud-cua-run when Cloud CUA provides a run id.",
             "Stop before billing plan changes, broad administrator IAM, deleting existing non-cloud-cua resources, or GitHub OAuth/account linking.",
             "If the selected service is not appropriate, stop and explain the better AWS service instead of improvising an unsafe deployment.",
+            "Do not choose AWS App Runner for new accounts; AWS says App Runner is no longer open to new customers.",
         ],
         unknowns=unknowns,
     )
@@ -149,17 +152,19 @@ def _options_for_context(repo_name: str, ctx: RepoContext) -> list[AWSDeployment
     if ctx.category == "nextjs":
         return [
             _amplify_option(repo_name),
-            _app_runner_option(repo_name, "Next.js can run as a containerized web service if Amplify is blocked."),
+            _ecs_express_option(repo_name, "Next.js can run as a containerized web service if Amplify is blocked."),
         ]
     if ctx.category == "containerized_web":
         return [
-            _app_runner_option(repo_name, "Dockerfile detected; App Runner is the simplest AWS console path for a web container."),
+            _ecs_express_option(repo_name, "Dockerfile detected; ECS Express Mode is AWS's active simple-path service for containerized web apps."),
             _ecs_fargate_option(repo_name),
+            _app_runner_deprecated_option(repo_name),
         ]
     if ctx.category in {"node_api", "python_api"}:
         return [
-            _app_runner_option(repo_name, "API service detected; App Runner handles simple always-on web APIs."),
             _lambda_option(repo_name),
+            _ecs_express_option(repo_name, "API service detected; ECS Express Mode is the active AWS simple-path container option if the app is containerized."),
+            _app_runner_deprecated_option(repo_name),
         ]
     if ctx.category == "serverless":
         return [_lambda_option(repo_name)]
@@ -194,16 +199,37 @@ def _s3_static_option(repo_name: str) -> AWSDeploymentOption:
     )
 
 
-def _app_runner_option(repo_name: str, why: str) -> AWSDeploymentOption:
+def _app_runner_deprecated_option(repo_name: str) -> AWSDeploymentOption:
     return AWSDeploymentOption(
-        target="aws_app_runner",
-        label="AWS App Runner",
-        fit="Dockerized web app or API",
+        target="aws_app_runner_deprecated",
+        label="AWS App Runner (deprecated for new customers)",
+        fit="existing App Runner customers only",
         console_url="https://console.aws.amazon.com/apprunner/home",
+        why="AWS says App Runner is no longer open to new customers. This option is listed only to explain why Cloud CUA will not choose it.",
+        h_task_goal=f"Do not create an App Runner service for {repo_name}. Report that App Runner is closed to new customers and recommend ECS Express Mode.",
+        verifier_names=["aws_identity", "aws_app_runner_services"],
+        risks=["Blocked for new AWS customers.", "No new feature roadmap.", "Should not be used as the default deployment path."],
+    )
+
+
+def _ecs_express_option(repo_name: str, why: str) -> AWSDeploymentOption:
+    return AWSDeploymentOption(
+        target="aws_ecs_express",
+        label="Amazon ECS Express Mode",
+        fit="Dockerized web app or API",
+        console_url="https://console.aws.amazon.com/ecs/v2/express",
         why=why,
-        h_task_goal=f"Create an App Runner service for {repo_name} only from an existing source/image path the user has approved.",
-        verifier_names=["aws_identity", "aws_app_runner_services", "http_live_url"],
-        risks=["May need GitHub/ECR connection.", "Creates always-on compute.", "Needs environment variables and port settings."],
+        h_task_goal=(
+            f"Create an Amazon ECS Express Mode service for {repo_name} only after a container image URI, task execution role, "
+            "and infrastructure role are available. If any of those inputs are missing, stop and report exactly what Codex must prepare."
+        ),
+        verifier_names=["aws_identity", "aws_tagged_run_resources", "aws_ecs_clusters", "http_live_url"],
+        risks=[
+            "Requires a container image in ECR or another registry.",
+            "Requires ECS task execution and infrastructure IAM roles.",
+            "Creates Fargate, load balancer, security group, logging, and networking resources.",
+            "Can exceed $5 if left running; cleanup must be easy.",
+        ],
     )
 
 

@@ -62,7 +62,7 @@ def test_repo_analyzer_dockerfile_is_planned_ecs(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM python:3.12\n", encoding="utf-8")
     ctx = analyze_repo(tmp_path)
     assert ctx.dockerfile is True
-    assert ctx.recommendation == "aws_app_runner"
+    assert ctx.recommendation == "aws_ecs_express"
 
 
 def test_repo_analyzer_node_api_recommends_app_runner(tmp_path: Path):
@@ -72,7 +72,7 @@ def test_repo_analyzer_node_api_recommends_app_runner(tmp_path: Path):
     )
     ctx = analyze_repo(tmp_path)
     assert ctx.category == "node_api"
-    assert ctx.recommendation == "aws_app_runner"
+    assert ctx.recommendation == "aws_lambda"
 
 
 def test_general_aws_plan_has_multiple_frontend_options(tmp_path: Path):
@@ -86,6 +86,16 @@ def test_general_aws_plan_has_multiple_frontend_options(tmp_path: Path):
     assert plan.primary_target == "aws_amplify"
     assert "aws_s3_static_site" in targets
     assert plan.max_spend_usd == 5.0
+
+
+def test_general_aws_plan_uses_ecs_express_for_docker(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    plan = build_aws_deployment_plan("demo-api", ctx)
+    targets = [option.target for option in plan.options]
+    assert plan.primary_target == "aws_ecs_express"
+    assert "aws_app_runner_deprecated" in targets
+    assert "App Runner is closed" in " ".join(plan.unknowns)
 
 
 def test_gcp_cloud_run_plan_supports_docker_repo(tmp_path: Path):

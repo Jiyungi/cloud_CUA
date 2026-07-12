@@ -83,11 +83,11 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     plan = client.get(f"/runs/{run['run_id']}/aws-plan", params={"repo_path": str(tmp_path)})
     result = client.post(
         f"/runs/{run['run_id']}/aws-deploy",
-        json={"repo_path": str(tmp_path), "task": "Deploy this safely", "target": "aws_app_runner", "max_spend_usd": 5},
+        json={"repo_path": str(tmp_path), "task": "Deploy this safely", "target": "aws_ecs_express", "max_spend_usd": 5},
     )
 
     assert plan.status_code == 200
-    assert plan.json()["primary_target"] == "aws_app_runner"
+    assert plan.json()["primary_target"] == "aws_ecs_express"
     assert result.status_code == 200
     assert result.json()["status"] == "blocked"
     assert result.json()["approval"]["status"] == "pending"
@@ -121,7 +121,7 @@ def test_general_aws_deploy_blocks_over_budget(tmp_path):
 
     result = client.post(
         f"/runs/{run['run_id']}/aws-deploy",
-        json={"repo_path": str(tmp_path), "task": "Deploy this safely", "target": "aws_app_runner", "max_spend_usd": 25},
+        json={"repo_path": str(tmp_path), "task": "Deploy this safely", "target": "aws_ecs_express", "max_spend_usd": 25},
     )
 
     assert result.json()["status"] == "blocked"

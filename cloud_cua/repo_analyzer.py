@@ -118,9 +118,9 @@ def analyze_repo(repo_path: str | Path) -> RepoContext:
     if category in {"frontend_static", "nextjs"}:
         recommendation = "aws_amplify"
     elif category == "containerized_web":
-        recommendation = "aws_app_runner"
+        recommendation = "aws_ecs_express"
     elif category in {"node_api", "python_api"}:
-        recommendation = "aws_app_runner"
+        recommendation = "aws_lambda"
     elif category == "serverless":
         recommendation = "aws_lambda"
     elif category == "iac":
