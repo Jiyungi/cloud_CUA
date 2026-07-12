@@ -1,0 +1,140 @@
+name: cloud-cua/aws-ecs
+description: Operate Amazon Elastic Container Service through its AWS console with reviewed facts, safety stops, proof, and
+  cleanup gates.
+target: aws_ecs
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA/blob/main/docs/aws-h-evaluation-catalog.md
+url_pattern: https://console.aws.amazon.com/ecs/v2/home
+required_facts:
+- container_listen_port
+- container_port
+- cpu
+- deployment_id
+- execution_role
+- execution_role_arn
+- health_path
+- image_digest
+- memory
+- security_group_ids
+- selected_image
+- service_arn
+- stopped_task_reasons
+- subnet_ids
+- target_group_arn
+- target_port
+- task_role
+- task_role_arn
+unknowns_that_block:
+- 'Required fact is missing or unverified: container_listen_port'
+- 'Required fact is missing or unverified: container_port'
+- 'Required fact is missing or unverified: cpu'
+- 'Required fact is missing or unverified: deployment_id'
+- 'Required fact is missing or unverified: execution_role'
+- 'Required fact is missing or unverified: execution_role_arn'
+- 'Required fact is missing or unverified: health_path'
+- 'Required fact is missing or unverified: image_digest'
+- 'Required fact is missing or unverified: memory'
+- 'Required fact is missing or unverified: security_group_ids'
+- 'Required fact is missing or unverified: selected_image'
+- 'Required fact is missing or unverified: service_arn'
+- 'Required fact is missing or unverified: stopped_task_reasons'
+- 'Required fact is missing or unverified: subnet_ids'
+- 'Required fact is missing or unverified: target_group_arn'
+- 'Required fact is missing or unverified: target_port'
+- 'Required fact is missing or unverified: task_role'
+- 'Required fact is missing or unverified: task_role_arn'
+h_cua_allowed_actions:
+- Inspect Amazon Elastic Container Service console state without mutation.
+- Compare every visible selection with the approved run contract.
+- Perform only the bounded, approved service action after required facts are verified.
+- Return structured resource, verifier, blocker, and cleanup evidence.
+h_cua_stop_conditions:
+- Ask Codex for the actual container port and health path
+- Task execution and task roles are different
+- Active service does not prove running healthy targets
+required_verifiers:
+- blocker_report
+- container_log
+- deployed_image_digest
+- desired_count_zero
+- ecr_image_inventory
+- load_balancer_deleted
+- load_balancer_dependencies
+- no_service_created
+- no_task_definition_registered
+- port_mapping
+- public_app_probe
+- recovered_probe_or_blocker
+- repo_port_request
+- rollback_deployment
+- running_count
+- security_groups_checked
+- service_arn
+- service_deleted
+- stopped_task_reason
+- target_group_deleted
+- target_health
+- target_health_reason
+- task_definition_arn
+- task_definition_state
+- tasks_stopped
+- visible_port_default
+success_conditions:
+- Create exact task definition image digest CPU memory roles port logs secrets network and load-balancer health contract
+- Block creation when H lacks the listen port and the console defaults to 80 with an unpinned latest image
+- Diagnose image pull task startup health network and IAM reasons then roll back or clean all Express/Fargate dependencies
+cleanup_strategy: 'Delete only exact run-owned resources and prove: desired_count_zero, load_balancer_deleted, load_balancer_dependencies,
+  no_service_created, no_task_definition_registered, security_groups_checked, service_deleted, target_group_deleted, task_definition_state,
+  tasks_stopped.'
+body: '# Operate Amazon Elastic Container Service
+
+
+  Use the run contract as the source of truth. Inspect before mutation and stop when a required fact is unknown.
+
+  A console success label is not proof; independent service, workload, and cleanup evidence decide success.
+
+
+  Required sequence:
+
+  1. Confirm account, region, ownership tags, cost boundary, and service-specific facts.
+
+  2. Inspect defaults and report mismatches before editing anything.
+
+  3. Mutate only after approval and only within the exact run-owned resource boundary.
+
+  4. Stop on new IAM, public exposure, destructive, cross-account, secret, or billing decisions.
+
+  5. Return structured evidence and verify cleanup dependencies before declaring completion.
+
+
+  Service rules:
+
+  - Container port comes from repo inspection
+
+  - Pin immutable image identity
+
+  - Verify tasks and target health not only service ACTIVE
+
+  - H must ask Codex what port Docker listens on
+
+  - Never infer port from the ALB listener
+
+  - Use digest or immutable run tag
+
+  - Stopped-task reasons precede retries
+
+  - Roll back to known immutable revision
+
+  - ECS cleanup includes provisioned networking and load balancing
+
+
+  Evaluation scenarios:
+
+  - ecs-guided-provision: Create exact task definition image digest CPU memory roles port logs secrets network and load-balancer
+  health contract
+
+  - ecs-misconfiguration-trap: Block creation when H lacks the listen port and the console defaults to 80 with an unpinned
+  latest image
+
+  - ecs-recovery-cleanup: Diagnose image pull task startup health network and IAM reasons then roll back or clean all Express/Fargate
+  dependencies'
