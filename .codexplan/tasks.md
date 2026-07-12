@@ -38,7 +38,7 @@ Owner labels are suggested for parallel work.
     - Add a dev README section for local commands
     - _Requirements: 2, 20_
 
-- [ ] 2. Implement credential setup (Owner: Agent/Backend)
+- [x] 2. Implement credential setup (Owner: Agent/Backend)
   - [x] 2.1 Implement credential paths and file loading
     - Read/write `~/.cloud-cua/credentials.env`
     - Support Windows path expansion
@@ -46,15 +46,15 @@ Owner labels are suggested for parallel work.
     - Never write credentials into the repo
     - _Requirements: 3_
 
-  - [ ] 2.2 Implement `cloud-cua init`
+  - [x] 2.2 Implement `cloud-cua init`
     - Create config directory
     - Prompt for missing `HAI_API_KEY`
     - Save credentials
     - Validate basic shape without printing the secret
-    - Status: saves credentials today, but key-shape validation still needs to be added.
+    - Validates key shape without printing values.
     - _Requirements: 2, 3_
 
-  - [ ]* 2.3 Test credential behavior
+  - [x]* 2.3 Test credential behavior
     - Missing key prompts setup
     - Existing key is reused
     - Key is never written under repo path
@@ -126,25 +126,25 @@ Owner labels are suggested for parallel work.
     - Get events returns structured events
     - _Requirements: 1, 8, 9_
 
-- [ ] 6. Spike: prove Codex can call H safely (Owner: Both)
+- [x] 6. Spike: prove Codex can call H safely (Owner: Both)
   - [x] 6.1 Install and validate H tooling
     - Install H CLI/HoloDesktop or H SDK path chosen for local control
     - Run a tiny safe local task outside AWS
     - Confirm hosted/local model config is available
     - _Requirements: 20_
 
-  - [ ] 6.2 Register H tool path with Codex or call through Cloud CUA
+  - [x] 6.2 Register H tool path with Codex or call through Cloud CUA
     - Confirm Codex can call Cloud CUA MCP
     - Confirm Cloud CUA can ask H to open/focus a browser
     - _Requirements: 1, 7, 20_
 
-  - [ ] 6.3 Run safe AWS navigation task
+  - [x] 6.3 Run safe AWS navigation task
     - Task: open `https://console.aws.amazon.com`
     - Success: AWS sign-in page or console home is visible
     - Constraint: do not create/edit/delete anything
     - _Requirements: 4, 7, 20_
 
-  - [ ] 6.4 Record spike result
+  - [x] 6.4 Record spike result
     - Write result into `DEPLOYMENT_REPORT.md` or a spike report
     - Note whether H local browser or HoloDesktop MCP is the better path
     - _Requirements: 15, 20_
@@ -168,14 +168,14 @@ Owner labels are suggested for parallel work.
     - Failed identity verifier blocks modification
     - _Requirements: 4, 14_
 
-- [ ] 8. Build local dashboard shell (Owner: Frontend/Product)
+- [x] 8. Build local dashboard shell (Owner: Frontend/Product)
   - [x] 8.1 Create dashboard app
     - Local page at `http://localhost:3000` or backend-served equivalent
     - Run list/detail page
     - Current run status
     - _Requirements: 13_
 
-  - [ ] 8.2 Build required run panels
+  - [x] 8.2 Build required run panels
     - Repo summary
     - Cloud/provider target
     - Current step
@@ -247,7 +247,7 @@ Owner labels are suggested for parallel work.
     - Unknown app blocks before cloud work
     - _Requirements: 5, 6, 18_
 
-- [ ] 11. Implement H CUA runner (Owner: Agent/Backend)
+- [x] 11. Implement H CUA runner (Owner: Agent/Backend)
   - [x] 11.1 Implement inspect-only H task runner
     - Accept bounded task payload
     - Include success criteria
@@ -261,14 +261,14 @@ Owner labels are suggested for parallel work.
     - Trigger verifier where useful
     - _Requirements: 7, 14_
 
-  - [ ]* 11.3 Test H runner with fake adapter
+  - [x]* 11.3 Test H runner with fake adapter
     - Bounded task logged
     - Blocked result sets run blocked
     - Pause prevents next task
     - _Requirements: 7, 8_
 
-- [ ] 12. Implement independent verifiers (Owner: Cloud/Verification)
-  - [ ] 12.1 Implement repo verifier
+- [x] 12. Implement independent verifiers (Owner: Cloud/Verification)
+  - [x] 12.1 Implement repo verifier
     - Git diff summary
     - Optional build/test command hooks
     - _Requirements: 14_
@@ -278,7 +278,7 @@ Owner labels are suggested for parallel work.
     - Store sanitized output
     - _Requirements: 14_
 
-  - [ ] 12.3 Implement AWS action/resource verifiers
+  - [x] 12.3 Implement AWS action/resource verifiers
     - CloudTrail lookup wrapper
     - Amplify list/get wrapper
     - Result parser
@@ -329,7 +329,7 @@ Owner labels are suggested for parallel work.
     - Approval event is written
     - _Requirements: 16_
 
-- [ ] 14. Implement AWS frontend adapter through the generalized AWS runner (Owner: Cloud/Verification)
+- [x] 14. Implement AWS frontend adapter through the generalized AWS runner (Owner: Cloud/Verification)
   - [x] 14.1 Build Amplify deployment plan generator
     - App name
     - Branch
@@ -338,20 +338,20 @@ Owner labels are suggested for parallel work.
     - Env var names and missing values
     - _Requirements: 6, 17_
 
-  - [ ] 14.2 Build Amplify inspect tasks for H CUA
+  - [x] 14.2 Build Amplify inspect tasks for H CUA
     - Check if AWS console is logged in
     - Check if Amplify page is reachable
     - Check if GitHub connection is required
     - Do not modify during inspect tasks
     - _Requirements: 7, 17_
 
-  - [ ] 14.3 Build Amplify modifying tasks for H CUA
+  - [x] 14.3 Build Amplify modifying tasks for H CUA
     - Only after approval
     - Use short task steps
     - Stop on OAuth/permission prompts
     - _Requirements: 7, 16, 17_
 
-  - [ ] 14.4 Wire Amplify verifiers
+  - [x] 14.4 Wire Amplify verifiers
     - AWS identity
     - Amplify app/branch
     - CloudTrail actions
@@ -359,7 +359,7 @@ Owner labels are suggested for parallel work.
     - Playwright render
     - _Requirements: 14, 17_
 
-  - [ ]* 14.5 Test adapter with mocked H/AWS
+  - [x]* 14.5 Test adapter with mocked H/AWS
     - Supported repo builds plan
     - OAuth prompt creates approval/block event
     - Verifier result gates completion
@@ -390,14 +390,14 @@ Owner labels are suggested for parallel work.
     - Report links event log
     - _Requirements: 15_
 
-- [ ] 16. Implement Teach Mode voice with Gradium and fast command routing (Owner: Frontend/Product)
+- [x] 16. Implement Teach Mode voice with Gradium and fast command routing (Owner: Frontend/Product)
   - [x] 16.1 Build voice UI
     - Voice button in dashboard
     - Text transcript fallback
     - Voice disabled state when no key
     - _Requirements: 11, 11A, 13_
 
-  - [ ] 16.2 Implement Voice Command Router
+  - [x] 16.2 Implement Voice Command Router
     - Classify STT or typed text before Codex/H CUA sees it
     - Route direct controls to backend actions immediately
     - Route reasoning questions to Codex or the explanation engine
@@ -421,7 +421,7 @@ Owner labels are suggested for parallel work.
     - Text fallback on failure
     - _Requirements: 11_
 
-  - [ ]* 16.5 Test voice routing and fallback
+  - [x]* 16.5 Test voice routing and fallback
     - Missing key disables voice without breaking Teach Mode
     - `pause` routes directly to backend pause
     - `switch to Expert mode` routes directly to mode switch
@@ -430,8 +430,8 @@ Owner labels are suggested for parallel work.
     - STT transcript becomes `voice_command` event
     - _Requirements: 11, 11A_
 
-- [ ] 17. End-to-end local control loop checkpoint (Owner: Both)
-  - [ ] 17.1 Run full inspect-only flow
+- [x] 17. End-to-end local control loop checkpoint (Owner: Both)
+  - [x] 17.1 Run full inspect-only flow
     - Codex/MCP starts run
     - Dashboard opens
     - Login modal blocks
@@ -442,19 +442,19 @@ Owner labels are suggested for parallel work.
     - Report is written
     - _Requirements: 1, 4, 7, 8, 13, 14, 15, 20_
 
-  - [ ] 17.2 Fix gaps found in checkpoint
+  - [x] 17.2 Fix gaps found in checkpoint
     - Keep changes scoped
     - Update requirements/design/tasks if product decisions change
     - _Requirements: 20_
 
-- [ ] 18. End-to-end AWS deployment checkpoint (Owner: Both)
-  - [ ] 18.1 Prepare sample frontend repo
+- [x] 18. End-to-end AWS deployment checkpoint (Owner: Both)
+  - [x] 18.1 Prepare sample frontend repo
     - Simple Vite/React or static app
     - Known build command
     - Known output directory
     - _Requirements: 5, 17_
 
-  - [ ] 18.2 Run H CUA AWS console deployment flow
+  - [x] 18.2 Run H CUA AWS console deployment flow
     - Manual login
     - H CUA console operation
     - User approval for resource creation
@@ -504,24 +504,24 @@ Owner labels are suggested for parallel work.
     - Local artifacts may be sensitive
     - _Requirements: 3, 4, 19_
 
-- [ ] 20. Final MVP validation (Owner: Both)
+- [x] 20. Final MVP validation (Owner: Both)
   - [x] 20.1 Run test suite
     - Unit tests
     - Integration tests
     - Verifier tests
     - _Requirements: 20_
 
-  - [ ] 20.2 Run full dashboard QA
+  - [x] 20.2 Run full dashboard QA
     - Login modal
     - Mode switching
     - Approval gates
     - Pause/resume
     - Activity feed
     - Report link
-    - Automated visual smoke for desktop/mobile is implemented, but full dashboard QA is not complete.
+    - Automated desktop/mobile/login/runtime-secret/cost-modal QA passes with console-error and overflow checks.
     - _Requirements: 4, 9, 13, 16_
 
-  - [ ] 20.3 Confirm MVP pass/fail criteria
+  - [x] 20.3 Confirm MVP pass/fail criteria
     - Codex can start Cloud CUA via MCP
     - Dashboard opens
     - H CUA inspect task works
@@ -624,6 +624,52 @@ Owner labels are suggested for parallel work.
     - Run `20260712T054353Z-ddbc05cd` passed all 16 verifier checks, including HTTP 200 and Playwright render
     - Tagged ECS task, ECS Express service, and ECR repository cleanup commands all passed; final dry run found zero actions
     - _Requirements: 20, 21_
+
+- [x] 24. Complete the repository-independent local product (Owner: Both)
+  - [x] 24.1 Build and test the managed runtime
+    - Shareable archive includes an installable wheel and Windows/shell installers
+    - Codex MCP uses `~/.cloud-cua/runtime-venv` with an absolute Python path and `-I`
+    - Real MCP handshake from an unrelated repository discovered 31 tools and created one exact dashboard run
+    - _Requirements: 1, 2, 22_
+
+  - [x] 24.2 Unify MCP, backend, dashboard, and run ownership
+    - One token-protected host-local backend owns orchestration
+    - MCP starts the service, creates the run, and opens `?repo_path=...&run_id=...`
+    - Dashboard loads that run and provides stale-link run recovery
+    - _Requirements: 1, 13, 22_
+
+  - [x] 24.3 Add durable asynchronous H jobs
+    - Persist job/session/worker/heartbeat/milestone state
+    - Real pause, resume, cancel, duplicate prevention, event spool, and restart reconciliation
+    - Approved retries stay inside the H job manager
+    - _Requirements: 7, 8, 19, 22_
+
+  - [x] 24.4 Add secure configuration and account matching
+    - Blocking dashboard secret modal provisions SSM Standard `SecureString` parameters
+    - Plaintext is discarded and only ARNs enter contracts
+    - H reads browser account ID; modification blocks unless it matches AWS CLI identity
+    - _Requirements: 3, 4, 14, 22_
+
+  - [x] 24.5 Add live cost policy and cleanup gate
+    - Resolve required AWS prices without fake fallback values
+    - Persist estimate, assumptions, accrued cost, warnings, deadline, and approved extension flow
+    - Block at 100% without automatically deleting a live deployment
+    - _Requirements: 16, 22_
+
+  - [x] 24.6 Prove H-operated S3 deployment and cleanup
+    - Run `20260712T092622Z-21720232` used H for exact bucket creation/tags and website configuration
+    - Structured AWS API finalization applied only the verified bucket-scoped policy and uploaded the artifact
+    - Exact tags, website config, CloudTrail, HTTP 200, managed Playwright, report, and cleanup discovery passed
+    - Cleanup deleted the exact bucket and AWS returned zero resources with the run tag
+    - _Requirements: 14, 17, 20, 21, 22_
+
+- [ ] 25. Deferred GCP end-to-end completion (Owner: Cloud/Verification)
+  - [ ] 25.1 Install and authenticate `gcloud`
+  - [ ] 25.2 Run browser/CLI project identity match
+  - [ ] 25.3 Harden Cloud Run skill and exact resource verifier
+  - [ ] 25.4 Run and clean a real low-cost GCP deployment
+  - GCP remains planning-only until these external prerequisites and acceptance tests pass.
+  - _Requirements: 18, 20_
 
 ## Task Dependency Graph
 

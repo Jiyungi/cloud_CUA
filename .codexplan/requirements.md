@@ -347,3 +347,24 @@ The product now supports generalized AWS deployment planning across Amplify, S3 
 12. THE Cloud_CUA_System SHALL persist clear milestones against an exact contract fingerprint and SHALL reuse them on a safe retry.
 13. THE H runner SHALL expose hosted session identity, stop unresponsive structured milestones, and prevent a repeated Create/Submit click after one attempt.
 14. IF a previously failed run later passes every required verifier, THEN its lesson evidence SHALL be retained but marked resolved.
+
+### Requirement 22: Managed Runtime, Secrets, Identity, and Cost
+
+**User Story:** As a developer using Codex from any repository, I want one durable local Cloud CUA service with secure configuration and enforceable safety gates.
+
+#### Acceptance Criteria
+
+1. THE shareable product SHALL include an installable wheel and installers that create `~/.cloud-cua/runtime-venv`.
+2. THE Codex MCP configuration SHALL use the managed runtime's absolute Python path with `-I` and SHALL work regardless of Codex's current repository.
+3. THE MCP server SHALL be a thin client to one token-protected host-local backend that owns run orchestration and H jobs.
+4. WHEN Codex starts a deployment, THE backend SHALL create one run and the dashboard SHALL load that exact `repo_path` and `run_id` without creating a duplicate.
+5. H work SHALL run asynchronously with persisted job ID, H session ID, worker PID, milestone, heartbeat, event cursor, status, and recovery state.
+6. Pause, resume, and cancel SHALL call H's real session controls; cancel SHALL NOT silently delete cloud resources.
+7. Runtime secret values SHALL be accepted only by a blocking dashboard modal, stored as AWS SSM Standard `SecureString` parameters, discarded from memory, and represented in contracts only by references.
+8. Public frontend variables such as `VITE_*` and `NEXT_PUBLIC_*` SHALL be labeled public build configuration and SHALL NOT be presented as secret storage.
+9. BEFORE AWS modification, H SHALL read the visible browser account ID and the backend SHALL block unless it equals `aws sts get-caller-identity`.
+10. Paid AWS targets SHALL resolve required prices from the AWS Price List API; missing required prices SHALL block rather than use fake fallback values.
+11. Cost state SHALL persist assumptions, fixed hourly estimate, variable estimate, accrued estimate, warning level, and calculated policy deadline across backend restarts.
+12. AT 100% of the policy cap, THE product SHALL block further paid actions behind cleanup or an approved extension and SHALL NOT automatically delete a live deployment.
+13. THE dashboard SHALL show H job state, account match, runtime configuration state, cost progress, final URL, report, and cleanup state.
+14. GCP SHALL remain explicitly planning-only until `gcloud`, authentication, exact project identity, a hardened skill, and a real cleanup-proven deployment are available.

@@ -172,6 +172,46 @@ The dashboard must distinguish:
 - **Codex objection**: repo/design concern raised by Codex.
 - **User approval**: explicit human decision.
 
+## Runtime Architecture
+
+### Managed Runtime And Service Ownership
+
+The installable product creates `~/.cloud-cua/runtime-venv` and configures Codex with that environment's absolute Python path:
+
+```text
+python -I -m cloud_cua.cli mcp
+```
+
+The MCP process does not own orchestration. It ensures one host-local backend is healthy, then calls it over authenticated loopback HTTP. Service PID, port, version, and random token are stored under `~/.cloud-cua/`. A one-time launch token establishes an HTTP-only dashboard cookie without placing the service token in the URL.
+
+`cloud_cua_start_deployment` creates the run through this backend and opens:
+
+```text
+http://127.0.0.1:<port>/?repo_path=<absolute-path>&run_id=<run-id>
+```
+
+The dashboard loads that run. It does not create another run when linked from MCP.
+
+### Durable H Jobs
+
+Each active run stores `h-job.json` and an append-only H event spool. The record contains job ID, operation, milestone, worker PID, H session ID, event cursor, heartbeat, status, result, and error. The backend uses H's real pause, resume, and cancel methods and reconciles persisted jobs after restart. Ambiguous recovery blocks at the last checkpoint instead of guessing that work completed.
+
+### Runtime Configuration
+
+Secret values are entered only in a blocking dashboard modal after identity and deployment approval. The backend immediately writes new values to tagged AWS SSM Standard `SecureString` parameters or accepts an existing parameter reference. It clears plaintext input and persists only ARNs. H prompts, MCP tools, URLs, event logs, reports, and lesson files never accept the secret value.
+
+Browser-exposed variables such as `VITE_*` and `NEXT_PUBLIC_*` are shown as public build configuration with an explicit warning that they cannot contain secrets.
+
+### AWS Identity And Cost Gates
+
+Before modification, H performs an inspect-only browser identity milestone. The backend compares its 12-digit account ID with independently authenticated AWS CLI identity. Missing, unreadable, or mismatched identity blocks the run.
+
+For paid targets, the backend resolves required components through the AWS Price List API and persists `cost-policy.json`. The policy records SKU evidence, assumptions, fixed hourly estimate, variable estimate, accrued estimate, warning level, and the calculated cap deadline. Missing required prices block. The monitor warns at 50% and 80%; at 100% it sets `cost_action_required`. The user must clean tagged resources or approve an extension. The product never automatically deletes a live deployment and explains that billing data can lag the estimate.
+
+### Structured Cloud Finalization
+
+H remains the visual cloud operator. When a console control is inherently hostile to visual typing, Cloud CUA may use a narrow structured AWS API operation only after H has established the exact resource and independent checks prove its run tags and prerequisite state. For S3, H creates/tags the bucket and configures website hosting; the backend then verifies those facts, applies only the generated bucket-scoped public-read policy, and uploads the prepared artifact. The normal verifier stack still decides success.
+
 ## Run State
 
 ### Run Directory
