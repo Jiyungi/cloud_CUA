@@ -515,8 +515,14 @@ const repoInput = document.getElementById('repo');
 initDefaults();
 
 function body(extra = {}) { return { repo_path: repoInput.value, ...extra }; }
+function showAuthorizationError() {
+  statusTitle.textContent = 'Dashboard connection expired';
+  runSummary.textContent = 'This page was opened without a valid one-time launch token. Reopen it from Codex or run cloud-cua open-dashboard for this repository and run.';
+  headerState.innerHTML = '<span class="dot blocked"></span>disconnected';
+}
 async function post(url, payload) {
   const r = await fetch(url, { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload) });
+  if (r.status === 401) showAuthorizationError();
   if (!r.ok) throw new Error(await r.text());
   return await r.json();
 }
@@ -529,6 +535,7 @@ async function startRun() {
 async function refresh() {
   if (!currentRun) return;
   const runResponse = await fetch(`/runs/${currentRun.run_id}?repo_path=${encodeURIComponent(repoInput.value)}`);
+  if (runResponse.status === 401) { showAuthorizationError(); return; }
   if (!runResponse.ok) { statusTitle.textContent = 'Run connection lost'; return; }
   currentRun = await runResponse.json();
   const ev = await (await fetch(`/runs/${currentRun.run_id}/events?repo_path=${encodeURIComponent(repoInput.value)}&limit=100`)).json();
