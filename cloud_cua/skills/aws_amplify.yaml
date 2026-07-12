@@ -1,21 +1,24 @@
 name: cloud-cua/aws-amplify
-description: Use for deploying a supported static or frontend repository through AWS Amplify Hosting when Cloud CUA supplies a deployment contract and approval state.
+description: Deploy a static build through Amplify Hosting's manual Amazon S3 source using a contract and staged artifact.
 target: aws_amplify
 autonomy_level: 1
 source: https://github.com/Jiyungi/cloud_CUA
 url_pattern: "https://console\\.aws\\.amazon\\.com/amplify/.*"
 required_facts:
-  - repository_source
+  - resource_name
+  - branch_name
   - build_command
   - output_directory
+  - artifact_reference
   - aws_region
+  - expected_account_id
   - cloud_cua_run_tag
 unknowns_that_block:
   - Build command or output directory is unknown.
-  - Repository access requires unapproved OAuth or account linking.
+  - The staged S3 artifact cannot be selected through Deploy without Git.
 h_cua_allowed_actions:
   - Inspect Amplify Hosting setup forms.
-  - Report required repository, branch, build, domain, and authentication inputs.
+  - Report required app, branch, S3 artifact, build, and domain inputs.
   - Create an Amplify app only after approval and only when the contract is complete.
 h_cua_stop_conditions:
   - GitHub OAuth, account linking, secrets, or an unexpected pricing choice is required.
@@ -34,6 +37,6 @@ cleanup_strategy: Delete only the run-tagged Amplify app after explicit cleanup 
 body: |
   # Deploy with AWS Amplify Hosting
 
-  Use the Cloud CUA contract as the source of truth. Inspect first and report repository, branch, framework detection, build command, output directory, environment variable names, domain choice, OAuth requirements, and price-impacting choices.
+  Use the Cloud CUA contract as the source of truth. Use Deploy without Git and the exact staged Amazon S3 zip reference. Inspect first and report app name, branch, source method, build artifact, domain choice, and price-impacting choices.
 
-  Do not connect an account, reveal secrets, change billing, or create resources until the prompt confirms approval. Stop if build settings are missing or differ from the contract. After submission, report structured JSON with the app ID, branch, build status, public app URL, console URL, created resources, and blockers. Independent verifiers decide success.
+  Do not connect GitHub, reveal secrets, change billing, or create resources until the prompt confirms approval. Prepare the form without submitting, then submit exactly once only after the supervisor checkpoint. Report structured evidence with the app ID, branch, deployment status, public app URL, console URL, tags, and blockers. Independent verifiers decide success.

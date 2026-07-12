@@ -11,6 +11,7 @@ from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_run_cost_clock
 from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
+from .amplify_artifact import stage_amplify_artifact
 from .browser_profile import launch_dedicated_browser
 from .cloud_identity import build_aws_browser_identity_task, load_browser_identity, review_aws_browser_identity, save_browser_identity
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
@@ -27,7 +28,16 @@ from .deployment_milestones import (
     review_ecs_prepared_form,
 )
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
-from .deployments.amplify import build_amplify_plan
+from .deployments.amplify import (
+    AmplifyMilestoneReview,
+    build_amplify_inspection_task,
+    build_amplify_plan,
+    build_amplify_prepare_task,
+    build_amplify_submit_task,
+    review_amplify_creation,
+    review_amplify_inspection,
+    review_amplify_prepared,
+)
 from .deployments.s3_static import build_s3_creation_task, review_s3_creation, s3_bucket_name
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
@@ -278,7 +288,13 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
-        resource_name = s3_bucket_name(self.repo_path.name, run_id) if option.target == "aws_s3_static_site" else ""
+        amplify_plan = build_amplify_plan(self.repo_path.name, ctx) if option.target == "aws_amplify" else None
+        resource_name = (
+            s3_bucket_name(self.repo_path.name, run_id)
+            if option.target == "aws_s3_static_site"
+            else amplify_plan.app_name if amplify_plan else ""
+        )
+        branch_name = amplify_plan.branch if amplify_plan else ""
         cost_policy = ensure_cost_policy(self.store.run_dir(run_id), option.target, plan.region, max_spend_usd)
         self.cost_monitor.register(self.repo_path, run_id)
         if cost_policy.status != "ready":
@@ -307,6 +323,9 @@ class Orchestrator:
                 ecr_repository=previous_contract.ecr_repository if previous_contract and previous_contract.target == option.target else "",
                 repo_name=self.repo_path.name,
                 resource_name=resource_name,
+                branch_name=branch_name,
+                build_command=ctx.build_command or "",
+                output_directory=ctx.output_directory or "",
                 expected_account_id=browser_identity.expected_account_id,
                 cost_limit_usd=cost_policy.max_spend_usd,
                 estimated_hourly_usd=cost_policy.fixed_hourly_usd,
@@ -364,6 +383,7 @@ class Orchestrator:
 
         prepared_inputs: dict[str, str] = {}
         static_artifact = None
+        amplify_artifact = None
         try:
             if option.target == "aws_ecs_express":
                 def progress(step: str, message: str, evidence: dict) -> None:
@@ -417,6 +437,36 @@ class Orchestrator:
                     self.store.save_run(run)
                     return {"status": "blocked", "summary": static_artifact.summary, "artifact": static_artifact.to_dict()}
                 prepared_inputs = {"output_directory": static_artifact.output_directory, "bucket_name": resource_name}
+            elif option.target == "aws_amplify":
+                if ctx.category != "frontend_static":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "amplify_manual_deploy_unsupported"
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": "Deploy without Git supports static build output only. SSR/full-stack Amplify requires a separately approved GitHub App workflow."}
+                static_artifact = prepare_static_artifact(self.repo_path, ctx)
+                self.store.append_event(run_id, "system", "result", static_artifact.summary, static_artifact.to_dict())
+                if static_artifact.status != "passed":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "amplify_static_artifact_failed"
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": static_artifact.summary, "artifact": static_artifact.to_dict()}
+                amplify_artifact = stage_amplify_artifact(
+                    self.store.run_dir(run_id),
+                    static_artifact.output_directory,
+                    self.repo_path.name,
+                    run_id,
+                    plan.region,
+                )
+                self.store.append_event(run_id, "system", "result", amplify_artifact.summary, amplify_artifact.to_dict())
+                if amplify_artifact.status != "passed":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "amplify_artifact_staging_failed"
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": amplify_artifact.summary, "artifact": amplify_artifact.to_dict()}
+                prepared_inputs = {"artifact_reference": amplify_artifact.s3_uri, "branch_name": branch_name}
 
             skill = skill_for_target(option.target)
             if skill is None:
@@ -451,6 +501,10 @@ class Orchestrator:
                 ecr_repository=prepared_inputs.get("ecr_repository", ""),
                 repo_name=self.repo_path.name,
                 resource_name=resource_name,
+                branch_name=branch_name,
+                build_command=ctx.build_command or "",
+                output_directory=ctx.output_directory or "",
+                artifact_reference=prepared_inputs.get("artifact_reference", ""),
                 expected_account_id=browser_identity.expected_account_id,
                 runtime_secret_references=runtime_config.reference_map(),
                 cost_limit_usd=cost_policy.max_spend_usd,
@@ -571,6 +625,64 @@ class Orchestrator:
                     return {"status": "blocked", "summary": "The prepared ECS form did not match the deployment contract.", "review": prepare_review.to_dict(), "contract": contract.to_dict()}
 
                 task_text = build_ecs_submit_task(contract)
+            elif option.target == "aws_amplify":
+                checkpoint_path = self.store.milestones_path(run_id)
+                inspection_checkpoint = load_milestone_checkpoint(checkpoint_path, "inspect_amplify_manual_deploy", contract)
+                if inspection_checkpoint:
+                    amplify_inspection = AmplifyMilestoneReview(**inspection_checkpoint["review"])
+                else:
+                    run = self.store.load_run(run_id)
+                    run.status = "running"
+                    run.current_step = "h_cua_inspect_amplify"
+                    run.target = option.target
+                    self.store.save_run(run)
+                    inspection_result = run_h_task(
+                        build_amplify_inspection_task(contract),
+                        run.mode,
+                        max_steps=25,
+                        max_time_s=360,
+                        skill_names=[skill.name],
+                        event_callback=self._h_event_callback(run_id, "inspect_amplify_manual_deploy"),
+                        answer_schema_name="amplify_inspection",
+                    )
+                    amplify_inspection = review_amplify_inspection(inspection_result, contract)
+                    self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed Amplify inspection: {amplify_inspection.status}.", amplify_inspection.to_dict())
+                    if amplify_inspection.status == "clear":
+                        save_milestone_checkpoint(checkpoint_path, "inspect_amplify_manual_deploy", contract, asdict(inspection_result), amplify_inspection.to_dict())
+                if amplify_inspection.status != "clear":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "amplify_inspection_blocked"
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": "Amplify manual deployment inspection failed.", "review": amplify_inspection.to_dict()}
+
+                prepared_checkpoint = load_milestone_checkpoint(checkpoint_path, "prepare_amplify_manual_deploy", contract)
+                if prepared_checkpoint:
+                    amplify_prepared = AmplifyMilestoneReview(**prepared_checkpoint["review"])
+                else:
+                    run = self.store.load_run(run_id)
+                    run.current_step = "h_cua_prepare_amplify"
+                    self.store.save_run(run)
+                    prepared_result = run_h_task(
+                        build_amplify_prepare_task(contract),
+                        run.mode,
+                        max_steps=35,
+                        max_time_s=480,
+                        skill_names=[skill.name],
+                        event_callback=self._h_event_callback(run_id, "prepare_amplify_manual_deploy"),
+                        answer_schema_name="amplify_prepared",
+                    )
+                    amplify_prepared = review_amplify_prepared(prepared_result, contract)
+                    self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed prepared Amplify form: {amplify_prepared.status}.", amplify_prepared.to_dict())
+                    if amplify_prepared.status == "clear":
+                        save_milestone_checkpoint(checkpoint_path, "prepare_amplify_manual_deploy", contract, asdict(prepared_result), amplify_prepared.to_dict())
+                if amplify_prepared.status != "clear":
+                    run = self.store.load_run(run_id)
+                    run.status = "blocked"
+                    run.current_step = "amplify_prepared_form_mismatch"
+                    self.store.save_run(run)
+                    return {"status": "blocked", "summary": "Prepared Amplify form did not match the contract.", "review": amplify_prepared.to_dict()}
+                task_text = build_amplify_submit_task(contract)
             elif option.target == "aws_s3_static_site":
                 task_text = build_s3_creation_task(contract)
             else:
@@ -601,7 +713,15 @@ class Orchestrator:
                 max_time_s=900,
                 skill_names=[skill.name],
                 event_callback=self._h_event_callback(run_id, "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"),
-                answer_schema_name="ecs_creation" if option.target == "aws_ecs_express" else "s3_creation" if option.target == "aws_s3_static_site" else None,
+                answer_schema_name=(
+                    "ecs_creation"
+                    if option.target == "aws_ecs_express"
+                    else "s3_creation"
+                    if option.target == "aws_s3_static_site"
+                    else "amplify_creation"
+                    if option.target == "aws_amplify"
+                    else None
+                ),
             )
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             if option.target == "aws_s3_static_site" and result.status == "completed":
@@ -614,6 +734,11 @@ class Orchestrator:
                         result = HTaskResult("blocked", upload.summary, session_id=result.session_id, outcome=result.outcome)
                 else:
                     result = HTaskResult("blocked", "S3 console result did not match the deployment contract: " + "; ".join(s3_review.objections), session_id=result.session_id, outcome=result.outcome)
+            if option.target == "aws_amplify" and result.status == "completed":
+                amplify_creation = review_amplify_creation(result, contract)
+                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed Amplify creation: {amplify_creation.status}.", amplify_creation.to_dict())
+                if amplify_creation.status != "clear":
+                    result = HTaskResult("blocked", "Amplify creation did not match the deployment contract: " + "; ".join(amplify_creation.objections), session_id=result.session_id, outcome=result.outcome)
             review = review_h_result(result, contract)
             self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
             if result.status == "completed" and review.status != "blocked":

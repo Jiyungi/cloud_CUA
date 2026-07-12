@@ -25,6 +25,10 @@ class DeploymentContract:
     autonomy_level: int = 1
     cloud_region: str = ""
     resource_name: str = ""
+    branch_name: str = ""
+    build_command: str = ""
+    output_directory: str = ""
+    artifact_reference: str = ""
     container_image_uri: str = ""
     ecr_repository: str = ""
     expected_account_id: str = ""
@@ -56,6 +60,14 @@ class DeploymentContract:
             f"- health_check_path: {self.health_check_path}",
             f"- required_public_app_url: {self.required_public_app_url}",
         ]
+        if self.branch_name:
+            lines.append(f"- branch_name: {self.branch_name}")
+        if self.build_command:
+            lines.append(f"- build_command: {self.build_command}")
+        if self.output_directory:
+            lines.append(f"- output_directory: {self.output_directory}")
+        if self.artifact_reference:
+            lines.append(f"- artifact_reference: {self.artifact_reference}")
         if self.selected_container_port is not None:
             lines.append(f"- selected_container_port: {self.selected_container_port}")
             lines.append("- use this exact container/listener/target-group port unless AWS proves it is impossible")
@@ -101,6 +113,10 @@ class DeploymentContract:
         ecr_repository: str = "",
         repo_name: str = "",
         resource_name: str = "",
+        branch_name: str = "",
+        build_command: str = "",
+        output_directory: str = "",
+        artifact_reference: str = "",
         expected_account_id: str = "",
         runtime_secret_references: dict[str, str] | None = None,
         cost_limit_usd: float = 0.0,
@@ -115,6 +131,10 @@ class DeploymentContract:
             autonomy_level=autonomy_level,
             cloud_region=cloud_region,
             resource_name=resource_name,
+            branch_name=branch_name,
+            build_command=build_command,
+            output_directory=output_directory,
+            artifact_reference=artifact_reference,
             container_image_uri=container_image_uri,
             ecr_repository=ecr_repository,
             expected_account_id=expected_account_id,

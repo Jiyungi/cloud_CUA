@@ -108,6 +108,41 @@ class S3CreationAnswer(BaseModel):
     blockers: list[str] | None = None
 
 
+class AmplifyInspectionAnswer(BaseModel):
+    milestone: str
+    status: str
+    region: str | None = None
+    manual_deploy_available: bool = False
+    s3_source_available: bool = False
+    blockers: list[str] | None = None
+    console_url: str | None = None
+
+
+class AmplifyPreparedAnswer(BaseModel):
+    milestone: str
+    status: str
+    app_name: str | None = None
+    branch_name: str | None = None
+    artifact_reference: str | None = None
+    ready_to_submit: bool = False
+    submitted: bool = False
+    blockers: list[str] | None = None
+    console_url: str | None = None
+
+
+class AmplifyCreationAnswer(BaseModel):
+    milestone: str
+    status: str
+    app_id: str | None = None
+    app_name: str | None = None
+    branch_name: str | None = None
+    deployment_status: str | None = None
+    public_app_url: str | None = None
+    tags: dict[str, str] = Field(default_factory=dict)
+    console_url: str | None = None
+    blockers: list[str] | None = None
+
+
 def _event_excerpt(events: list[Any], limit: int = 8) -> str:
     lines: list[str] = []
     for event in events[-limit:]:
@@ -605,6 +640,9 @@ def _answer_schema_for(name: str | None):
     return {
         "aws_browser_identity": AWSBrowserIdentityAnswer,
         "s3_creation": S3CreationAnswer,
+        "amplify_inspection": AmplifyInspectionAnswer,
+        "amplify_prepared": AmplifyPreparedAnswer,
+        "amplify_creation": AmplifyCreationAnswer,
         "ecs_inspection": ECSInspectionAnswer,
         "ecs_prepared_form": ECSPreparedFormAnswer,
         "ecs_creation": ECSCreationAnswer,
