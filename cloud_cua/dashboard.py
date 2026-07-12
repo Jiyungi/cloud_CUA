@@ -12,6 +12,7 @@ HTML = r"""
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cloud CUA</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232457d6'/%3E%3Cpath d='M22 10.5a8 8 0 1 0 0 11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
   <style>
     :root {
       --bg: #eef3f8;
@@ -183,9 +184,9 @@ HTML = r"""
     .secret-choice { display:flex; gap:14px; margin:8px 0; color:var(--muted); font-size:13px; }
     .secret-choice label { display:flex; gap:6px; align-items:center; margin:0; }
     .secret-choice input { width:auto; }
-    .proof-item { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+    .proof-item { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
     .proof-item strong { display: block; margin-bottom: 8px; }
-    .proof-item span { color: var(--muted); }
+    .proof-item span { display: block; color: var(--muted); overflow-wrap: anywhere; }
     .approval-list { display: grid; gap: 10px; margin-top: 12px; }
     .approval {
       border: 1px solid #e1b96b;

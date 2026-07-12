@@ -45,6 +45,15 @@ async function runViewport(browser, label, viewport) {
   record(`${label}: proof visible`, await page.getByRole("heading", { name: "Proof" }).isVisible());
   record(`${label}: no legacy Amplify button`, !(await visibleText(page, "Run Amplify step")));
   record(`${label}: no App Runner copy`, !(await visibleText(page, "App Runner")));
+  await page.locator("#reportState").evaluate(element => {
+    element.textContent = "a/very/long/repository/path/that/must/remain/inside/its/proof/cell/DEPLOYMENT_REPORT.md";
+  });
+  const reportContained = await page.locator("#reportState").evaluate(element => {
+    const parent = element.parentElement.getBoundingClientRect();
+    const child = element.getBoundingClientRect();
+    return child.left >= parent.left && child.right <= parent.right + 1;
+  });
+  record(`${label}: long proof value stays contained`, reportContained);
   await assertNoHorizontalOverflow(page, label);
   record(`${label}: no browser errors`, consoleErrors.length === 0, consoleErrors.join(" | "));
 
