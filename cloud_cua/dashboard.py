@@ -250,6 +250,7 @@ HTML = r"""
           <div class="row">
             <button onclick="startRun()">Start local repo</button>
             <button class="secondary" onclick="openBrowser()">Open cloud login</button>
+            <button class="quiet" onclick="runAwsTask()">Run AWS task</button>
             <button class="quiet" onclick="runAmplify()">Run Amplify step</button>
             <button class="quiet" onclick="pauseRun()">Pause</button>
             <button class="quiet" onclick="resumeRun()">Resume</button>
@@ -323,10 +324,16 @@ HTML = r"""
               <label for="voiceText">Voice/text command</label>
               <textarea id="voiceText" rows="2" placeholder="pause, switch to Teach mode, why Amplify?"></textarea>
             </div>
+            <div style="min-width:180px; flex:1">
+              <label for="awsTask">AWS deployment task</label>
+              <textarea id="awsTask" rows="2" placeholder="Deploy this repo safely on AWS under $5"></textarea>
+            </div>
           </div>
           <div class="row" style="margin-top:12px">
             <button class="secondary" onclick="showLogin()">Show login gate</button>
             <button class="secondary" onclick="hInspect()">H inspect</button>
+            <button class="secondary" onclick="runAwsTask()">Run AWS task</button>
+            <button class="secondary" onclick="cleanupH()">Clean H sessions</button>
             <button class="secondary" onclick="sendVoice()">Route command</button>
           </div>
         </div>
@@ -435,10 +442,16 @@ async function continueLogin() { if (!currentRun) return; await post(`/runs/${cu
 async function pauseRun() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/pause`, body()); await refresh(); }
 async function resumeRun() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/resume`, body()); await refresh(); }
 async function hInspect() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/h-inspect`, body()); await refresh(); }
+async function runAwsTask() {
+  if (!currentRun) return;
+  await post(`/runs/${currentRun.run_id}/aws-deploy`, body({task: awsTask.value || null, max_spend_usd: 5}));
+  await refresh();
+}
 async function runAmplify() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/amplify-deploy`, body()); await refresh(); }
 async function runVerifier() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/verify`, body()); await refresh(); }
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
 async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
+async function cleanupH() { await post('/h-cleanup', body()); await refresh(); }
 function latest(source) {
   const event = lastEvents.slice().reverse().find(e => e.source === source);
   return event ? event.message : '';

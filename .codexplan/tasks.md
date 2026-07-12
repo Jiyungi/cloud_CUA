@@ -125,25 +125,25 @@ Owner labels are suggested for parallel work.
     - Get events returns structured events
     - _Requirements: 1, 8, 9_
 
-- [ ] 6. Spike: prove Codex can call H safely (Owner: Both)
-  - [ ] 6.1 Install and validate H tooling
+- [x] 6. Spike: prove Codex can call H safely (Owner: Both)
+  - [x] 6.1 Install and validate H tooling
     - Install H CLI/HoloDesktop or H SDK path chosen for local control
     - Run a tiny safe local task outside AWS
     - Confirm hosted/local model config is available
     - _Requirements: 20_
 
-  - [ ] 6.2 Register H tool path with Codex or call through Cloud CUA
+  - [x] 6.2 Register H tool path with Codex or call through Cloud CUA
     - Confirm Codex can call Cloud CUA MCP
     - Confirm Cloud CUA can ask H to open/focus a browser
     - _Requirements: 1, 7, 20_
 
-  - [ ] 6.3 Run safe AWS navigation task
+  - [x] 6.3 Run safe AWS navigation task
     - Task: open `https://console.aws.amazon.com`
     - Success: AWS sign-in page or console home is visible
     - Constraint: do not create/edit/delete anything
     - _Requirements: 4, 7, 20_
 
-  - [ ] 6.4 Record spike result
+  - [x] 6.4 Record spike result
     - Write result into `DEPLOYMENT_REPORT.md` or a spike report
     - Note whether H local browser or HoloDesktop MCP is the better path
     - _Requirements: 15, 20_
@@ -542,4 +542,4 @@ Owner labels are suggested for parallel work.
 - Update `design.md` before changing architecture.
 - Update `tasks.md` when implementation scope changes.
 - Do not add NemoClaw tasks.
-- Current H status: local Chrome/Selenium attachment works, but the H hosted trajectory API returned HTTP 429 during session creation. Keep tasks 6, 17, and 18 open until a real H CUA session succeeds with available quota.
+- Current H status: local Chrome/Selenium attachment works, stale local bridge trajectories were deleted, quota returned to 3 available slots, and H successfully completed safe browser/AWS sign-in-page navigation. Real AWS creation still requires the user to manually log into the H-controlled browser profile first.

@@ -76,6 +76,12 @@ def cloud_cua_get_amplify_plan(repo_path: str, run_id: str) -> Any:
 
 
 @mcp.tool()
+def cloud_cua_get_aws_plan(repo_path: str, run_id: str) -> Any:
+    """Generate the generalized AWS deployment plan and target options for this repo."""
+    return Orchestrator(repo_path).get_aws_plan(run_id)
+
+
+@mcp.tool()
 def cloud_cua_h_inspect(repo_path: str, run_id: str, task: str | None = None) -> Any:
     """Run a bounded inspect-only H CUA browser task."""
     return Orchestrator(repo_path).run_h_inspect(run_id, task)
@@ -85,6 +91,24 @@ def cloud_cua_h_inspect(repo_path: str, run_id: str, task: str | None = None) ->
 def cloud_cua_run_amplify_deployment(repo_path: str, run_id: str) -> Any:
     """Run the approval-gated AWS Amplify H CUA deployment step."""
     return Orchestrator(repo_path).run_amplify_deployment(run_id)
+
+
+@mcp.tool()
+def cloud_cua_run_aws_deployment_task(
+    repo_path: str,
+    run_id: str,
+    task: str | None = None,
+    target: str | None = None,
+    max_spend_usd: float = 5.0,
+) -> Any:
+    """Run an approval-gated generalized AWS deployment task through H CUA."""
+    return Orchestrator(repo_path).run_aws_deployment_task(run_id, task, target, max_spend_usd)
+
+
+@mcp.tool()
+def cloud_cua_cleanup_h_sessions(repo_path: str) -> Any:
+    """Cancel stale H sessions and local browser bridge trajectories that consume H concurrency."""
+    return Orchestrator(repo_path).cleanup_h_sessions()
 
 
 @mcp.tool()

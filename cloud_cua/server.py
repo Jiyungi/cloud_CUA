@@ -35,6 +35,13 @@ class HTaskRequest(BaseModel):
     task: str | None = None
 
 
+class AWSDeploymentTaskRequest(BaseModel):
+    repo_path: str
+    task: str | None = None
+    target: str | None = None
+    max_spend_usd: float = 5.0
+
+
 class VerifierRequest(BaseModel):
     repo_path: str
     verifier_name: str = "default"
@@ -113,9 +120,21 @@ def create_app() -> FastAPI:
     def amplify_deploy(run_id: str, req: RepoRunRequest):
         return Orchestrator(req.repo_path).run_amplify_deployment(run_id)
 
+    @app.post("/runs/{run_id}/aws-deploy")
+    def aws_deploy(run_id: str, req: AWSDeploymentTaskRequest):
+        return Orchestrator(req.repo_path).run_aws_deployment_task(run_id, req.task, req.target, req.max_spend_usd)
+
     @app.get("/runs/{run_id}/amplify-plan")
     def amplify_plan(run_id: str, repo_path: str):
         return Orchestrator(repo_path).get_amplify_plan(run_id)
+
+    @app.get("/runs/{run_id}/aws-plan")
+    def aws_plan(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_aws_plan(run_id)
+
+    @app.post("/h-cleanup")
+    def h_cleanup(req: RepoRunRequest):
+        return Orchestrator(req.repo_path).cleanup_h_sessions()
 
     @app.get("/runs/{run_id}/approvals")
     def approvals(run_id: str, repo_path: str):

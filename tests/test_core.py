@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 
 from cloud_cua.h_runner import run_h_task
+from cloud_cua.deployments.aws_general import build_aws_deployment_plan
+from cloud_cua.packaging import build_shareable_package
 from cloud_cua.reports import write_report
 from cloud_cua.repo_analyzer import analyze_repo
 from cloud_cua.run_store import RunStore
@@ -56,7 +58,30 @@ def test_repo_analyzer_dockerfile_is_planned_ecs(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM python:3.12\n", encoding="utf-8")
     ctx = analyze_repo(tmp_path)
     assert ctx.dockerfile is True
-    assert ctx.recommendation == "aws_ecs_express_planned"
+    assert ctx.recommendation == "aws_app_runner"
+
+
+def test_repo_analyzer_node_api_recommends_app_runner(tmp_path: Path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"start": "node server.js"}, "dependencies": {"express": "^5.0.0"}}),
+        encoding="utf-8",
+    )
+    ctx = analyze_repo(tmp_path)
+    assert ctx.category == "node_api"
+    assert ctx.recommendation == "aws_app_runner"
+
+
+def test_general_aws_plan_has_multiple_frontend_options(tmp_path: Path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"build": "vite build"}, "dependencies": {"vite": "^5.0.0"}}),
+        encoding="utf-8",
+    )
+    ctx = analyze_repo(tmp_path)
+    plan = build_aws_deployment_plan("demo", ctx)
+    targets = [option.target for option in plan.options]
+    assert plan.primary_target == "aws_amplify"
+    assert "aws_s3_static_site" in targets
+    assert plan.max_spend_usd == 5.0
 
 
 def test_repo_analyzer_unknown_blocks(tmp_path: Path):
@@ -125,6 +150,25 @@ def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     assert "abc123" not in text
     assert "AKIAABCDEFGHIJKLMNOP" not in text
     assert "[REDACTED]" in text
+
+
+def test_shareable_package_excludes_local_state(tmp_path: Path):
+    (tmp_path / "cloud_cua").mkdir()
+    (tmp_path / "cloud_cua" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / ".env").write_text("HAI_API_KEY=secret", encoding="utf-8")
+    (tmp_path / ".kiro").mkdir()
+    (tmp_path / ".kiro" / "local.md").write_text("local", encoding="utf-8")
+    (tmp_path / "readme files").mkdir()
+    (tmp_path / "readme files" / "notes.md").write_text("notes", encoding="utf-8")
+    result = build_shareable_package(tmp_path, tmp_path / "out.zip")
+    import zipfile
+
+    with zipfile.ZipFile(result.path) as archive:
+        names = set(archive.namelist())
+    assert "cloud_cua/__init__.py" in names
+    assert ".env" not in names
+    assert ".kiro/local.md" not in names
+    assert "readme files/notes.md" not in names
 
 
 def test_report_includes_approvals_and_verifiers(tmp_path: Path):

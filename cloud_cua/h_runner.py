@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Any
 
 from .credentials import load_secret_values
+from .h_admin import cleanup_h_sessions, get_h_quota
 from .mode_policy import policy_for
 from .models import Mode
 
@@ -71,6 +72,20 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
             status="blocked",
             summary="HAI_API_KEY is not configured. Add it before running H browser control.",
         )
+    try:
+        cleanup_h_sessions()
+        quota = get_h_quota()
+        if quota and quota.available is not None and quota.available <= 0:
+            return HTaskResult(
+                status="blocked",
+                summary=(
+                    "H has no available concurrent session slots. "
+                    f"Limit={quota.limit}, active={quota.active}, available={quota.available}. "
+                    "Run H cleanup or cancel stale sessions before starting another CUA task."
+                ),
+            )
+    except Exception:
+        pass
 
     full_task = (
         f"{task}\n\n"
@@ -86,6 +101,7 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
             messages=full_task,
             max_steps=max_steps,
             max_time_s=max_time_s,
+            queue=False,
             wait_for_seconds=5,
             timeout_seconds=max_time_s + 60,
             include_events=True,
@@ -123,6 +139,11 @@ def _run_h_task_sdk(task: str, mode: Mode = "vibe", max_steps: int = 20, max_tim
             raw=trace[-4000:],
             error=str(exc),
         )
+    finally:
+        try:
+            cleanup_h_sessions()
+        except Exception:
+            pass
 
 
 def run_h_task(task: str, mode: Mode = "vibe", max_steps: int = 20, max_time_s: int = 180) -> HTaskResult:

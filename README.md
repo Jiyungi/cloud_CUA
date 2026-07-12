@@ -14,6 +14,8 @@ The current build is the local MVP shell:
 - Gradium TTS/STT adapter boundary
 - independent verifier framework
 - deployment report writer
+- generalized AWS deployment planner for Amplify, App Runner, ECS, Lambda, S3 static hosting, and IaC discovery
+- H session cleanup for stale local browser bridge sessions
 
 ## Credentials
 
@@ -50,6 +52,8 @@ npx playwright install chromium
 $env:AWS_PROFILE="cloud-cua-dev"
 $env:AWS_REGION="us-east-1"
 python -m cloud_cua.cli check
+python -m cloud_cua.cli h-status
+python -m cloud_cua.cli h-cleanup
 python -m cloud_cua.cli start
 ```
 
@@ -76,8 +80,25 @@ Then Codex can call tools such as:
 - `cloud_cua_get_recent_events`
 - `cloud_cua_set_mode`
 - `cloud_cua_send_user_message`
+- `cloud_cua_get_aws_plan`
+- `cloud_cua_run_aws_deployment_task`
+- `cloud_cua_cleanup_h_sessions`
 - `cloud_cua_run_verifier`
 - `cloud_cua_write_report`
+
+## AWS Deployment Scope
+
+Cloud CUA now treats Amplify as one AWS target, not the whole product.
+
+The AWS planner maps repo shape to deployment options:
+
+- frontend/static and Next.js: AWS Amplify first, S3 static hosting as an alternate
+- Dockerized web apps and API services: AWS App Runner first, ECS Fargate as the heavier alternate
+- serverless repos: Lambda/SAM-style inspection
+- Terraform/CDK/IaC repos: console inspection and verifier support, not blind console drift
+- unknown repos: CUA discovery, then stop with a recommendation
+
+The generalized AWS runner always uses a $5 maximum spend guard, asks for approval before H operates AWS, and tells H to stop before billing changes, broad IAM, deletion of non-Cloud-CUA resources, public exposure surprises, or GitHub OAuth/account linking.
 
 ## Current External Tool Status
 
@@ -94,7 +115,22 @@ Current local validation:
 
 - Chrome/Selenium local attachment works.
 - AWS CLI identity verification works with profile `cloud-cua-dev`.
-- H local browser session creation can still be blocked by H's hosted API quota/rate limits. When H returns HTTP 429, Cloud CUA reports `blocked` with a rate-limit explanation instead of pretending the browser failed.
+- H local browser control works after cleaning stale local bridge trajectories.
+- If H returns HTTP 429, run `python -m cloud_cua.cli h-cleanup`; stale `surferh` bridge trajectories can consume concurrency.
+
+## Shareable Package
+
+Create a zip that excludes local secrets, virtualenvs, node modules, Git metadata, `.kiro`, run artifacts, and local reference folders:
+
+```powershell
+python -m cloud_cua.cli package
+```
+
+Default output:
+
+```text
+dist/cloud-cua-shareable.zip
+```
 
 ## Voice Routing
 
