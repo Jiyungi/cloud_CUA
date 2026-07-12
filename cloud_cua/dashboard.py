@@ -212,6 +212,9 @@ HTML = r"""
     .voice-feedback { min-height: 20px; margin-top: 8px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
     .voice-feedback strong { color: var(--text); }
     #micButton { min-width: 118px; touch-action: none; user-select: none; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:end; }
+    .notice { border:1px solid #e1b96b; background:#fff8e8; color:#6d4b0f; border-radius:var(--radius); padding:11px 14px; }
+    .notice.error { border-color:#f3b8b3; background:#fff2f1; color:#8e2520; }
     .activity {
       height: calc(100vh - 112px);
       min-height: 560px;
@@ -281,6 +284,15 @@ HTML = r"""
 
   <main class="shell">
     <div class="stack">
+      <div id="actionNotice" class="notice" role="status" hidden></div>
+      <section class="panel pad workspace">
+        <div>
+          <label for="repo">Repository folder</label>
+          <input id="repo" placeholder="C:\\path\\to\\your\\project" />
+          <div id="workspaceState" class="summary">Codex fills this automatically when it starts Cloud CUA through MCP.</div>
+        </div>
+        <button id="attachRepoButton" onclick="startRun()">Attach repository</button>
+      </section>
       <section class="panel mission">
         <div class="mission-main">
           <div>
@@ -427,8 +439,6 @@ HTML = r"""
       <details class="panel devtools">
         <summary>Developer tools</summary>
         <div class="devtools-body">
-          <label for="repo">Repo path</label>
-          <input id="repo" />
           <div class="row">
             <div style="min-width:160px; flex:1">
               <label for="cloud">Cloud</label>
@@ -440,7 +450,6 @@ HTML = r"""
             </div>
           </div>
           <div class="row" style="margin-top:12px">
-            <button class="secondary" onclick="startRun()">Start local repo</button>
             <button class="secondary" onclick="showLogin()">Show login gate</button>
             <button class="secondary" onclick="hInspect()">H inspect</button>
             <button class="secondary" onclick="runDeploy()">Deploy</button>
@@ -537,25 +546,62 @@ function showAuthorizationError() {
   statusTitle.textContent = 'Dashboard connection expired';
   runSummary.textContent = 'This page was opened without a valid one-time launch token. Reopen it from Codex or run cloud-cua open-dashboard for this repository and run.';
   headerState.innerHTML = '<span class="dot blocked"></span>disconnected';
+  showActionNotice('Dashboard authorization expired. Reopen it from Codex or run cloud-cua dashboard for this repository.', true);
+}
+function showActionNotice(message, isError = false) {
+  actionNotice.textContent = message;
+  actionNotice.classList.toggle('error', isError);
+  actionNotice.hidden = !message;
 }
 async function post(url, payload) {
-  const r = await fetch(url, { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload) });
+  let r;
+  try {
+    r = await fetch(url, { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload) });
+  } catch (error) {
+    showActionNotice('Cloud CUA backend is unavailable. Run cloud-cua service start, then reopen this dashboard.', true);
+    throw error;
+  }
   if (r.status === 401) showAuthorizationError();
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const detail = await r.text();
+    showActionNotice(detail, true);
+    throw new Error(detail);
+  }
+  showActionNotice('');
   return await r.json();
 }
 async function startRun() {
-  localStorage.setItem('cloud_cua_repo', repoInput.value);
-  currentRun = await post('/runs', { repo_path: repoInput.value, cloud: cloud.value, mode: currentRun?.mode || 'vibe' });
-  showLogin();
-  await refresh();
+  const repoPath = repoInput.value.trim();
+  if (!repoPath) { showActionNotice('Enter the absolute path of the repository folder.', true); return; }
+  attachRepoButton.disabled = true;
+  workspaceState.textContent = 'Analyzing repository and creating a run.';
+  try {
+    localStorage.setItem('cloud_cua_repo', repoPath);
+    currentRun = await post('/runs', { repo_path: repoPath, cloud: cloud.value, mode: currentRun?.mode || 'vibe' });
+    const params = new URLSearchParams({repo_path: repoPath, run_id: currentRun.run_id});
+    history.replaceState({}, '', `/?${params}`);
+    workspaceState.textContent = `Attached to ${repoPath}`;
+    if (currentRun.status === 'waiting_for_login') showLogin();
+    await refresh();
+  } catch (error) {
+    workspaceState.textContent = 'Repository was not attached.';
+  } finally {
+    attachRepoButton.disabled = false;
+  }
 }
 async function refresh() {
   if (!currentRun) return;
-  const runResponse = await fetch(`/runs/${currentRun.run_id}?repo_path=${encodeURIComponent(repoInput.value)}`);
+  let runResponse;
+  try {
+    runResponse = await fetch(`/runs/${currentRun.run_id}?repo_path=${encodeURIComponent(repoInput.value)}`);
+  } catch (error) {
+    showActionNotice('Cloud CUA backend stopped responding. Restart the service and reopen the dashboard.', true);
+    return;
+  }
   if (runResponse.status === 401) { showAuthorizationError(); return; }
   if (!runResponse.ok) { statusTitle.textContent = 'Run connection lost'; return; }
   currentRun = await runResponse.json();
+  workspaceState.textContent = `Attached to ${repoInput.value}`;
   const ev = await (await fetch(`/runs/${currentRun.run_id}/events?repo_path=${encodeURIComponent(repoInput.value)}&limit=100`)).json();
   lastEvents = ev;
   renderRun();
@@ -1092,6 +1138,7 @@ async function initDefaults() {
       if (!response.ok) throw new Error(await response.text());
       currentRun = await response.json();
       cloud.value = currentRun.cloud || 'aws';
+      workspaceState.textContent = `Attached to ${linkedRepo}`;
       await loadCapabilities();
       await refresh();
       if (currentRun.status === 'waiting_for_login') showLogin();
@@ -1107,6 +1154,10 @@ async function initDefaults() {
   await loadCapabilities();
 }
 repoInput.addEventListener('change', loadCapabilities);
+window.addEventListener('unhandledrejection', event => {
+  showActionNotice(event.reason?.message || String(event.reason || 'Dashboard action failed.'), true);
+  event.preventDefault();
+});
 micButton.addEventListener('pointerdown', beginVoiceHold);
 window.addEventListener('pointerup', event => { if (voiceHeld) endVoiceHold(event); });
 window.addEventListener('pointercancel', event => { if (voiceHeld) endVoiceHold(event); });

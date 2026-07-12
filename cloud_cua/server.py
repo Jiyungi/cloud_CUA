@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import BackgroundTasks, FastAPI, Request, WebSocket
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ from .dashboard import render_dashboard
 from .orchestrator import Orchestrator
 from .h_session_manager import get_h_session_manager
 from .cost_monitor import get_cost_monitor
+from .paths import resolve_repo_path
 from .voice_stream import handle_voice_stream
 
 
@@ -184,7 +185,10 @@ def create_app() -> FastAPI:
 
     @app.post("/runs")
     def start_run(req: StartRequest):
-        return Orchestrator(req.repo_path).start_deployment(req.cloud, req.mode)
+        repo = resolve_repo_path(req.repo_path)
+        if not repo.is_dir():
+            raise HTTPException(status_code=400, detail=f"Repository folder does not exist: {req.repo_path}")
+        return Orchestrator(repo).start_deployment(req.cloud, req.mode)
 
     @app.get("/runs")
     def list_runs(repo_path: str):

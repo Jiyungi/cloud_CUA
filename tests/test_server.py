@@ -129,6 +129,14 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert (tmp_path / "DEPLOYMENT_REPORT.md").exists()
 
 
+def test_start_run_rejects_missing_repository_folder(tmp_path):
+    client = TestClient(create_app())
+    missing = tmp_path / "does-not-exist"
+    response = client.post("/runs", json={"repo_path": str(missing), "cloud": "aws", "mode": "vibe"})
+    assert response.status_code == 400
+    assert "Repository folder does not exist" in response.json()["detail"]
+
+
 def test_voice_reasoning_returns_codex_explanation(tmp_path, monkeypatch):
     from cloud_cua.codex_voice import CodexVoiceJob
 
@@ -494,6 +502,9 @@ def test_dashboard_contains_supervision_sections():
     assert "Hold to talk" in page.text
     assert "MediaRecorder" not in page.text
     assert "AudioWorkletNode" in page.text
+    assert "Repository folder" in page.text
+    assert "Attach repository" in page.text
+    assert page.text.count('id="repo"') == 1
     assert "Skills" in page.text
     assert "Sync H skills" in page.text
     assert "Lesson awaiting review" in page.text
