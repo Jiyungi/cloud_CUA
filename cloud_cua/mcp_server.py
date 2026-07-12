@@ -88,6 +88,42 @@ def cloud_cua_speak(repo_path: str, run_id: str, text: str) -> Any:
 
 
 @mcp.tool()
+def cloud_cua_get_voice_status(repo_path: str, run_id: str) -> Any:
+    """Get the active voice turn, transcript state, response, and read-only Codex voice job."""
+    return _client().get(f"/runs/{run_id}/voice-status", {"repo_path": repo_path})
+
+
+@mcp.tool()
+def cloud_cua_get_pending_voice_question(repo_path: str, run_id: str) -> Any:
+    """Return the concise clarification currently requested by the Codex voice worker, if any."""
+    status = cloud_cua_get_voice_status(repo_path, run_id)
+    job = status.get("codex_job") or {}
+    return {
+        "status": job.get("status", "idle"),
+        "job_id": job.get("job_id"),
+        "clarification_question": job.get("clarification_question", ""),
+    }
+
+
+@mcp.tool()
+def cloud_cua_submit_voice_clarification(repo_path: str, run_id: str, answer: str) -> Any:
+    """Submit a user's clarification through the same guarded voice/text router; never sends raw text directly to H."""
+    return _client().post(f"/runs/{run_id}/voice", {"repo_path": repo_path, "text": answer}, timeout=120)
+
+
+@mcp.tool()
+def cloud_cua_stop_speech(repo_path: str, run_id: str) -> Any:
+    """Tell the dashboard voice flow to stop speech without cancelling the deployment."""
+    return _client().post(f"/runs/{run_id}/voice", {"repo_path": repo_path, "text": "stop speaking"})
+
+
+@mcp.tool()
+def cloud_cua_cancel_codex_voice(repo_path: str, run_id: str) -> Any:
+    """Cancel only the active read-only Codex voice job."""
+    return _client().post(f"/runs/{run_id}/voice-cancel-codex", {"repo_path": repo_path})
+
+
+@mcp.tool()
 def cloud_cua_submit_codex_plan(repo_path: str, run_id: str, plan: str) -> Any:
     return _client().post(f"/runs/{run_id}/codex-plan", {"repo_path": repo_path, "message": plan})
 

@@ -11,6 +11,8 @@ from cloud_cua.mcp_server import (
     cloud_cua_get_aws_plan,
     cloud_cua_get_gcp_plan,
     cloud_cua_get_recent_events,
+    cloud_cua_get_voice_status,
+    cloud_cua_get_pending_voice_question,
     cloud_cua_get_skill_status,
     cloud_cua_get_status,
     cloud_cua_run_aws_deployment_task,
@@ -64,6 +66,8 @@ def test_mcp_tools_share_orchestrator_flow(tmp_path):
     aws_plan = cloud_cua_get_aws_plan(str(tmp_path), run["run_id"])
     aws_blocked = cloud_cua_run_aws_deployment_task(str(tmp_path), run["run_id"], "Deploy safely", "aws_amplify", 5)
     events = cloud_cua_get_recent_events(str(tmp_path), run["run_id"])
+    voice = cloud_cua_get_voice_status(str(tmp_path), run["run_id"])
+    pending_voice = cloud_cua_get_pending_voice_question(str(tmp_path), run["run_id"])
 
     assert run["target"] == "aws_amplify"
     assert "launch_token=" in run["launch_url"]
@@ -72,6 +76,8 @@ def test_mcp_tools_share_orchestrator_flow(tmp_path):
     assert aws_plan["primary_target"] == "aws_amplify"
     assert aws_blocked["status"] == "blocked"
     assert any(event["source"] == "system" for event in events)
+    assert voice == {"turn": None, "codex_job": None}
+    assert pending_voice["status"] == "idle"
 
 
 def test_mcp_gcp_tools(tmp_path):
