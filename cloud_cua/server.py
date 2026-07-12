@@ -155,7 +155,7 @@ def create_app() -> FastAPI:
         run_id = request.query_params.get("run_id", "")
         clean_query = urlencode({"repo_path": req.repo_path, "run_id": run_id})
         launch_query = clean_query + "&" + urlencode({"launch_token": launch_token})
-        base = str(request.base_url).rstrip("/")
+        base = os.environ.get("CLOUD_CUA_PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
         return {"dashboard_url": f"{base}/?{clean_query}", "launch_url": f"{base}/?{launch_query}"}
 
     @app.get("/", response_class=HTMLResponse)

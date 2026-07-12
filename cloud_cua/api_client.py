@@ -33,7 +33,13 @@ class CloudCUAClient:
         opened = False
         if open_browser and os.environ.get("CLOUD_CUA_NO_BROWSER") != "1":
             opened = bool(webbrowser.open(launch["launch_url"]))
-        return {"dashboard_url": url, "run_id": run_id, "repo_path": repo_path, "opened": opened}
+        return {
+            "dashboard_url": url,
+            "launch_url": launch["launch_url"],
+            "run_id": run_id,
+            "repo_path": repo_path,
+            "opened": opened,
+        }
 
     def _headers(self) -> dict[str, str]:
         return {"X-Cloud-CUA-Token": self.state.token}

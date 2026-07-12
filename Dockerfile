@@ -20,9 +20,10 @@ COPY pyproject.toml package.json package-lock.json README.md ./
 COPY cloud_cua ./cloud_cua
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -e ".[h,dev]" \
+    && python -m pip install . \
+    && python -m playwright install --with-deps chromium \
     && npm ci
 
 EXPOSE 3000
 
-CMD ["python", "-m", "cloud_cua.cli", "start", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["python", "-m", "cloud_cua.container_runtime"]

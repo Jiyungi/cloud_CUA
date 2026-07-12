@@ -38,6 +38,7 @@ class InProcessClient:
     def open_dashboard(self, repo_path, run_id, open_browser=True):
         return {
             "dashboard_url": f"http://127.0.0.1:3000/?repo_path={repo_path}&run_id={run_id}",
+            "launch_url": f"http://127.0.0.1:3000/?repo_path={repo_path}&run_id={run_id}&launch_token=test",
             "repo_path": repo_path,
             "run_id": run_id,
             "opened": False,
@@ -65,6 +66,7 @@ def test_mcp_tools_share_orchestrator_flow(tmp_path):
     events = cloud_cua_get_recent_events(str(tmp_path), run["run_id"])
 
     assert run["target"] == "aws_amplify"
+    assert "launch_token=" in run["launch_url"]
     assert changed["mode"] == "expert"
     assert status["mode"] == "expert"
     assert aws_plan["primary_target"] == "aws_amplify"

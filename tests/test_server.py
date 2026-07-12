@@ -48,6 +48,21 @@ def test_service_auth_and_one_time_dashboard_launch(tmp_path, monkeypatch):
     assert client.get("/defaults").status_code == 200
 
 
+def test_dashboard_launch_uses_container_public_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLOUD_CUA_SERVICE_TOKEN", "local-test-token")
+    monkeypatch.setenv("CLOUD_CUA_PUBLIC_URL", "http://127.0.0.1:3015")
+    client = TestClient(create_app())
+
+    launch = client.post(
+        "/dashboard-launch?run_id=run-1",
+        headers={"X-Cloud-CUA-Token": "local-test-token"},
+        json={"repo_path": str(tmp_path)},
+    ).json()
+
+    assert launch["dashboard_url"].startswith("http://127.0.0.1:3015/")
+    assert launch["launch_url"].startswith("http://127.0.0.1:3015/")
+
+
 def test_skill_api_lists_and_syncs(tmp_path, monkeypatch):
     report = {"status": "passed", "dry_run": False, "skills": [], "message": "synced"}
     monkeypatch.setattr("cloud_cua.orchestrator.Orchestrator.get_skill_status", lambda self: {**report, "skills": [{"name": "cloud-cua/aws-ecs-express"}]})
