@@ -252,7 +252,7 @@ class Orchestrator:
             message = "Could not confirm that the H session paused; the deployment state was not changed."
         self.store.save_run(run)
         self.store.append_event(run_id, "user", "command", message, {"h_control": control})
-        return {**asdict(run), "h_job": control.get("h_job")}
+        return {**asdict(run), "h_job": control.get("h_job"), "h_control": control}
 
     def resume(self, run_id: str) -> dict:
         control = self.h_sessions.resume(self.repo_path, run_id)
@@ -264,7 +264,7 @@ class Orchestrator:
             message = "Could not confirm that the H session resumed; the deployment state was not changed."
         self.store.save_run(run)
         self.store.append_event(run_id, "user", "command", message, {"h_control": control})
-        return {**asdict(run), "h_job": control.get("h_job")}
+        return {**asdict(run), "h_job": control.get("h_job"), "h_control": control}
 
     def cancel(self, run_id: str) -> dict:
         control = self.h_sessions.cancel(self.repo_path, run_id)
@@ -279,10 +279,12 @@ class Orchestrator:
             message = "H cancellation was not confirmed. Cloud CUA blocked the run for manual review."
         self.store.save_run(run)
         self.store.append_event(run_id, "user", "command", message, {"h_control": control})
-        return {**asdict(run), "h_job": control.get("h_job")}
+        return {**asdict(run), "h_job": control.get("h_job"), "h_control": control}
 
     def run_h_inspect(self, run_id: str, task: str | None = None) -> dict:
         run = self.store.load_run(run_id)
+        if run.status in {"cancelled", "completed", "failed"}:
+            return {"status": "blocked", "summary": f"Run is already {run.status}; start a new run before asking H to inspect."}
         if run.status == "paused":
             return {"status": "skipped", "summary": "Run is paused."}
         if run.status == "waiting_for_login":

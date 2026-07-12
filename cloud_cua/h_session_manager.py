@@ -217,6 +217,7 @@ class HSessionManager:
         *,
         timeout_seconds: float = 45,
         poll_seconds: float = 2,
+        retry_seconds: float = 10,
     ) -> tuple[str, str | None]:
         api_key = load_secret_values().get("HAI_API_KEY")
         if not api_key:
@@ -226,6 +227,8 @@ class HSessionManager:
 
             handle = Client(api_key=api_key).session(session_id)
             getattr(handle, action)()
+            attempts = 1
+            next_retry = time.monotonic() + retry_seconds
             expected = {"paused"} if action == "pause" else ({"running", "idle"} if action == "resume" else H_TERMINAL_STATES)
             deadline = time.monotonic() + timeout_seconds
             last_status = "unknown"
@@ -236,10 +239,16 @@ class HSessionManager:
                     return last_status, None
                 if action != "cancel" and last_status in H_TERMINAL_STATES:
                     return last_status, f"H session became {last_status} before {action} was confirmed."
+                if time.monotonic() >= next_retry:
+                    # H control endpoints acknowledge delivery asynchronously. Repeating these
+                    # state-setting requests is safe and recovers a command lost before execution.
+                    getattr(handle, action)()
+                    attempts += 1
+                    next_retry = time.monotonic() + retry_seconds
                 time.sleep(poll_seconds)
             return last_status, (
                 f"H accepted the {action} request but did not confirm the expected remote state within "
-                f"{timeout_seconds:g} seconds (last state: {last_status})."
+                f"{timeout_seconds:g} seconds after {attempts} attempts (last state: {last_status})."
             )
         except Exception as exc:
             return "unknown", f"H session {action} failed: {type(exc).__name__}: {exc}"
