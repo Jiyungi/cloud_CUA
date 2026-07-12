@@ -15,20 +15,6 @@ Our question was simple:
 
 > Why not let a trusted browser agent handle the difficult AWS setup directly from the developer’s repository?
 
-## What is AWS?
-
-Amazon Web Services is a cloud platform with services for compute, storage, databases, networking, security, AI, analytics, messaging, monitoring, and much more.
-
-Teams choose AWS when they need:
-
-- more infrastructure options than a frontend-focused platform provides;
-- deeper control over networking, permissions, scaling, and cost;
-- access to services such as ECS, Lambda, S3, DynamoDB, SQS, and Bedrock;
-- compatibility with infrastructure their company already operates;
-- compliance, auditing, encryption, and account-level security controls;
-- a platform for an application that is becoming an interconnected system.
-
-The common developer sentiment is straightforward: **Vercel is easier; AWS is more work, but can be cheaper and more flexible.**
 
 ## Why is AWS still difficult?
 
@@ -142,39 +128,6 @@ The 50-service skill catalog provides service-specific knowledge and warnings. I
 | Skill quality | Evaluation cases pass with full evidence and fail closed when a required fact is unknown |
 | User control | Pause, resume, cancel, approval, and mode changes affect the active H session correctly |
 
-## Why this fits Track 2: Browser Use
-
-The browser is essential to Cloud CUA, not a presentation layer.
-
-H must understand dynamic AWS pages, account-specific warnings, managed-service forms, visual validation errors, and controls that change across services. Codex supplies facts from the repository, but only H interacts with the live console. Cloud CUA makes that browser autonomy dependable by adding contracts, checkpoints, approvals, durable session control, and independent proof.
-
-This lets H do consequential work that a fixed browser script cannot safely generalize across repositories and AWS services.
-
-## Demo
-
-### Recommended demo flow
-
-1. Start from a Docker application repository in Codex.
-2. Ask Cloud CUA to deploy it in Vibe mode.
-3. Show the detected framework, application port, recommended ECS Express target, and current handoff owner.
-4. Log into AWS manually.
-5. Show H inspect and prepare the ECS form using the exact ECR image and port.
-6. Say “pause deployment” and “resume deployment.”
-7. Approve the create action and let H submit it once.
-8. Show the live URL separately from the AWS Console URL.
-9. Show AWS, HTTP, and Playwright verification.
-10. Preview cleanup and prove that no run-tagged resources remain afterward.
-
-### Current evidence
-
-- A real H-operated ECS Express deployment passed all 16 contract-aware checks, returned HTTP 200, rendered in Playwright, and cleaned up completely.
-- A real H-operated S3 website passed tag, configuration, CloudTrail, HTTP, Playwright, report, and cleanup verification.
-- A real MCP handshake from an unrelated repository discovered 31 tools and opened one exact run.
-- All 150 AWS evaluation contracts pass with complete evidence and fail closed when a required fact is unknown.
-- All 53 local skills have been synchronized to H’s hosted skill catalog.
-
-The 150 evaluation cases are deterministic safety tests, not 150 live and expensive AWS mutations.
-
 ## Install and run
 
 ### Install
@@ -226,15 +179,6 @@ python -m cloud_cua.cli start
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 npm run visual:dashboard
 ```
-
-## Current limitations
-
-- Manual AWS/GCP authentication is required.
-- ECS Express and S3 are the completed real browser deployment paths.
-- Amplify has guarded milestones and verified frontend smokes, but its final dedicated-browser acceptance remains open.
-- GCP Cloud Run remains planning-only.
-- ReceiptSplit and InvoiceOps have deployed frontends, but their full AWS backends are not implemented.
-- The project is an MVP and does not claim production-grade cloud security for every AWS service.
 
 ## Documentation
 
