@@ -42,7 +42,21 @@ class FakeHClient:
         if path == "/api/v1/trajectories/":
             return FakeResponse(payload={"items": [{"id": "cloud-1", "status": "running"}, {"id": "other-1", "status": "running"}]})
         if path == "/api/v2/sessions/other-1":
-            return FakeResponse(payload={"id": "other-1", "status": "running", "agent": "another-product"})
+            return FakeResponse(
+                payload={
+                    "id": "other-1",
+                    "request": {"agent": {"name": "another-product"}},
+                    "status": {"status": "running"},
+                }
+            )
+        if path == "/api/v2/sessions/cloud-1":
+            return FakeResponse(
+                payload={
+                    "id": "cloud-1",
+                    "request": {"agent": {"name": "cloud-cua-local-browser"}},
+                    "status": {"status": "running"},
+                }
+            )
         return FakeResponse(status_code=404)
 
     def delete(self, path):
@@ -72,6 +86,18 @@ def test_targeted_cleanup_refuses_unrelated_h_session(monkeypatch):
 
     assert result.status == "failed"
     assert client.deleted == []
+
+
+def test_targeted_cleanup_accepts_nested_cloud_cua_agent(monkeypatch):
+    client = FakeHClient()
+    monkeypatch.setattr("cloud_cua.h_admin.load_secret_values", lambda *_args: {"HAI_API_KEY": "test"})
+    monkeypatch.setattr("cloud_cua.h_admin.httpx.Client", lambda **_kwargs: client)
+
+    result = cleanup_h_session("cloud-1")
+
+    assert result.status == "passed"
+    assert "/api/v2/sessions/cloud-1" in client.deleted
+    assert "/api/v1/trajectories/cloud-1" in client.deleted
 
 
 def test_local_browser_lock_has_one_owner(tmp_path, monkeypatch):

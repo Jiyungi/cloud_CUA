@@ -98,9 +98,9 @@ def cleanup_h_session(session_id: str, repo_path: str | None = None) -> HCleanup
         session = client.get(f"/api/v2/sessions/{session_id}")
         if session.status_code == 200:
             item = session.json()
-            if item.get("agent") != "cloud-cua-local-browser":
+            if _session_agent_name(item) != "cloud-cua-local-browser":
                 return HCleanupResult("failed", before, before, [], [], "Refused to clean a session not owned by Cloud CUA.")
-            if item.get("status") in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{session_id}"):
+            if _session_status(item) in NON_TERMINAL and _delete_ok(client, f"/api/v2/sessions/{session_id}"):
                 cancelled.append(session_id)
         if _delete_ok(client, f"/api/v1/trajectories/{session_id}", allow_not_found=True):
             deleted.append(session_id)
@@ -129,3 +129,21 @@ def _headers(api_key: str) -> dict[str, str]:
 def _delete_ok(client: httpx.Client, path: str, *, allow_not_found: bool = False) -> bool:
     status = client.delete(path).status_code
     return status in {200, 202, 204} or (allow_not_found and status == 404)
+
+
+def _session_agent_name(item: dict) -> str:
+    agent = item.get("agent")
+    if isinstance(agent, str):
+        return agent
+    request = item.get("request") if isinstance(item.get("request"), dict) else {}
+    inline_agent = request.get("agent") if isinstance(request.get("agent"), dict) else {}
+    return str(inline_agent.get("name") or "")
+
+
+def _session_status(item: dict) -> str:
+    status = item.get("status")
+    if isinstance(status, str):
+        return status
+    if isinstance(status, dict):
+        return str(status.get("status") or "")
+    return ""
