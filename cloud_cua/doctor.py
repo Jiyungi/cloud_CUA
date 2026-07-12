@@ -121,10 +121,11 @@ def _docker_check(*, required: bool) -> DoctorCheck:
     if version.returncode != 0:
         return DoctorCheck("docker", "failed" if required else "skipped", (version.stdout or version.stderr or "Docker CLI check failed.").strip())
     daemon = subprocess.run([executable, "info", "--format", "{{.ServerVersion}}"], text=True, capture_output=True, timeout=20)
-    if daemon.returncode != 0:
+    server_version = daemon.stdout.strip()
+    if daemon.returncode != 0 or not server_version:
         summary = (daemon.stderr or daemon.stdout or "Docker daemon is not reachable.").strip()
         return DoctorCheck("docker", "failed" if required else "skipped", f"Docker CLI is installed, but the daemon is not running: {summary[:220]}")
-    return DoctorCheck("docker", "passed", f"{(version.stdout or '').strip()}; daemon {daemon.stdout.strip()}")
+    return DoctorCheck("docker", "passed", f"{(version.stdout or '').strip()}; daemon {server_version}")
 
 
 def _credential_check(repo_path: str) -> DoctorCheck:
