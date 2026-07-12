@@ -385,6 +385,12 @@ HTML = r"""
             <ul id="skillGates" class="compact-list"><li>No gates selected.</li></ul>
           </div>
         </div>
+        <div id="multiSkillPanel" class="lesson" hidden>
+          <strong>Multi-service skill set</strong>
+          <ul id="requiredSkills" class="compact-list"></ul>
+          <strong id="skillGapsHeading" style="display:block; margin-top:10px" hidden>Coverage gaps</strong>
+          <ul id="skillGaps" class="compact-list"></ul>
+        </div>
       </section>
 
       <section class="panel pad">
@@ -799,6 +805,12 @@ async function loadSkillState() {
       ...missing.map(item => `<li>${escapeHtml(item)} <strong style="color:var(--danger)">missing</strong></li>`),
     ].join('') || '<li>No contract yet.</li>';
     skillGates.innerHTML = (state.verifier_gates || []).map(item => `<li>${escapeHtml(item)}</li>`).join('') || '<li>No gates selected.</li>';
+    const required = state.required_skills || [];
+    const gaps = state.unmatched_services || [];
+    multiSkillPanel.hidden = required.length === 0 && gaps.length === 0;
+    requiredSkills.innerHTML = required.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+    skillGapsHeading.hidden = gaps.length === 0;
+    skillGaps.innerHTML = gaps.map(item => `<li>${escapeHtml(item)} <strong style="color:var(--danger)">missing skill</strong></li>`).join('');
     const lesson = state.lesson_candidate;
     lessonPanel.hidden = !lesson;
     if (lesson) {

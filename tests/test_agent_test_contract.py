@@ -4,6 +4,7 @@ from pathlib import Path
 
 from cloud_cua.agent_test_contract import load_agent_test_contract
 from cloud_cua.orchestrator import Orchestrator
+from cloud_cua.dashboard import render_dashboard
 
 
 ROOT = Path(__file__).parents[1]
@@ -40,3 +41,10 @@ def test_fixture_run_blocks_frontend_only_success_before_login() -> None:
     state = orchestrator.get_run_skill_state(run["run_id"])
     assert len(state["required_skills"]) == 14
     assert state["unmatched_services"] == ["Textract", "X-Ray"]
+
+
+def test_dashboard_exposes_multi_service_skill_coverage() -> None:
+    dashboard = render_dashboard()
+    assert 'id="multiSkillPanel"' in dashboard
+    assert 'id="requiredSkills"' in dashboard
+    assert 'id="skillGaps"' in dashboard
