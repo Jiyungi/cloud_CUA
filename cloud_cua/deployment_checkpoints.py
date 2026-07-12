@@ -9,7 +9,10 @@ from .deployment_contract import DeploymentContract
 
 
 def contract_fingerprint(contract: DeploymentContract) -> str:
-    payload = json.dumps(contract.to_dict(), sort_keys=True, separators=(",", ":"))
+    stable = contract.to_dict()
+    for volatile in ("cost_limit_usd", "estimated_hourly_usd", "cost_deadline_at"):
+        stable.pop(volatile, None)
+    payload = json.dumps(stable, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

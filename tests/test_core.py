@@ -187,6 +187,18 @@ def test_milestone_checkpoint_requires_exact_contract(tmp_path: Path):
     assert load_milestone_checkpoint(path, "inspect_ecs_express_form", changed) is None
 
 
+def test_milestone_checkpoint_ignores_moving_cost_clock_fields(tmp_path: Path):
+    from dataclasses import replace
+    from cloud_cua.deployment_checkpoints import load_milestone_checkpoint, save_milestone_checkpoint
+
+    contract = _ecs_contract_fixture(tmp_path)
+    path = tmp_path / "milestones.json"
+    save_milestone_checkpoint(path, "prepare", contract, {"status": "completed"}, {"status": "clear"})
+    refreshed = replace(contract, cost_limit_usd=10.0, estimated_hourly_usd=0.25, cost_deadline_at="later")
+
+    assert load_milestone_checkpoint(path, "prepare", refreshed) is not None
+
+
 def test_ecs_inspection_editable_default_becomes_correction(tmp_path: Path):
     (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
     contract = build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(
