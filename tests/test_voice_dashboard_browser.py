@@ -26,6 +26,8 @@ def test_voice_dashboard_has_no_browser_errors_or_horizontal_overflow() -> None:
         page.route("http://cloud-cua.test/**", route_request)
         page.goto("http://cloud-cua.test/", wait_until="networkidle")
         assert page.locator("#micButton").inner_text() == "Hold to talk"
+        assert page.locator("button[data-run-control]").first.is_disabled()
+        assert page.locator("#attachRepoButton").is_enabled()
         assert page.locator("#voiceTranscript").count() == 1
         assert page.locator("#voiceResponse").count() == 1
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth") is True
