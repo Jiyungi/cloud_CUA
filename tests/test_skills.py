@@ -54,6 +54,11 @@ class FakeSkillsClient:
         self.updated.append((name_, kwargs))
 
 
+class FailingSkillsClient(FakeSkillsClient):
+    def create_skill(self, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+
 class FakeClient:
     def __init__(self, items=None):
         self.skills = FakeSkillsClient(items)
@@ -101,3 +106,12 @@ def test_h_skill_status_is_read_only_when_remote_matches():
     assert report.skills[0].status == "synced"
     assert not client.skills.created
     assert not client.skills.updated
+
+
+def test_h_skill_sync_returns_blocked_report_on_provider_error():
+    client = FakeClient()
+    client.skills = FailingSkillsClient()
+    report = sync_h_skills(names=["cloud-cua/aws-ecs-express"], client=client)
+    assert report.status == "blocked"
+    assert report.skills[0].status == "failed"
+    assert "provider unavailable" in report.skills[0].message

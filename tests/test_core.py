@@ -203,6 +203,23 @@ def _fake_ecs_aws_json(command, timeout=30, *, image=None, port=8080, health="he
                 }
             ]
         }
+    if "describe-express-gateway-service" in joined:
+        return {
+            "service": {
+                "status": {"statusCode": "ACTIVE"},
+                "activeConfigurations": [
+                    {
+                        "taskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/demo:1",
+                        "healthCheckPath": "/",
+                        "primaryContainer": {
+                            "image": image or "123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+                            "containerPort": port,
+                        },
+                        "ingressPaths": [{"accessType": "PUBLIC", "endpoint": "demo.ecs.us-east-1.on.aws"}],
+                    }
+                ],
+            }
+        }
     if "describe-task-definition" in joined:
         return {
             "taskDefinition": {

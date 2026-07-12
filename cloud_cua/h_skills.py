@@ -96,7 +96,11 @@ def _sync_or_status(
         if remote is None:
             action = "would_create" if dry_run else "created"
             if mutate:
-                _create_skill(h_client, skill)
+                try:
+                    _create_skill(h_client, skill)
+                except Exception as exc:
+                    statuses.append(HSkillStatus(skill.name, skill.target, "failed", skill.content_hash, None, f"Create failed: {type(exc).__name__}: {exc}"))
+                    continue
             statuses.append(HSkillStatus(skill.name, skill.target, action, skill.content_hash, None))
             continue
         if remote_hash == skill.content_hash:
@@ -104,10 +108,14 @@ def _sync_or_status(
             continue
         action = "would_update" if dry_run else "updated"
         if mutate:
-            _update_skill(h_client, skill)
+            try:
+                _update_skill(h_client, skill)
+            except Exception as exc:
+                statuses.append(HSkillStatus(skill.name, skill.target, "failed", skill.content_hash, remote_hash, f"Update failed: {type(exc).__name__}: {exc}"))
+                continue
         statuses.append(HSkillStatus(skill.name, skill.target, action, skill.content_hash, remote_hash))
 
-    report_status = "passed" if all(item.status not in {"unknown", "not_configured"} for item in statuses) else "blocked"
+    report_status = "passed" if all(item.status not in {"failed", "unknown", "not_configured"} for item in statuses) else "blocked"
     return HSkillSyncReport(
         status=report_status,
         dry_run=dry_run,

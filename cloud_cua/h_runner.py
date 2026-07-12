@@ -129,7 +129,7 @@ def _run_h_task_sdk(
         }
         if event_callback:
             handle = client.start_session(**create_params)
-            for event in handle.stream(wait_for_seconds=5, until="terminal", timeout_seconds=max_time_s + 60):
+            for event in handle.stream(wait_for_seconds=5, until="settled", timeout_seconds=max_time_s + 60):
                 event_callback(_event_dict(event))
             result = handle.wait_for_completion(wait_for_seconds=5, timeout_seconds=60, include_events=True)
         else:

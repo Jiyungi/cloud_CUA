@@ -586,6 +586,7 @@ class Orchestrator:
         report_path = write_report(self.repo_path, run_id)
         out_dir = self.store.verifier_dir(run_id)
         results = []
+        verifier_urls: list[str] = []
         report_result = VerifierResult(
             "report_written",
             "passed" if report_path.exists() else "failed",
@@ -610,7 +611,15 @@ class Orchestrator:
             if run.target in {"aws_ecs_express", "aws_ecs_fargate"}:
                 aws_results.append(verify_ecs_run_services(run_id))
                 if self.store.contract_path(run_id).exists():
-                    aws_results.append(verify_ecs_contract(run_id, load_contract(self.store.contract_path(run_id))))
+                    ecs_contract_result = verify_ecs_contract(run_id, load_contract(self.store.contract_path(run_id)))
+                    aws_results.append(ecs_contract_result)
+                    try:
+                        contract_evidence = json.loads(ecs_contract_result.summary)
+                        for service in contract_evidence.get("services", []):
+                            for endpoint in service.get("endpoints", []):
+                                verifier_urls.append(endpoint if str(endpoint).startswith("http") else f"https://{endpoint}")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 else:
                     aws_results.append(VerifierResult("aws_ecs_contract", "failed", "contract.json", "Saved deployment contract is missing."))
                 cleanup = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=True)
@@ -628,7 +637,7 @@ class Orchestrator:
         else:
             for result in [verify_gcp_identity(), verify_gcp_project(), verify_gcp_cloud_run_services()]:
                 results.append(asdict(result.save(out_dir)))
-        urls = [url] if url else []
+        urls = ([url] if url else []) + verifier_urls
         for record in load_resource_records(self.store.run_dir(run_id) / "resources.json"):
             urls.extend(record.app_urls)
         if run.cloud == "aws" and run.target in {"aws_ecs_express", "aws_ecs_fargate", "aws_amplify", "aws_s3_static_site"} and not urls:

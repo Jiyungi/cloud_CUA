@@ -149,25 +149,46 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
             failures.append(f"Tagged ECS service {service_name} was not returned by describe-services.")
             continue
         service = services[0]
-        task_definition_arn = str(service.get("taskDefinition") or "")
+        express_service: dict = {}
+        active_configuration: dict = {}
+        endpoints: list[str] = []
+        if contract.target == "aws_ecs_express":
+            express_data = _aws_json(
+                aws_command(["ecs", "describe-express-gateway-service", "--service-arn", arn, "--include", "TAGS"]),
+                timeout=45,
+            )
+            express_service = express_data.get("service", {})
+            active_configurations = express_service.get("activeConfigurations", [])
+            active_configuration = active_configurations[0] if active_configurations else {}
+            endpoints = sorted(
+                str(item.get("endpoint"))
+                for item in active_configuration.get("ingressPaths", [])
+                if item.get("endpoint")
+            )
+        task_definition_arn = str(active_configuration.get("taskDefinitionArn") or service.get("taskDefinition") or "")
         if not task_definition_arn:
             failures.append(f"ECS service {service_name} has no task definition ARN.")
             continue
-        task_data = _aws_json(
-            aws_command(["ecs", "describe-task-definition", "--task-definition", task_definition_arn, "--include", "TAGS"]),
-            timeout=45,
-        )
-        task_definition = task_data.get("taskDefinition", {})
-        containers = task_definition.get("containerDefinitions", [])
-        images = sorted({str(item.get("image", "")) for item in containers if item.get("image")})
-        ports = sorted(
-            {
-                int(mapping.get("containerPort"))
-                for item in containers
-                for mapping in item.get("portMappings", [])
-                if mapping.get("containerPort") is not None
-            }
-        )
+        primary_container = active_configuration.get("primaryContainer", {})
+        if primary_container:
+            images = [str(primary_container.get("image"))] if primary_container.get("image") else []
+            ports = [int(primary_container.get("containerPort"))] if primary_container.get("containerPort") is not None else []
+        else:
+            task_data = _aws_json(
+                aws_command(["ecs", "describe-task-definition", "--task-definition", task_definition_arn, "--include", "TAGS"]),
+                timeout=45,
+            )
+            task_definition = task_data.get("taskDefinition", {})
+            containers = task_definition.get("containerDefinitions", [])
+            images = sorted({str(item.get("image", "")) for item in containers if item.get("image")})
+            ports = sorted(
+                {
+                    int(mapping.get("containerPort"))
+                    for item in containers
+                    for mapping in item.get("portMappings", [])
+                    if mapping.get("containerPort") is not None
+                }
+            )
         if contract.container_image_uri and contract.container_image_uri not in images:
             failures.append(f"Task definition image mismatch: expected {contract.container_image_uri}, found {images or 'none'}.")
         if contract.selected_container_port is not None and contract.selected_container_port not in ports:
@@ -177,8 +198,9 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
         running = int(service.get("runningCount") or 0)
         deployments = service.get("deployments", [])
         primary = next((item for item in deployments if item.get("status") == "PRIMARY"), deployments[0] if deployments else {})
-        if service.get("status") != "ACTIVE":
-            failures.append(f"ECS service {service_name} status is {service.get('status')}.")
+        service_status = express_service.get("status", {}).get("statusCode") or service.get("status")
+        if service_status != "ACTIVE":
+            failures.append(f"ECS service {service_name} status is {service_status}.")
         if desired < 1 or running < desired:
             failures.append(f"ECS service {service_name} has {running}/{desired} running tasks.")
         if primary.get("rolloutState") and primary.get("rolloutState") != "COMPLETED":
@@ -212,6 +234,7 @@ def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierRe
                 "desiredCount": desired,
                 "runningCount": running,
                 "targetHealth": target_health,
+                "endpoints": endpoints,
             }
         )
 
