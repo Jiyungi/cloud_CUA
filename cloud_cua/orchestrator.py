@@ -40,7 +40,7 @@ from .deployments.amplify import (
     review_amplify_inspection,
     review_amplify_prepared,
 )
-from .deployments.s3_static import build_s3_creation_task, build_s3_website_task, review_s3_bucket, review_s3_creation, s3_bucket_name
+from .deployments.s3_static import apply_s3_public_read_policy, build_s3_creation_task, build_s3_website_task, review_s3_bucket, review_s3_website, s3_bucket_name
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
 from .explanations import explain_run_question
@@ -782,13 +782,36 @@ class Orchestrator:
             )
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             if option.target == "aws_s3_static_site" and result.status == "completed":
-                s3_review = review_s3_creation(result, contract)
-                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed S3 website creation: {s3_review.status}.", s3_review.to_dict())
+                s3_review = review_s3_website(result, contract)
+                self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed S3 website configuration: {s3_review.status}.", s3_review.to_dict())
                 if s3_review.status == "clear" and static_artifact:
-                    upload = upload_static_artifact(static_artifact.output_directory, s3_review.bucket_name)
-                    self.store.append_event(run_id, "system", "result", upload.summary, upload.to_dict())
-                    if upload.status != "passed":
-                        result = HTaskResult("blocked", upload.summary, session_id=result.session_id, outcome=result.outcome)
+                    policy = apply_s3_public_read_policy(contract)
+                    self.store.append_event(run_id, "system", "result", policy.summary, policy.to_dict())
+                    if policy.status == "passed":
+                        upload = upload_static_artifact(static_artifact.output_directory, s3_review.bucket_name)
+                        self.store.append_event(run_id, "system", "result", upload.summary, upload.to_dict())
+                        if upload.status == "passed":
+                            result = HTaskResult(
+                                "completed",
+                                json.dumps(
+                                    {
+                                        "milestone": "configure_s3_static_website",
+                                        "status": "completed",
+                                        "bucket_name": s3_review.bucket_name,
+                                        "region": contract.cloud_region,
+                                        "tags": contract.required_tags,
+                                        "website_enabled": True,
+                                        "public_app_url": policy.public_url,
+                                        "blockers": [],
+                                    }
+                                ),
+                                session_id=result.session_id,
+                                outcome=result.outcome,
+                            )
+                        else:
+                            result = HTaskResult("blocked", upload.summary, session_id=result.session_id, outcome=result.outcome)
+                    else:
+                        result = HTaskResult("blocked", policy.summary, session_id=result.session_id, outcome=result.outcome)
                 else:
                     result = HTaskResult("blocked", "S3 console result did not match the deployment contract: " + "; ".join(s3_review.objections), session_id=result.session_id, outcome=result.outcome)
             if option.target == "aws_amplify" and result.status == "completed":

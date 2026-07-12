@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from cloud_cua.deployment_contract import DeploymentContract
-from cloud_cua.deployments.s3_static import build_s3_website_task, review_s3_bucket, review_s3_creation, s3_bucket_name
+from cloud_cua.deployments.s3_static import apply_s3_public_read_policy, build_s3_website_task, review_s3_bucket, review_s3_creation, review_s3_website, s3_bucket_name
 from cloud_cua.h_runner import HTaskResult
 from cloud_cua.models import RepoContext
 from cloud_cua.static_artifact import prepare_static_artifact
@@ -55,6 +55,46 @@ def test_s3_website_milestone_is_bounded_to_the_checkpoint_bucket():
     assert "prior saved checkpoint" in task
     assert "cloud-cua-demo-abc" in task
     assert "Do not change tags" in task
+
+
+def test_s3_policy_tool_requires_exact_tags_and_website_settings():
+    contract = DeploymentContract(
+        "aws_s3_static_site",
+        cloud_region="us-east-1",
+        resource_name="cloud-cua-demo-abc",
+        required_tags={"cloud-cua": "true", "cloud-cua-run": "run-1"},
+    )
+
+    class FakeS3:
+        policy = ""
+
+        def get_bucket_tagging(self, **kwargs):
+            return {"TagSet": [{"Key": "cloud-cua", "Value": "true"}, {"Key": "cloud-cua-run", "Value": "run-1"}]}
+
+        def get_bucket_website(self, **kwargs):
+            return {"IndexDocument": {"Suffix": "index.html"}}
+
+        def put_bucket_policy(self, **kwargs):
+            self.policy = kwargs["Policy"]
+
+    client = FakeS3()
+    result = apply_s3_public_read_policy(contract, s3_client=client)
+
+    assert result.status == "passed"
+    assert "arn:aws:s3:::cloud-cua-demo-abc/*" in client.policy
+
+
+def test_s3_website_review_can_derive_public_endpoint():
+    contract = DeploymentContract("aws_s3_static_site", cloud_region="us-east-1", resource_name="cloud-cua-demo-abc")
+    result = HTaskResult(
+        "completed",
+        '{"bucket_name":"cloud-cua-demo-abc","region":"us-east-1","website_enabled":true,"public_app_url":null,"blockers":[]}',
+    )
+
+    review = review_s3_website(result, contract)
+
+    assert review.status == "clear"
+    assert review.public_url == "http://cloud-cua-demo-abc.s3-website-us-east-1.amazonaws.com"
 
 
 def test_static_artifact_requires_index_html(tmp_path):

@@ -621,6 +621,7 @@ def test_container_windows_path_maps_to_workspace(tmp_path: Path, monkeypatch):
 
 def test_gradium_tts_skips_without_key(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("GRADIUM_API_KEY", raising=False)
+    monkeypatch.setattr("cloud_cua.voice_gradium.load_secret_values", lambda *_args, **_kwargs: {})
     result = synthesize_tts("hello", str(tmp_path))
     assert result.status == "skipped"
 

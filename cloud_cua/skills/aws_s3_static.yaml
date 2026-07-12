@@ -15,7 +15,7 @@ unknowns_that_block:
 h_cua_allowed_actions:
   - inspect the S3 console and account identity
   - create only the contract-named bucket
-  - configure static website hosting and minimum public object read
+  - configure static website hosting
   - add the exact Cloud CUA tags
 h_cua_stop_conditions:
   - an existing bucket would be modified
@@ -37,6 +37,6 @@ body: |
 
   Follow the run contract exactly. Never choose a bucket name, account, region, policy scope, or optional AWS feature that is not in the contract.
 
-  Work only through the bounded milestone in the current task. The bucket-preparation milestone creates or reuses only the exact bucket and proves every required run tag. The website milestone configures only website hosting and the bucket-scoped public object-read policy. Stop on an existing bucket unless every required tag proves it belongs to this exact run. Skip CloudFront, domains, logging, replication, versioning, and non-standard storage.
+  Work only through the bounded milestone in the current task. The bucket-preparation milestone creates or reuses only the exact bucket and proves every required run tag. The website milestone configures only website hosting. Do not type JSON policies visually; Cloud CUA verifies the exact tags and website settings before applying its generated bucket-scoped read policy through AWS's structured API. Stop on an existing bucket unless every required tag proves it belongs to this exact run. Skip CloudFront, domains, logging, replication, versioning, and non-standard storage.
 
   Report structured evidence. Never call an AWS Console URL the deployed application URL.
