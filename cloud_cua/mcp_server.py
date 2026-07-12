@@ -70,12 +70,6 @@ def cloud_cua_submit_objection(repo_path: str, run_id: str, objection: str) -> A
 
 
 @mcp.tool()
-def cloud_cua_get_amplify_plan(repo_path: str, run_id: str) -> Any:
-    """Generate the AWS Amplify deployment plan for this repo."""
-    return Orchestrator(repo_path).get_amplify_plan(run_id)
-
-
-@mcp.tool()
 def cloud_cua_get_aws_plan(repo_path: str, run_id: str) -> Any:
     """Generate the generalized AWS deployment plan and target options for this repo."""
     return Orchestrator(repo_path).get_aws_plan(run_id)
@@ -91,12 +85,6 @@ def cloud_cua_get_gcp_plan(repo_path: str, run_id: str) -> Any:
 def cloud_cua_h_inspect(repo_path: str, run_id: str, task: str | None = None) -> Any:
     """Run a bounded inspect-only H CUA browser task."""
     return Orchestrator(repo_path).run_h_inspect(run_id, task)
-
-
-@mcp.tool()
-def cloud_cua_run_amplify_deployment(repo_path: str, run_id: str) -> Any:
-    """Run the approval-gated AWS Amplify H CUA deployment step."""
-    return Orchestrator(repo_path).run_amplify_deployment(run_id)
 
 
 @mcp.tool()
