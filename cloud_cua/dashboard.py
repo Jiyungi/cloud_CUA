@@ -161,6 +161,14 @@ HTML = r"""
     }
     .lane strong { font-size: 13px; }
     .lane span { color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .skill-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; margin-top: 14px; }
+    .skill-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .skill-meta > div { border-left: 3px solid var(--border); padding-left: 10px; min-width: 0; }
+    .skill-meta strong { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+    .skill-meta span { display: block; overflow-wrap: anywhere; }
+    .compact-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .lesson { border-left: 4px solid var(--warning); background: #fff8e8; padding: 12px; margin-top: 14px; }
+    .lesson[hidden] { display: none; }
     .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
     .proof-item { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
     .proof-item strong { display: block; margin-bottom: 8px; }
@@ -232,6 +240,7 @@ HTML = r"""
       .mission { grid-template-columns: 1fr; }
       .mission-side { border-left: 0; border-top: 1px solid var(--border); }
       .lanes, .proof-grid { grid-template-columns: 1fr; }
+      .skill-grid, .skill-meta { grid-template-columns: 1fr; }
       .voice-strip { grid-template-columns: 1fr; align-items: stretch; }
       .voice-actions { justify-content: flex-start; }
       .split { align-items: stretch; flex-direction: column; }
@@ -316,6 +325,36 @@ HTML = r"""
           <div class="lane"><strong>H CUA</strong><span id="hLane">Waits for login, then operates browser.</span></div>
           <div class="lane"><strong>User</strong><span id="userLane">Approves risky cloud actions.</span></div>
           <div class="lane"><strong>Verifier</strong><span id="verifierLane">Checks AWS/GCP directly.</span></div>
+        </div>
+      </section>
+
+      <section class="panel pad">
+        <div class="split">
+          <div>
+            <h2>Skills</h2>
+            <p class="summary">The active deployment recipe H can load for this run.</p>
+          </div>
+          <button id="syncSkillsButton" class="secondary" onclick="syncSkills()">Sync H skills</button>
+        </div>
+        <div class="skill-grid">
+          <div>
+            <div class="skill-meta">
+              <div><strong>Active skill</strong><span id="activeSkill">Not selected</span></div>
+              <div><strong>H catalog</strong><span id="skillSync">Not synced</span></div>
+              <div><strong>Autonomy</strong><span id="skillAutonomy">Not assigned</span></div>
+            </div>
+            <div id="lessonPanel" class="lesson" hidden>
+              <strong>Lesson awaiting review</strong>
+              <p id="lessonFailure" class="summary"></p>
+              <p id="lessonRule" class="summary"></p>
+            </div>
+          </div>
+          <div>
+            <strong>Contract facts</strong>
+            <ul id="skillFacts" class="compact-list"><li>No contract yet.</li></ul>
+            <strong style="display:block; margin-top:12px">Verifier gates</strong>
+            <ul id="skillGates" class="compact-list"><li>No gates selected.</li></ul>
+          </div>
         </div>
       </section>
 
@@ -422,6 +461,7 @@ async function refresh() {
   renderProof(ev);
   await loadApprovals();
   await loadCapabilities();
+  await loadSkillState();
 }
 function renderRun() {
   statusTitle.textContent = titleForStatus(currentRun.status);
@@ -517,6 +557,44 @@ async function loadCapabilities() {
     voiceKeyChip.textContent = 'Voice unavailable';
   }
 }
+async function loadSkillState() {
+  if (!currentRun) return;
+  try {
+    const state = await (await fetch(`/runs/${currentRun.run_id}/skill-state?repo_path=${encodeURIComponent(repoInput.value)}`)).json();
+    const skill = state.active_skill;
+    activeSkill.textContent = skill?.name || 'Not selected';
+    skillSync.textContent = readableStatus(state.h_sync_status || 'not_synced');
+    skillAutonomy.textContent = skill ? `Level ${skill.autonomy_level} of 5` : 'Not assigned';
+    const present = state.present_facts || [];
+    const missing = state.missing_facts || [];
+    skillFacts.innerHTML = [
+      ...present.map(item => `<li>${escapeHtml(item)} <strong style="color:var(--success)">ready</strong></li>`),
+      ...missing.map(item => `<li>${escapeHtml(item)} <strong style="color:var(--danger)">missing</strong></li>`),
+    ].join('') || '<li>No contract yet.</li>';
+    skillGates.innerHTML = (state.verifier_gates || []).map(item => `<li>${escapeHtml(item)}</li>`).join('') || '<li>No gates selected.</li>';
+    const lesson = state.lesson_candidate;
+    lessonPanel.hidden = !lesson;
+    if (lesson) {
+      lessonFailure.textContent = lesson.failure;
+      lessonRule.textContent = `Proposed rule: ${lesson.proposed_rule}`;
+    }
+  } catch {
+    skillSync.textContent = 'Status unavailable';
+  }
+}
+async function syncSkills() {
+  syncSkillsButton.disabled = true;
+  skillSync.textContent = 'Syncing';
+  try {
+    const result = await post('/skills/sync', body({dry_run:false}));
+    skillSync.textContent = result.status === 'passed' ? 'Synced' : 'Blocked';
+  } catch {
+    skillSync.textContent = 'Sync failed';
+  } finally {
+    syncSkillsButton.disabled = false;
+    await loadSkillState();
+  }
+}
 async function toggleRecording() {
   if (!currentRun || !voiceReady) return;
   if (mediaRecorder && mediaRecorder.state === 'recording') {
@@ -592,6 +670,7 @@ function dotClass(status) {
   return '';
 }
 function shortPath(p) { return p ? p.split(/[\\/]/).slice(-2).join('/') : 'No repo selected'; }
+function readableStatus(value) { return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 }

@@ -232,6 +232,9 @@ def test_dashboard_contains_supervision_sections():
     assert "Run Amplify step" not in page.text
     assert "Deploy" in page.text
     assert "Start mic" in page.text
+    assert "Skills" in page.text
+    assert "Sync H skills" in page.text
+    assert "Lesson awaiting review" in page.text
 
 
 def test_gcp_cloud_run_deploy_requires_approval(tmp_path):

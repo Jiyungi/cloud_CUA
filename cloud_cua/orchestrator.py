@@ -27,7 +27,7 @@ from .paths import resolve_repo_path
 from .repo_analyzer import analyze_repo
 from .reports import write_report
 from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
-from .skill_registry import load_skills, skill_for_target
+from .skill_registry import get_skill, load_skills, skill_for_target
 from .run_store import RunStore
 from .safety import approval_reason, detect_approval_triggers, risk_level
 from .supervisor import review_h_result
@@ -712,6 +712,41 @@ class Orchestrator:
         lesson = load_lesson_candidate(self.store.run_dir(run_id))
         return lesson or {"status": "none", "run_id": run_id}
 
+    def get_run_skill_state(self, run_id: str) -> dict:
+        run = self.store.load_run(run_id)
+        contract = load_contract(self.store.contract_path(run_id)) if self.store.contract_path(run_id).exists() else None
+        skill = None
+        if contract and contract.skill_name:
+            try:
+                skill = get_skill(contract.skill_name)
+            except KeyError:
+                skill = None
+        if skill is None:
+            skill = skill_for_target(run.target)
+        events = self.store.read_events(run_id, limit=500)
+        sync_event = next((event for event in reversed(events) if event["type"] == "skill_sync"), None)
+        sync_status = "not_synced"
+        if sync_event:
+            sync_items = sync_event.get("evidence", {}).get("sync", {}).get("skills", [])
+            matching = next((item for item in sync_items if not skill or item.get("name") == skill.name), None)
+            sync_status = matching.get("status", "unknown") if matching else sync_event.get("evidence", {}).get("sync", {}).get("status", "unknown")
+        contract_data = contract.to_dict() if contract else {}
+        present_facts = _present_contract_facts(contract_data)
+        required_facts = skill.required_facts if skill else []
+        missing_facts = [fact for fact in required_facts if fact not in present_facts]
+        if contract:
+            missing_facts.extend(item for item in contract.missing_facts if item not in missing_facts)
+        return {
+            "run_id": run_id,
+            "active_skill": skill.to_dict(include_body=False) if skill else None,
+            "h_sync_status": sync_status,
+            "contract": contract_data or None,
+            "present_facts": sorted(present_facts),
+            "missing_facts": missing_facts,
+            "verifier_gates": skill.required_verifiers if skill else [],
+            "lesson_candidate": load_lesson_candidate(self.store.run_dir(run_id)),
+        }
+
     def sync_h_skills(self, names: list[str] | None = None, dry_run: bool = False) -> dict:
         return sync_h_skills(self.repo_path, names=names, dry_run=dry_run).to_dict()
 
@@ -757,3 +792,12 @@ class Orchestrator:
             "Recorded a skill lesson candidate for review; it was not auto-promoted.",
             {"path": str(path), "affected_skill": affected_skill},
         )
+
+
+def _present_contract_facts(contract: dict) -> set[str]:
+    present = {key for key, value in contract.items() if value is not None and value != "" and value != [] and value != {}}
+    if contract.get("cloud_region"):
+        present.update({"aws_region", "google_cloud_region"})
+    if contract.get("required_tags", {}).get("cloud-cua-run"):
+        present.update({"cloud_cua_run_tag"})
+    return present

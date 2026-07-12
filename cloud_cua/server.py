@@ -131,6 +131,10 @@ def create_app() -> FastAPI:
     def get_lesson(run_id: str, repo_path: str):
         return Orchestrator(repo_path).get_lesson_candidate(run_id)
 
+    @app.get("/runs/{run_id}/skill-state")
+    def get_run_skill_state(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_run_skill_state(run_id)
+
     @app.post("/runs/{run_id}/mode")
     def set_mode(run_id: str, req: ModeRequest):
         return Orchestrator(req.repo_path).set_mode(run_id, req.mode)

@@ -36,6 +36,8 @@ async function runViewport(browser, label, viewport) {
   record(`${label}: dashboard loaded`, await visibleText(page, "Cloud CUA"));
   record(`${label}: deploy button visible`, await page.getByRole("button", { name: "Deploy" }).isVisible());
   record(`${label}: control loop visible`, await page.getByRole("heading", { name: "Control Loop" }).isVisible());
+  record(`${label}: skills panel visible`, await page.getByRole("heading", { name: "Skills" }).isVisible());
+  record(`${label}: skill sync control visible`, await page.getByRole("button", { name: "Sync H skills" }).isVisible());
   record(`${label}: proof visible`, await page.getByRole("heading", { name: "Proof" }).isVisible());
   record(`${label}: no legacy Amplify button`, !(await visibleText(page, "Run Amplify step")));
   record(`${label}: no App Runner copy`, !(await visibleText(page, "App Runner")));
