@@ -17,16 +17,17 @@ class VoiceRoute:
 def classify_voice_command(text: str, *, playback_active: bool = False) -> VoiceRoute:
     raw = text.strip()
     lower = raw.lower().strip(" .!?")
+    direct = _direct_command_text(lower)
 
-    if lower in {"pause", "pause agent", "pause deployment", "stop for now"}:
+    if direct in {"pause", "pause agent", "pause deployment", "stop for now"}:
         return VoiceRoute(raw, "direct_control", "backend", action="pause")
-    if lower in {"continue", "resume", "resume agent", "resume deployment", "continue deployment"}:
+    if direct in {"continue", "resume", "resume agent", "resume deployment", "continue deployment"}:
         return VoiceRoute(raw, "direct_control", "backend", action="resume")
     if lower == "stop" and playback_active:
         return VoiceRoute(raw, "direct_control", "backend", action="stop_speaking")
     if lower == "stop":
         return VoiceRoute(raw, "unknown", "clarify", reason="stop is ambiguous when speech is not playing")
-    if lower in {"cancel", "cancel run", "stop deployment"}:
+    if direct in {"cancel", "cancel run", "cancel the run", "cancel deployment", "stop deployment"}:
         return VoiceRoute(raw, "direct_control", "backend", action="stop")
     if "switch" in lower and "vibe" in lower:
         return VoiceRoute(raw, "direct_control", "backend", action="set_mode", mode="vibe")
@@ -65,3 +66,12 @@ def classify_voice_command(text: str, *, playback_active: bool = False) -> Voice
         return VoiceRoute(raw, "planned_cloud_action", "planner", reason="cloud operation request needs planning and approvals")
 
     return VoiceRoute(raw, "reasoning_question", "codex", reason="natural-language question or clarification")
+
+
+def _direct_command_text(value: str) -> str:
+    normalized = value
+    for prefix in ("please ", "okay ", "ok ", "hey ", "can you ", "could you ", "would you ", "it's "):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :].strip()
+            break
+    return normalized

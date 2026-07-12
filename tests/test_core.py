@@ -53,6 +53,9 @@ def test_voice_router_stop_is_contextual():
     assert classify_voice_command("stop", playback_active=True).action == "stop_speaking"
     assert classify_voice_command("stop", playback_active=False).classification == "unknown"
     assert classify_voice_command("stop deployment").action == "stop"
+    assert classify_voice_command("it's cancel run.").action == "stop"
+    assert classify_voice_command("please cancel the run").action == "stop"
+    assert classify_voice_command("what happens if I cancel run?").action is None
 
 
 def test_voice_router_supports_status_cleanup_and_exact_approval():
