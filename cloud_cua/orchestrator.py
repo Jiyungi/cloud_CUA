@@ -1056,40 +1056,59 @@ class Orchestrator:
         existing_references: dict[str, str],
         region: str = "us-east-1",
     ) -> dict:
-        run = self.store.load_run(run_id)
-        if run.cloud != "aws":
-            return {"status": "blocked", "message": "AWS SSM runtime configuration requires an AWS run."}
-        if run.status == "waiting_for_login":
-            return {"status": "blocked", "message": "Verify cloud login before provisioning runtime configuration."}
-        identity = verify_aws_identity()
         try:
-            account_id = str(json.loads(identity.summary).get("Account") or "")
-        except (TypeError, json.JSONDecodeError):
-            account_id = ""
-        if identity.status != "passed" or not account_id:
-            return {"status": "blocked", "message": "AWS CLI identity must be verified before provisioning SSM parameters."}
-        ctx = analyze_repo(self.repo_path)
-        result = provision_aws_runtime_configuration(
-            self.store.run_dir(run_id),
-            run_id,
-            self.repo_path.name,
-            ctx.env_vars,
-            values,
-            existing_references,
-            region=region,
-            account_id=account_id,
-        )
-        run.status = "running"
-        run.current_step = "runtime_configuration_ready"
-        self.store.save_run(run)
-        self.store.append_event(
-            run_id,
-            "system",
-            "result",
-            result.message,
-            {"references": [asdict(item) for item in result.references], "public_build_names": result.public_build_names},
-        )
-        return result.to_dict()
+            run = self.store.load_run(run_id)
+            if run.cloud != "aws":
+                return {"status": "blocked", "message": "AWS SSM runtime configuration requires an AWS run."}
+            if run.status != "waiting_for_configuration" or run.current_step != "runtime_configuration_required":
+                return {
+                    "status": "blocked",
+                    "message": "Runtime secrets are accepted only after cloud identity, deployment approval, and a blocking configuration request.",
+                }
+            browser_identity = load_browser_identity(self.store.run_dir(run_id) / "browser-identity.json")
+            if not browser_identity or browser_identity.status != "matched":
+                return {"status": "blocked", "message": "Browser and AWS CLI account identity must match before provisioning SSM parameters."}
+            identity = verify_aws_identity()
+            try:
+                account_id = str(json.loads(identity.summary).get("Account") or "")
+            except (TypeError, json.JSONDecodeError):
+                account_id = ""
+            if identity.status != "passed" or not account_id:
+                return {"status": "blocked", "message": "AWS CLI identity must be verified before provisioning SSM parameters."}
+            if browser_identity.expected_account_id != account_id or browser_identity.browser_account_id != account_id:
+                return {"status": "blocked", "message": "The browser account no longer matches the authenticated AWS CLI account."}
+            try:
+                contract = load_contract(self.store.contract_path(run_id))
+            except Exception:
+                return {"status": "blocked", "message": "The approved deployment contract is missing or invalid."}
+            if contract.cloud_region and region != contract.cloud_region:
+                return {"status": "blocked", "message": f"Runtime parameters must use the contracted region {contract.cloud_region}."}
+            ctx = analyze_repo(self.repo_path)
+            result = provision_aws_runtime_configuration(
+                self.store.run_dir(run_id),
+                run_id,
+                self.repo_path.name,
+                ctx.env_vars,
+                values,
+                existing_references,
+                region=region,
+                account_id=account_id,
+            )
+            run.status = "running"
+            run.current_step = "runtime_configuration_ready"
+            self.store.save_run(run)
+            self.store.append_event(
+                run_id,
+                "system",
+                "result",
+                result.message,
+                {"references": [asdict(item) for item in result.references], "public_build_names": result.public_build_names},
+            )
+            return result.to_dict()
+        finally:
+            for name in list(values):
+                values[name] = ""
+            values.clear()
 
     def list_approvals(self, run_id: str) -> list[dict]:
         return [asdict(item) for item in load_approvals(self.store.run_dir(run_id))]
