@@ -152,7 +152,7 @@ body: '# Deploy with AWS Amplify Hosting
 
   - Build logs identify phase not permission to change branch
 
-  - SPA rewrite excludes APIs and assets
+  - Use the AWS extension-excluding SPA fallback rule; a broad /<*> rewrite can return index.html for JavaScript and CSS assets
 
   - Verify deployed commit
 
