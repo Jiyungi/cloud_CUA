@@ -160,6 +160,26 @@ def save_cost_policy(path: Path, policy: CostPolicy) -> Path:
     return path
 
 
+def ensure_cost_policy(run_dir: Path, target: str, region: str, max_spend_usd: float, pricing: PriceListClient | None = None) -> CostPolicy:
+    path = run_dir / "cost-policy.json"
+    existing = load_cost_policy(path)
+    if existing and existing.target == target and existing.region == region and existing.max_spend_usd == max_spend_usd:
+        return existing
+    policy = build_cost_policy(target, region, max_spend_usd, pricing)
+    save_cost_policy(path, policy)
+    return policy
+
+
+def start_run_cost_clock(run_dir: Path, *, now: datetime | None = None) -> CostPolicy | None:
+    path = run_dir / "cost-policy.json"
+    policy = load_cost_policy(path, now=now)
+    if not policy:
+        return None
+    start_cost_clock(policy, now=now)
+    save_cost_policy(path, policy)
+    return policy
+
+
 def load_cost_policy(path: Path, *, now: datetime | None = None) -> CostPolicy | None:
     if not path.exists():
         return None
@@ -176,11 +196,12 @@ def start_cost_clock(policy: CostPolicy, *, now: datetime | None = None) -> Cost
     current = now or datetime.now(UTC)
     if not policy.started_at:
         policy.started_at = current.isoformat()
+    refresh_cost_policy(policy, now=current)
     if policy.fixed_hourly_usd > 0:
-        remaining = max(0.0, policy.max_spend_usd - policy.estimated_variable_usd)
+        remaining = max(0.0, policy.max_spend_usd - policy.estimated_accrued_usd)
         policy.deadline_at = (current + timedelta(hours=remaining / policy.fixed_hourly_usd)).isoformat()
     policy.updated_at = current.isoformat()
-    return refresh_cost_policy(policy, now=current)
+    return policy
 
 
 def refresh_cost_policy(policy: CostPolicy, *, now: datetime | None = None) -> CostPolicy:

@@ -9,10 +9,12 @@ from pathlib import Path
 from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
+from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_run_cost_clock
 from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
 from .browser_profile import launch_dedicated_browser
 from .cloud_identity import build_aws_browser_identity_task, load_browser_identity, review_aws_browser_identity, save_browser_identity
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
+from .cost_monitor import get_cost_monitor
 from .credentials import inspect_credentials
 from .deployment_contract import build_deployment_contract, load_contract, save_contract
 from .deployment_checkpoints import load_milestone_checkpoint, save_milestone_checkpoint
@@ -70,6 +72,7 @@ class Orchestrator:
         self.store = RunStore(self.repo_path)
         self.h_sessions = get_h_session_manager()
         self.h_sessions.recover_repo(self.repo_path)
+        self.cost_monitor = get_cost_monitor()
 
     def start_deployment(self, cloud: str = "aws", mode: str = "vibe") -> dict:
         mode_v = normalize_mode(mode)
@@ -115,6 +118,8 @@ class Orchestrator:
         return plan.to_dict()
 
     def get_status(self, run_id: str) -> dict:
+        if (self.store.run_dir(run_id) / "cost-policy.json").exists():
+            self.cost_monitor.evaluate(self.repo_path, run_id)
         return {**asdict(self.store.load_run(run_id)), "h_job": self.h_sessions.get(self.repo_path, run_id)}
 
     def set_dashboard_url(self, run_id: str, dashboard_url: str) -> dict:
@@ -267,6 +272,15 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
+        cost_policy = ensure_cost_policy(self.store.run_dir(run_id), option.target, plan.region, max_spend_usd)
+        self.cost_monitor.register(self.repo_path, run_id)
+        if cost_policy.status != "ready":
+            run.status = "blocked"
+            run.current_step = "cost_estimate_unavailable"
+            run.target = option.target
+            self.store.save_run(run)
+            self.store.append_event(run_id, "codex", "objection", cost_policy.message, {"cost_policy": cost_policy.to_dict()})
+            return {"status": "blocked", "summary": cost_policy.message, "cost_policy": cost_policy.to_dict()}
         contract = build_deployment_contract(self.repo_path, ctx, option.target)
         previous_contract = None
         if self.store.contract_path(run_id).exists():
@@ -286,6 +300,9 @@ class Orchestrator:
                 ecr_repository=previous_contract.ecr_repository if previous_contract and previous_contract.target == option.target else "",
                 repo_name=self.repo_path.name,
                 expected_account_id=browser_identity.expected_account_id,
+                cost_limit_usd=cost_policy.max_spend_usd,
+                estimated_hourly_usd=cost_policy.fixed_hourly_usd,
+                cost_deadline_at=cost_policy.deadline_at,
             )
         contract_path = save_contract(self.store.contract_path(run_id), contract)
         self.store.append_event(run_id, "codex", "contract", "Prepared and saved deployment contract from repo facts.", {"contract": contract.to_dict(), "path": str(contract_path)})
@@ -416,6 +433,9 @@ class Orchestrator:
                 repo_name=self.repo_path.name,
                 expected_account_id=browser_identity.expected_account_id,
                 runtime_secret_references=runtime_config.reference_map(),
+                cost_limit_usd=cost_policy.max_spend_usd,
+                estimated_hourly_usd=cost_policy.fixed_hourly_usd,
+                cost_deadline_at=cost_policy.deadline_at,
             )
             save_contract(self.store.contract_path(run_id), contract)
 
@@ -548,6 +568,10 @@ class Orchestrator:
             run.target = option.target
             self.store.save_run(run)
             self.store.append_event(run_id, "h_cua", "milestone", "H CUA is executing the approved deployment milestone.", {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name, "milestone": "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"})
+            active_cost = start_run_cost_clock(self.store.run_dir(run_id))
+            if active_cost:
+                self.cost_monitor.register(self.repo_path, run_id)
+                self.store.append_event(run_id, "system", "cost_started", "Started the deployment cost clock before the resource-creation milestone.", {"cost_policy": active_cost.to_dict()})
             result = run_h_task(
                 task_text,
                 run.mode,
@@ -729,6 +753,32 @@ class Orchestrator:
     def get_browser_identity(self, run_id: str) -> dict:
         proof = load_browser_identity(self.store.run_dir(run_id) / "browser-identity.json")
         return proof.to_dict() if proof else {"status": "not_checked", "message": "Browser account identity has not been checked."}
+
+    def get_cost_status(self, run_id: str) -> dict:
+        self.cost_monitor.register(self.repo_path, run_id)
+        return self.cost_monitor.evaluate(self.repo_path, run_id)
+
+    def request_cost_extension(self, run_id: str, new_cap_usd: float) -> dict:
+        path = self.store.run_dir(run_id) / "cost-policy.json"
+        policy = load_cost_policy(path)
+        if not policy:
+            return {"status": "blocked", "summary": "No cost policy exists for this run."}
+        if new_cap_usd <= policy.max_spend_usd:
+            return {"status": "blocked", "summary": "The new cap must be greater than the current cap."}
+        action = f"Extend Cloud CUA cost policy to ${new_cap_usd:.2f}"
+        if not approval_is_approved(self.store.run_dir(run_id), action):
+            return self.request_approval(run_id, action, "This permits tagged resources from this run to continue accruing estimated AWS charges.", "high")
+        policy.max_spend_usd = new_cap_usd
+        policy.deadline_at = ""
+        policy = start_run_cost_clock(self.store.run_dir(run_id)) or policy
+        save_cost_policy(path, policy)
+        run = self.store.load_run(run_id)
+        if run.status == "cost_action_required":
+            run.status = "running"
+            run.current_step = "cost_extension_approved"
+            self.store.save_run(run)
+        self.store.append_event(run_id, "user", "approval", f"Extended run cost policy to ${new_cap_usd:.2f}.", {"cost_policy": policy.to_dict()})
+        return policy.to_dict()
 
     def configure_runtime(
         self,

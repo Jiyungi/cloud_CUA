@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from cloud_cua.aws_costs import PriceListClient, build_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock
+from cloud_cua.cost_monitor import CostMonitor
+from cloud_cua.run_store import RunStore
 
 
 class FakePricing:
@@ -49,3 +51,18 @@ def test_cost_clock_persists_deadline_and_reaches_blocking_level(tmp_path):
     assert loaded is not None
     assert loaded.warning_level == 100
     assert loaded.deadline_at
+
+
+def test_cost_monitor_blocks_run_without_deleting_resources(tmp_path):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    run.status = "completed"
+    store.save_run(run)
+    policy = build_cost_policy("aws_ecs_express", "us-east-1", 0.01, FakePricing())
+    policy.started_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    save_cost_policy(store.run_dir(run.run_id) / "cost-policy.json", policy)
+    status = CostMonitor(interval_seconds=3600).evaluate(tmp_path, run.run_id)
+    updated = store.load_run(run.run_id)
+    assert status["warning_level"] == 100
+    assert updated.status == "cost_action_required"
+    assert updated.current_step == "cleanup_or_cost_extension_required"

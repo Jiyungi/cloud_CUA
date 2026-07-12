@@ -106,6 +106,11 @@ class RuntimeConfigurationRequest(BaseModel):
     region: str = "us-east-1"
 
 
+class CostExtensionRequest(BaseModel):
+    repo_path: str
+    new_cap_usd: float
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
     service_token = os.environ.get("CLOUD_CUA_SERVICE_TOKEN", "")
@@ -236,6 +241,14 @@ def create_app() -> FastAPI:
     def runtime_configuration(run_id: str, repo_path: str):
         return Orchestrator(repo_path).get_runtime_configuration(run_id)
 
+    @app.get("/runs/{run_id}/cost")
+    def cost_status(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_cost_status(run_id)
+
+    @app.post("/runs/{run_id}/cost-extension")
+    def cost_extension(run_id: str, req: CostExtensionRequest):
+        return Orchestrator(req.repo_path).request_cost_extension(run_id, req.new_cap_usd)
+
     @app.post("/runs/{run_id}/runtime-configuration")
     def configure_runtime(run_id: str, req: RuntimeConfigurationRequest):
         result = Orchestrator(req.repo_path).configure_runtime(
@@ -302,7 +315,7 @@ def create_app() -> FastAPI:
     @app.post("/runs/{run_id}/approval-decision")
     def approval_decision(run_id: str, req: ApprovalDecisionRequest, background_tasks: BackgroundTasks):
         approval = Orchestrator(req.repo_path).decide_approval(run_id, req.approval_id, req.approved)
-        if req.approved:
+        if req.approved and (approval["action"].startswith("Run AWS deployment task:") or approval["action"] == "Run GCP Cloud Run deployment task"):
             get_h_session_manager().schedule(
                 req.repo_path,
                 run_id,
