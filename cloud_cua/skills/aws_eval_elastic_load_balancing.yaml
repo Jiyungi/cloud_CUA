@@ -1,0 +1,130 @@
+name: cloud-cua/aws-elastic-load-balancing
+description: Operate Elastic Load Balancing through its AWS console with reviewed facts, safety stops, proof, and cleanup
+  gates.
+target: aws_elastic_load_balancing
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA/blob/main/docs/aws-h-evaluation-catalog.md
+url_pattern: 'https://console.aws.amazon.com/ec2/home#LoadBalancers:'
+required_facts:
+- app_port
+- certificate_arn
+- health_path
+- listener_port
+- listener_protocol
+- load_balancer_arn
+- load_balancer_type
+- scheme
+- security_group_id
+- security_group_path
+- subnet_ids
+- target_group_arn
+- target_health_reason
+- target_port
+- target_protocol
+unknowns_that_block:
+- 'Required fact is missing or unverified: app_port'
+- 'Required fact is missing or unverified: certificate_arn'
+- 'Required fact is missing or unverified: health_path'
+- 'Required fact is missing or unverified: listener_port'
+- 'Required fact is missing or unverified: listener_protocol'
+- 'Required fact is missing or unverified: load_balancer_arn'
+- 'Required fact is missing or unverified: load_balancer_type'
+- 'Required fact is missing or unverified: scheme'
+- 'Required fact is missing or unverified: security_group_id'
+- 'Required fact is missing or unverified: security_group_path'
+- 'Required fact is missing or unverified: subnet_ids'
+- 'Required fact is missing or unverified: target_group_arn'
+- 'Required fact is missing or unverified: target_health_reason'
+- 'Required fact is missing or unverified: target_port'
+- 'Required fact is missing or unverified: target_protocol'
+h_cua_allowed_actions:
+- Inspect Elastic Load Balancing console state without mutation.
+- Compare every visible selection with the approved run contract.
+- Perform only the bounded, approved service action after required facts are verified.
+- Return structured resource, verifier, blocker, and cleanup evidence.
+h_cua_stop_conditions:
+- Listener target and container ports are different facts
+- Never call an active load balancer proof of healthy targets
+- Idle load balancers keep billing
+required_verifiers:
+- app_local_probe
+- blocker_report
+- contract_health_path
+- contract_port
+- dns_name
+- elastic_ips_checked
+- https_probe
+- listener_arn
+- listener_deleted
+- listeners_deleted
+- load_balancer_arn
+- load_balancer_deleted
+- network_path
+- no_load_balancer_created
+- recovered_target_health_or_blocker
+- security_group_state
+- target_group_arn
+- target_group_deleted
+- target_health
+- target_health_reason
+- visible_listener
+- visible_target_group
+success_conditions:
+- Build exact scheme subnets security groups certificate listener rules health path target type and deregistration settings
+- Block creation when the wizard maps HTTPS listener traffic to target port 80 while the image listens on 8080 and health
+  is at slash health
+- Diagnose reason codes security path registration AZ and app health then clean billable resources in dependency order
+cleanup_strategy: 'Delete only exact run-owned resources and prove: elastic_ips_checked, listener_deleted, listeners_deleted,
+  load_balancer_deleted, no_load_balancer_created, security_group_state, target_group_deleted.'
+body: '# Operate Elastic Load Balancing
+
+
+  Use the run contract as the source of truth. Inspect before mutation and stop when a required fact is unknown.
+
+  A console success label is not proof; independent service, workload, and cleanup evidence decide success.
+
+
+  Required sequence:
+
+  1. Confirm account, region, ownership tags, cost boundary, and service-specific facts.
+
+  2. Inspect defaults and report mismatches before editing anything.
+
+  3. Mutate only after approval and only within the exact run-owned resource boundary.
+
+  4. Stop on new IAM, public exposure, destructive, cross-account, secret, or billing decisions.
+
+  5. Return structured evidence and verify cleanup dependencies before declaring completion.
+
+
+  Service rules:
+
+  - Ask Codex for the application listen port
+
+  - Verify target health separately from ALB state
+
+  - Targets should accept traffic from the load-balancer security group only
+
+  - Listener and target ports must be traced end to end
+
+  - Health-check success path is application-specific
+
+  - Never compensate with all-port ingress
+
+  - Read target reason codes before editing
+
+  - ALB active status is not workload success
+
+  - Cleanup follows listener load balancer target group dependency order
+
+
+  Evaluation scenarios:
+
+  - elastic-load-balancing-guided-provision: Build exact scheme subnets security groups certificate listener rules health
+  path target type and deregistration settings
+
+  - elastic-load-balancing-misconfiguration-trap: Block creation when the wizard maps HTTPS listener traffic to target port
+  80 while the image listens on 8080 and health is at slash health
+
+  - elastic-load-balancing-recovery-cleanup: Diagnose reason codes security path registration AZ and app health then clean
+  billable resources in dependency order'
