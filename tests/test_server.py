@@ -154,7 +154,8 @@ def test_dashboard_contains_supervision_sections():
     page = client.get("/")
     assert "Control Loop" in page.text
     assert "Approvals" in page.text
-    assert "Run Amplify step" in page.text
+    assert "Run Amplify step" not in page.text
+    assert "Deploy" in page.text
     assert "Start mic" in page.text
 
 

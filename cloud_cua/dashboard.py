@@ -258,8 +258,7 @@ HTML = r"""
           <div class="row">
             <button onclick="startRun()">Start local repo</button>
             <button class="secondary" onclick="openBrowser()">Open cloud login</button>
-            <button class="quiet" onclick="runAwsTask()">Run AWS task</button>
-            <button class="quiet" onclick="runAmplify()">Run Amplify step</button>
+            <button class="quiet" onclick="runDeploy()">Deploy</button>
             <button class="quiet" onclick="pauseRun()">Pause</button>
             <button class="quiet" onclick="resumeRun()">Resume</button>
           </div>
@@ -351,14 +350,14 @@ HTML = r"""
               <select id="cloud"><option value="aws">AWS</option><option value="gcp">GCP</option></select>
             </div>
             <div style="min-width:180px; flex:1">
-              <label for="awsTask">AWS deployment task</label>
+              <label for="awsTask">Deployment task override</label>
               <textarea id="awsTask" rows="2" placeholder="Deploy this repo safely on AWS under $5"></textarea>
             </div>
           </div>
           <div class="row" style="margin-top:12px">
             <button class="secondary" onclick="showLogin()">Show login gate</button>
             <button class="secondary" onclick="hInspect()">H inspect</button>
-            <button class="secondary" onclick="runAwsTask()">Run AWS task</button>
+            <button class="secondary" onclick="runDeploy()">Deploy</button>
             <button class="secondary" onclick="runGcpTask()">Run GCP task</button>
             <button class="secondary" onclick="cleanupH()">Clean H sessions</button>
           </div>
@@ -480,12 +479,19 @@ async function runAwsTask() {
   await post(`/runs/${currentRun.run_id}/aws-deploy`, body({task: awsTask.value || null, max_spend_usd: 5}));
   await refresh();
 }
+async function runDeploy() {
+  if (!currentRun) return;
+  if ((cloud.value || currentRun.cloud) === 'gcp') {
+    await runGcpTask();
+  } else {
+    await runAwsTask();
+  }
+}
 async function runGcpTask() {
   if (!currentRun) return;
   await post(`/runs/${currentRun.run_id}/gcp-deploy`, body({task: awsTask.value || null}));
   await refresh();
 }
-async function runAmplify() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/amplify-deploy`, body()); await refresh(); }
 async function runVerifier() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/verify`, body()); await refresh(); }
 async function writeReport() { if (!currentRun) return; await post(`/runs/${currentRun.run_id}/report`, body()); await refresh(); }
 async function sendVoice() { if (!currentRun || !voiceText.value.trim()) return; await post(`/runs/${currentRun.run_id}/voice`, body({text: voiceText.value})); voiceText.value = ''; await refresh(); }
