@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from dataclasses import asdict
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from .credentials import load_secret_values
 from .h_admin import cleanup_h_sessions, get_h_quota
 from .mode_policy import policy_for
@@ -28,6 +30,45 @@ class HTaskResult:
     agent_view_url: str | None = None
     outcome: str | None = None
     error: str | None = None
+
+
+class ECSVisibleDefaults(BaseModel):
+    image_uri: str | None = None
+    container_port: int | None = None
+    health_check_path: str | None = None
+    public_exposure: str | None = None
+    iam_scope: str | None = None
+    estimated_cost: str | None = None
+
+
+class ECSInspectionAnswer(BaseModel):
+    milestone: str
+    status: str
+    service_target: str
+    region: str | None = None
+    visible_defaults: ECSVisibleDefaults = Field(default_factory=ECSVisibleDefaults)
+    required_inputs_visible: list[str] = Field(default_factory=list)
+    can_apply_contract: bool
+    required_corrections: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    console_url: str | None = None
+
+
+class ECSCreationAnswer(BaseModel):
+    milestone: str
+    status: str
+    region: str | None = None
+    service_name: str | None = None
+    service_arn: str | None = None
+    task_definition_arn: str | None = None
+    image_uri: str | None = None
+    container_port: int | None = None
+    target_health: str | None = None
+    public_app_url: str | None = None
+    console_url: str | None = None
+    created_resources: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
 
 
 def _event_excerpt(events: list[Any], limit: int = 8) -> str:
@@ -79,6 +120,7 @@ def _run_h_task_sdk(
     max_time_s: int = 180,
     skill_names: list[str] | None = None,
     event_callback: Callable[[dict[str, Any]], None] | None = None,
+    answer_schema_name: str | None = None,
 ) -> HTaskResult:
     if os.environ.get("CLOUD_CUA_CONTAINER") == "1":
         return HTaskResult(
@@ -138,14 +180,16 @@ def _run_h_task_sdk(
                     "max_time_s": max_time_s,
                     "queue": False,
                 }
+                answer_schema = _answer_schema_for(answer_schema_name)
                 if event_callback:
-                    handle = client.start_session(**create_params)
+                    handle = client.start_session(**create_params, answer_schema=answer_schema)
                     for event in handle.stream(wait_for_seconds=5, until="settled", timeout_seconds=max_time_s + 60):
                         event_callback(_event_dict(event))
                     result = handle.wait_for_completion(wait_for_seconds=5, timeout_seconds=60, include_events=True)
                 else:
                     result = client.run_session(
                         **create_params,
+                        answer_schema=answer_schema,
                         wait_for_seconds=5,
                         timeout_seconds=max_time_s + 60,
                         include_events=True,
@@ -173,7 +217,12 @@ def _run_h_task_sdk(
         if result is None:
             raise RuntimeError("H session did not return a result after local bridge retry.")
         status = "completed" if result.status in {"completed", "idle"} and result.outcome not in {"blocked", "infeasible"} else str(result.status)
-        answer = "" if result.answer is None else str(result.answer)
+        if result.answer is None:
+            answer = ""
+        elif hasattr(result.answer, "model_dump"):
+            answer = json.dumps(result.answer.model_dump(mode="json"))
+        else:
+            answer = str(result.answer)
         summary = answer.strip() or result.error or _event_excerpt(result.events) or f"H session ended with status {result.status}."
         raw = _event_excerpt(result.events, limit=20)
         return HTaskResult(
@@ -219,8 +268,16 @@ def run_h_task(
     max_time_s: int = 180,
     skill_names: list[str] | None = None,
     event_callback: Callable[[dict[str, Any]], None] | None = None,
+    answer_schema_name: str | None = None,
 ) -> HTaskResult:
-    payload = {"task": task, "mode": mode, "max_steps": max_steps, "max_time_s": max_time_s, "skill_names": skill_names or []}
+    payload = {
+        "task": task,
+        "mode": mode,
+        "max_steps": max_steps,
+        "max_time_s": max_time_s,
+        "skill_names": skill_names or [],
+        "answer_schema_name": answer_schema_name,
+    }
     outer_timeout = max(45, max_time_s + 30)
     command = [sys.executable, "-m", "cloud_cua.h_runner_worker"]
     try:
@@ -270,6 +327,7 @@ def run_h_task_worker(
         int(payload.get("max_time_s", 180)),
         list(payload.get("skill_names") or []),
         event_callback,
+        payload.get("answer_schema_name"),
     )
     return json.dumps(asdict(result))
 
@@ -369,3 +427,10 @@ def cleanup_orphaned_chromedrivers() -> list[int]:
     if proc.returncode != 0 or not proc.stdout.strip():
         return []
     return [int(item) for item in proc.stdout.strip().split(",") if item.strip().isdigit()]
+
+
+def _answer_schema_for(name: str | None):
+    return {
+        "ecs_inspection": ECSInspectionAnswer,
+        "ecs_creation": ECSCreationAnswer,
+    }.get(name)

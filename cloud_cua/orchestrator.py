@@ -10,7 +10,7 @@ from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
-from .container_image import prepare_ecr_image_with_progress
+from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
 from .deployment_contract import build_deployment_contract, load_contract, save_contract
 from .deployment_milestones import build_ecs_creation_task, build_ecs_inspection_task, review_ecs_inspection
@@ -189,6 +189,12 @@ class Orchestrator:
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
         contract = build_deployment_contract(self.repo_path, ctx, option.target)
+        previous_contract = None
+        if self.store.contract_path(run_id).exists():
+            try:
+                previous_contract = load_contract(self.store.contract_path(run_id))
+            except Exception:
+                previous_contract = None
         skill = skill_for_target(option.target)
         if skill is not None:
             contract = contract.with_runtime_inputs(
@@ -197,6 +203,8 @@ class Orchestrator:
                 skill_hash=skill.content_hash,
                 autonomy_level=skill.autonomy_level,
                 cloud_region=plan.region,
+                container_image_uri=previous_contract.container_image_uri if previous_contract and previous_contract.target == option.target else "",
+                ecr_repository=previous_contract.ecr_repository if previous_contract and previous_contract.target == option.target else "",
                 repo_name=self.repo_path.name,
             )
         contract_path = save_contract(self.store.contract_path(run_id), contract)
@@ -245,8 +253,22 @@ class Orchestrator:
                     self.store.save_run(current)
                     self.store.append_event(run_id, "system", "command", message, evidence)
 
-                progress("container_image_preparing", "Preparing local Docker image and ECR repository for ECS Express Mode.", {})
-                image_prep = prepare_ecr_image_with_progress(self.repo_path, self.repo_path.name, run_id, plan.region, progress)
+                if contract.container_image_uri and contract.ecr_repository and ecr_image_exists(contract.container_image_uri, contract.ecr_repository, plan.region):
+                    progress(
+                        "container_image_reused",
+                        "Reusing the run's existing ECR image for ECS Express Mode.",
+                        {"image_uri": contract.container_image_uri, "repository": contract.ecr_repository},
+                    )
+                    image_prep = ContainerImagePrepResult(
+                        "passed",
+                        f"Reused existing ECR image: {contract.container_image_uri}",
+                        image_uri=contract.container_image_uri,
+                        repository_name=contract.ecr_repository,
+                        registry=contract.container_image_uri.split("/", 1)[0],
+                    )
+                else:
+                    progress("container_image_preparing", "Preparing local Docker image and ECR repository for ECS Express Mode.", {})
+                    image_prep = prepare_ecr_image_with_progress(self.repo_path, self.repo_path.name, run_id, plan.region, progress)
                 self.store.append_event(run_id, "system", "result", image_prep.summary, image_prep.to_dict())
                 if image_prep.status != "passed":
                     run = self.store.load_run(run_id)
@@ -315,6 +337,7 @@ class Orchestrator:
                     max_time_s=420,
                     skill_names=[skill.name],
                     event_callback=self._h_event_callback(run_id, "inspect_ecs_express_form"),
+                    answer_schema_name="ecs_inspection",
                 )
                 self.store.append_event(run_id, "h_cua", "observation", inspect_result.summary, {"status": inspect_result.status, "session_id": inspect_result.session_id, "milestone": "inspect_ecs_express_form"})
                 inspection_review = review_ecs_inspection(inspect_result, contract)
@@ -364,6 +387,7 @@ class Orchestrator:
                 max_time_s=900,
                 skill_names=[skill.name],
                 event_callback=self._h_event_callback(run_id, "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"),
+                answer_schema_name="ecs_creation" if option.target == "aws_ecs_express" else None,
             )
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             review = review_h_result(result, contract)

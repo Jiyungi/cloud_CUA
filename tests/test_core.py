@@ -506,6 +506,14 @@ def test_orphaned_chromedriver_cleanup_parses_stopped_ids(monkeypatch):
     assert cleanup_orphaned_chromedrivers() == [123, 456]
 
 
+def test_h_runner_resolves_structured_ecs_schemas():
+    from cloud_cua.h_runner import ECSCreationAnswer, ECSInspectionAnswer, _answer_schema_for
+
+    assert _answer_schema_for("ecs_inspection") is ECSInspectionAnswer
+    assert _answer_schema_for("ecs_creation") is ECSCreationAnswer
+    assert _answer_schema_for(None) is None
+
+
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     result = VerifierResult(
         "secret_check",

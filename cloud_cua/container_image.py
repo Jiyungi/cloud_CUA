@@ -27,6 +27,28 @@ def prepare_ecr_image(repo_path: str | Path, repo_name: str, run_id: str, region
     return prepare_ecr_image_with_progress(repo_path, repo_name, run_id, region)
 
 
+def ecr_image_exists(image_uri: str, repository_name: str, region: str = DEFAULT_AWS_REGION) -> bool:
+    if not image_uri or not repository_name or ":" not in image_uri:
+        return False
+    image_tag = image_uri.rsplit(":", 1)[-1]
+    result = _run(
+        aws_command(
+            [
+                "ecr",
+                "describe-images",
+                "--repository-name",
+                repository_name,
+                "--image-ids",
+                f"imageTag={image_tag}",
+                "--region",
+                region,
+            ]
+        ),
+        timeout=30,
+    )
+    return result.returncode == 0
+
+
 def prepare_ecr_image_with_progress(
     repo_path: str | Path,
     repo_name: str,
