@@ -113,6 +113,9 @@ HTML = r"""
       align-content: start;
       gap: 12px;
     }
+    .mission-side > div { min-width: 0; }
+    .mission-side > div > div { overflow-wrap: anywhere; }
+    #runIdPill { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .split { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .chip {
