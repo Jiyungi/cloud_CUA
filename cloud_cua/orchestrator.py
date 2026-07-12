@@ -11,7 +11,7 @@ from pathlib import Path
 from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
-from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock, start_run_cost_clock
+from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock, start_run_cost_clock, stop_run_cost_clock
 from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
 from .amplify_artifact import stage_amplify_artifact
 from .browser_profile import launch_dedicated_browser
@@ -1374,6 +1374,17 @@ class Orchestrator:
         result = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=dry_run)
         if run_id:
             self.store.append_event(run_id, "system", "command", "Ran AWS cleanup workflow.", result.to_dict())
+            if not dry_run and result.status == "passed" and all(action.status == "passed" for action in result.actions):
+                policy = stop_run_cost_clock(self.store.run_dir(run_id))
+                self.cost_monitor.unregister(self.repo_path, run_id)
+                if policy:
+                    self.store.append_event(
+                        run_id,
+                        "system",
+                        "cost_stopped",
+                        "Stopped the estimated cost clock after tagged AWS cleanup completed.",
+                        {"cost_policy": policy.to_dict()},
+                    )
         return result.to_dict()
 
     def write_report(self, run_id: str) -> dict:

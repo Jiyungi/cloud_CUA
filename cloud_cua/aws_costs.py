@@ -38,6 +38,7 @@ class CostPolicy:
     estimated_accrued_usd: float = 0.0
     percent_used: float = 0.0
     started_at: str = ""
+    stopped_at: str = ""
     deadline_at: str = ""
     warning_level: int = 0
     components: list[PriceComponent] = field(default_factory=list)
@@ -209,6 +210,8 @@ def start_cost_clock(policy: CostPolicy, *, now: datetime | None = None) -> Cost
 
 def refresh_cost_policy(policy: CostPolicy, *, now: datetime | None = None) -> CostPolicy:
     current = now or datetime.now(UTC)
+    if policy.stopped_at:
+        current = min(current, datetime.fromisoformat(policy.stopped_at))
     accrued = policy.estimated_variable_usd
     if policy.started_at:
         started = datetime.fromisoformat(policy.started_at)
@@ -217,4 +220,16 @@ def refresh_cost_policy(policy: CostPolicy, *, now: datetime | None = None) -> C
     policy.percent_used = round((accrued / policy.max_spend_usd) * 100, 2) if policy.max_spend_usd else 100.0
     policy.warning_level = 100 if policy.percent_used >= 100 else 80 if policy.percent_used >= 80 else 50 if policy.percent_used >= 50 else 0
     policy.updated_at = current.isoformat()
+    return policy
+
+
+def stop_run_cost_clock(run_dir: Path, *, now: datetime | None = None) -> CostPolicy | None:
+    path = run_dir / "cost-policy.json"
+    policy = load_cost_policy(path, now=now)
+    if not policy:
+        return None
+    stopped = now or datetime.now(UTC)
+    policy.stopped_at = stopped.isoformat()
+    refresh_cost_policy(policy, now=stopped)
+    save_cost_policy(path, policy)
     return policy

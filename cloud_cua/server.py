@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .dashboard import render_dashboard
 from .orchestrator import Orchestrator
 from .h_session_manager import get_h_session_manager
+from .cost_monitor import get_cost_monitor
 
 
 class StartRequest(BaseModel):
@@ -115,6 +116,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
     service_token = os.environ.get("CLOUD_CUA_SERVICE_TOKEN", "")
     launch_tokens: dict[str, tuple[float, str, str]] = {}
+    if service_token or os.environ.get("CLOUD_CUA_CONTAINER") == "1":
+        get_cost_monitor().recover()
 
     @app.middleware("http")
     async def local_service_auth(request: Request, call_next):

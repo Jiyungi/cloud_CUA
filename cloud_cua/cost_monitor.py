@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 from pathlib import Path
 
 from .aws_costs import load_cost_policy, save_cost_policy
 from .run_store import RunStore
+from .paths import user_config_dir
 
 
 class CostMonitor:
-    def __init__(self, interval_seconds: float = 30.0):
+    def __init__(self, interval_seconds: float = 30.0, *, persist: bool = False, registry_path: Path | None = None):
         self.interval_seconds = interval_seconds
+        self.persist = persist
+        self.registry_path = registry_path or (user_config_dir() / "cost-runs.json")
         self._guard = threading.RLock()
         self._runs: set[tuple[str, str]] = set()
         self._thread: threading.Thread | None = None
@@ -19,7 +24,27 @@ class CostMonitor:
         store = RunStore(repo_path)
         with self._guard:
             self._runs.add((str(store.repo_path), run_id))
+            self._save_registry()
             if not self._thread or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._loop, daemon=True, name="cloud-cua-cost-monitor")
+                self._thread.start()
+
+    def unregister(self, repo_path: str | Path, run_id: str) -> None:
+        store = RunStore(repo_path)
+        with self._guard:
+            self._runs.discard((str(store.repo_path), run_id))
+            self._save_registry()
+
+    def recover(self) -> None:
+        if not self.persist:
+            return
+        with self._guard:
+            try:
+                items = json.loads(self.registry_path.read_text(encoding="utf-8"))
+                self._runs.update((str(item["repo_path"]), str(item["run_id"])) for item in items)
+            except (OSError, TypeError, KeyError, json.JSONDecodeError):
+                pass
+            if self._runs and (not self._thread or not self._thread.is_alive()):
                 self._thread = threading.Thread(target=self._loop, daemon=True, name="cloud-cua-cost-monitor")
                 self._thread.start()
 
@@ -61,8 +86,19 @@ class CostMonitor:
                     continue
             time.sleep(self.interval_seconds)
 
+    def _save_registry(self) -> None:
+        if not self.persist:
+            return
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.registry_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps([{"repo_path": repo_path, "run_id": run_id} for repo_path, run_id in sorted(self._runs)], indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(self.registry_path)
 
-_MONITOR = CostMonitor()
+
+_MONITOR = CostMonitor(persist=bool(os.environ.get("CLOUD_CUA_SERVICE_TOKEN") or os.environ.get("CLOUD_CUA_CONTAINER") == "1"))
 
 
 def get_cost_monitor() -> CostMonitor:

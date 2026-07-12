@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from cloud_cua.aws_costs import PriceListClient, build_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock
+from cloud_cua.aws_costs import PriceListClient, build_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock, stop_run_cost_clock
 from cloud_cua.cost_monitor import CostMonitor
 from cloud_cua.orchestrator import Orchestrator
 from cloud_cua.run_store import RunStore
@@ -84,3 +84,52 @@ def test_approved_cost_extension_persists_the_new_cap(tmp_path):
     assert result["max_spend_usd"] == 10.0
     assert persisted is not None
     assert persisted.max_spend_usd == 10.0
+
+
+def test_cost_monitor_emits_50_and_80_percent_warnings(tmp_path):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    policy = build_cost_policy("aws_ecs_express", "us-east-1", 1.0, FakePricing())
+    now = datetime.now(UTC)
+    policy.started_at = (now - timedelta(hours=0.51 / policy.fixed_hourly_usd)).isoformat()
+    save_cost_policy(store.run_dir(run.run_id) / "cost-policy.json", policy)
+    monitor = CostMonitor(interval_seconds=3600)
+
+    assert monitor.evaluate(tmp_path, run.run_id)["warning_level"] == 50
+    policy.started_at = (now - timedelta(hours=0.81 / policy.fixed_hourly_usd)).isoformat()
+    save_cost_policy(store.run_dir(run.run_id) / "cost-policy.json", policy)
+    assert monitor.evaluate(tmp_path, run.run_id)["warning_level"] == 80
+
+    warnings = [event for event in store.read_events(run.run_id) if event["type"] == "cost_warning"]
+    assert [event["evidence"]["cost_policy"]["warning_level"] for event in warnings] == [50, 80]
+
+
+def test_cleanup_stop_time_freezes_estimated_cost(tmp_path):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    stop = start + timedelta(hours=2)
+    policy = build_cost_policy("aws_ecs_express", "us-east-1", 5.0, FakePricing())
+    start_cost_clock(policy, now=start)
+    save_cost_policy(store.run_dir(run.run_id) / "cost-policy.json", policy)
+
+    stopped = stop_run_cost_clock(store.run_dir(run.run_id), now=stop)
+    much_later = load_cost_policy(store.run_dir(run.run_id) / "cost-policy.json", now=stop + timedelta(days=30))
+
+    assert stopped is not None and much_later is not None
+    assert much_later.stopped_at == stop.isoformat()
+    assert much_later.estimated_accrued_usd == stopped.estimated_accrued_usd
+
+
+def test_cost_registry_recovers_after_backend_restart(tmp_path):
+    registry = tmp_path / "cost-runs.json"
+    repo = tmp_path / "repo"
+    store = RunStore(repo)
+    run = store.create_run("aws", "vibe")
+    first = CostMonitor(interval_seconds=3600, persist=True, registry_path=registry)
+    first.register(repo, run.run_id)
+
+    recovered = CostMonitor(interval_seconds=3600, persist=True, registry_path=registry)
+    recovered.recover()
+
+    assert (str(store.repo_path), run.run_id) in recovered._runs
