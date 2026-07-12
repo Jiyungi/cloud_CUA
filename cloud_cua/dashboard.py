@@ -1135,9 +1135,15 @@ async function initDefaults() {
   const params = new URLSearchParams(window.location.search);
   const linkedRepo = params.get('repo_path');
   const linkedRun = params.get('run_id');
-  if (linkedRepo && linkedRun) {
+  if (linkedRepo) {
     repoInput.value = linkedRepo;
     localStorage.setItem('cloud_cua_repo', linkedRepo);
+    workspaceState.textContent = linkedRun ? `Loading ${linkedRepo}` : `Ready to attach ${linkedRepo}`;
+    if (!linkedRun) {
+      await loadCapabilities();
+      updateRunControls();
+      return;
+    }
     try {
       const response = await fetch(`/runs/${encodeURIComponent(linkedRun)}?repo_path=${encodeURIComponent(linkedRepo)}`);
       if (!response.ok) throw new Error(await response.text());

@@ -36,6 +36,12 @@ def test_voice_dashboard_has_no_browser_errors_or_horizontal_overflow() -> None:
         page.wait_for_timeout(100)
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth") is True
         assert page.locator("#micButton").is_visible()
+
+        requested_repo = "C:/work/exact-app"
+        page.goto(f"http://cloud-cua.test/?repo_path={requested_repo}&run_id=", wait_until="networkidle")
+        assert page.locator("#repo").input_value() == requested_repo
+        assert page.locator("#workspaceState").inner_text() == f"Ready to attach {requested_repo}"
+        assert page.locator("button[data-run-control]").first.is_disabled()
         browser.close()
 
     assert errors == []
