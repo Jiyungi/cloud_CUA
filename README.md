@@ -287,6 +287,7 @@ cloud-cua aws-evals validate
 cloud-cua aws-evals list
 cloud-cua aws-evals show --case ecr-misconfiguration-trap
 cloud-cua aws-evals skill-seed --service ecr
+cloud-cua aws-evals build-skills
 ```
 
 See [the AWS H evaluation catalog guide](docs/aws-h-evaluation-catalog.md) for scoring and skill-promotion rules.

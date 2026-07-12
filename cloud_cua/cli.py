@@ -9,6 +9,7 @@ import json
 
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .aws_evals import build_h_eval_task, build_review_only_skill_seed, load_aws_eval_catalog
+from .aws_skill_generation import materialize_aws_eval_skills
 from .codex_config import install_cloud_cua_mcp
 from .credentials import inspect_credentials, save_credentials
 from .doctor import run_doctor
@@ -148,6 +149,9 @@ def cmd_aws_evals(args: argparse.Namespace) -> int:
     if args.aws_evals_cmd == "skill-seed":
         print(json.dumps(build_review_only_skill_seed(args.service), indent=2))
         return 0
+    if args.aws_evals_cmd == "build-skills":
+        print(json.dumps(materialize_aws_eval_skills(args.output).to_dict(), indent=2))
+        return 0
     print(f"Catalog valid: {len(catalog.services)} services, {len(catalog.cases)} cases")
     return 0
 
@@ -216,6 +220,9 @@ def build_parser() -> argparse.ArgumentParser:
     aws_evals_seed = aws_evals_sub.add_parser("skill-seed")
     aws_evals_seed.add_argument("--service", required=True)
     aws_evals_seed.set_defaults(func=cmd_aws_evals)
+    aws_evals_build = aws_evals_sub.add_parser("build-skills")
+    aws_evals_build.add_argument("--output")
+    aws_evals_build.set_defaults(func=cmd_aws_evals)
     aws_evals_sub.add_parser("validate").set_defaults(func=cmd_aws_evals)
     package = sub.add_parser("package")
     package.add_argument("--output")

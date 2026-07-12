@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,7 @@ class AWSEvalResult:
         return asdict(self)
 
 
+@lru_cache(maxsize=8)
 def load_aws_eval_catalog(path: str | Path | None = None) -> AWSEvalCatalog:
     source = Path(path) if path else CATALOG_PATH
     raw = yaml.safe_load(source.read_text(encoding="utf-8"))
