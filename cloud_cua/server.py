@@ -22,6 +22,7 @@ class StartRequest(BaseModel):
     repo_path: str
     cloud: str = "aws"
     mode: str = "vibe"
+    deployment_scope: str = "auto"
 
 
 class ModeRequest(BaseModel):
@@ -188,7 +189,7 @@ def create_app() -> FastAPI:
         repo = resolve_repo_path(req.repo_path)
         if not repo.is_dir():
             raise HTTPException(status_code=400, detail=f"Repository folder does not exist: {req.repo_path}")
-        return Orchestrator(repo).start_deployment(req.cloud, req.mode)
+        return Orchestrator(repo).start_deployment(req.cloud, req.mode, req.deployment_scope)
 
     @app.get("/runs")
     def list_runs(repo_path: str):

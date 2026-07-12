@@ -97,19 +97,33 @@ class Orchestrator:
         self.h_sessions.recover_repo(self.repo_path)
         self.cost_monitor = get_cost_monitor()
 
-    def start_deployment(self, cloud: str = "aws", mode: str = "vibe") -> dict:
+    def start_deployment(
+        self,
+        cloud: str = "aws",
+        mode: str = "vibe",
+        deployment_scope: str = "auto",
+    ) -> dict:
         mode_v = normalize_mode(mode)
         cloud_v: Cloud = "gcp" if cloud.lower() == "gcp" else "aws"
         run = self.store.create_run(cloud_v, mode_v)
         ctx = analyze_repo(self.repo_path)
         fixture = load_agent_test_contract(self.repo_path)
+        requested_scope = deployment_scope.strip().lower().replace("-", "_")
+        if requested_scope not in {"auto", "full", "frontend_preview"}:
+            raise ValueError("deployment_scope must be auto, full, or frontend_preview.")
+        if requested_scope == "auto":
+            requested_scope = "frontend_preview" if fixture and fixture.requires_backend_implementation else "full"
+        run.deployment_scope = requested_scope
         run.target = ctx.recommendation
         run.current_step = "repo_analyzed"
         run.status = "waiting_for_login"
-        if fixture and fixture.requires_backend_implementation:
+        if fixture and fixture.requires_backend_implementation and requested_scope == "full":
             run.target = "aws_multi_service_application"
             run.current_step = "backend_implementation_required"
             run.status = "blocked"
+        elif fixture and fixture.requires_backend_implementation:
+            run.target = "aws_amplify"
+            run.current_step = "frontend_preview_ready"
         self.store.save_run(run)
         self.store.append_event(run.run_id, "system", "result", "Analyzed repo.", {"repo_context": asdict(ctx)})
         if fixture:
@@ -122,7 +136,7 @@ class Orchestrator:
                 "Loaded the repository's multi-service agent test contract.",
                 {"fixture": fixture.to_dict(), "path": str(fixture_path)},
             )
-            if fixture.requires_backend_implementation:
+            if fixture.requires_backend_implementation and requested_scope == "full":
                 self.store.append_event(
                     run.run_id,
                     "codex",
@@ -134,6 +148,18 @@ class Orchestrator:
                         "unmatched_services": list(fixture.unmatched_services),
                     },
                 )
+            elif fixture.requires_backend_implementation:
+                self.store.append_event(
+                    run.run_id,
+                    "codex",
+                    "scope",
+                    "Started a frontend-preview deployment. The required AWS backend remains out of scope.",
+                    {
+                        "deployment_scope": "frontend_preview",
+                        "hosting_target": "aws_amplify",
+                        "backend_services_not_deployed": list(fixture.required_aws_services[1:]),
+                    },
+                )
         if cloud_v == "aws":
             aws_plan = build_aws_deployment_plan(self.repo_path.name, ctx)
             self.store.append_event(run.run_id, "system", "plan", "Prepared generalized AWS deployment plan.", {"aws_plan": aws_plan.to_dict()})
@@ -143,7 +169,11 @@ class Orchestrator:
             self.store.save_run(run)
             self.store.append_event(run.run_id, "system", "plan", "Prepared GCP Cloud Run deployment plan.", {"gcp_plan": gcp_plan.to_dict()})
         if cloud_v == "aws" and ctx.recommendation == "aws_amplify":
-            plan = build_amplify_plan(self.repo_path.name, ctx)
+            plan = build_amplify_plan(
+                self.repo_path.name,
+                ctx,
+                branch=fixture.git_branch if fixture and requested_scope == "frontend_preview" else "main",
+            )
             self.store.append_event(run.run_id, "system", "plan", "Prepared AWS Amplify deployment plan.", {"amplify_plan": plan.to_dict()})
         creds = inspect_credentials(self.repo_path)
         self.store.append_event(
@@ -362,7 +392,7 @@ class Orchestrator:
     ) -> dict:
         run = self.store.load_run(run_id)
         fixture = load_agent_test_contract(self.repo_path)
-        if fixture and fixture.requires_backend_implementation:
+        if fixture and fixture.requires_backend_implementation and run.deployment_scope != "frontend_preview":
             return {
                 "status": "blocked",
                 "summary": "This fixture requires a real multi-service AWS backend; deploying only its frontend would be a false success.",
@@ -385,10 +415,25 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
+        if fixture and fixture.requires_backend_implementation and option.target != "aws_amplify":
+            return {
+                "status": "blocked",
+                "summary": "This fixture can currently deploy only an Amplify frontend preview. Its multi-service AWS backend is not implemented.",
+                "current_step": "backend_implementation_required",
+                "fixture": fixture.to_dict(),
+            }
         if run.target != option.target:
             run.target = option.target
             self.store.save_run(run)
-        amplify_plan = build_amplify_plan(self.repo_path.name, ctx) if option.target == "aws_amplify" else None
+        amplify_plan = (
+            build_amplify_plan(
+                self.repo_path.name,
+                ctx,
+                branch=fixture.git_branch if fixture and run.deployment_scope == "frontend_preview" else "main",
+            )
+            if option.target == "aws_amplify"
+            else None
+        )
         resource_name = (
             s3_bucket_name(self.repo_path.name, run_id)
             if option.target == "aws_s3_static_site"
@@ -1453,7 +1498,12 @@ class Orchestrator:
                 else:
                     aws_results.append(VerifierResult("aws_ecs_contract", "failed", "contract.json", "Saved deployment contract is missing."))
             if run.target == "aws_amplify":
-                amplify_plan = build_amplify_plan(self.repo_path.name, repo_context)
+                fixture = load_agent_test_contract(self.repo_path)
+                amplify_plan = build_amplify_plan(
+                    self.repo_path.name,
+                    repo_context,
+                    branch=fixture.git_branch if fixture and run.deployment_scope == "frontend_preview" else "main",
+                )
                 exact = verify_amplify_run(run_id, amplify_plan.app_name)
                 aws_results.append(exact)
                 try:
@@ -1516,6 +1566,15 @@ class Orchestrator:
         run.current_step = "verifier_complete"
         if all(item["status"] in {"passed", "skipped"} for item in results):
             run.status = "completed" if any(item["status"] == "passed" for item in results) else run.status
+            if run.status == "completed" and run.deployment_scope == "frontend_preview":
+                run.current_step = "frontend_preview_verified"
+                self.store.append_event(
+                    run_id,
+                    "codex",
+                    "scope",
+                    "Verified the hosted frontend preview. The fixture's required AWS backend was not deployed.",
+                    {"deployment_scope": "frontend_preview"},
+                )
             resolved = resolve_lesson_candidate(
                 self.store.run_dir(run_id),
                 "The run later passed every required independent verifier.",

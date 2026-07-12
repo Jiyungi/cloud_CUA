@@ -13,6 +13,7 @@ class Run:
     repo_path: str
     cloud: Cloud
     mode: Mode
+    deployment_scope: str = "full"
     target: str = "unknown"
     status: str = "created"
     current_step: str = "created"
@@ -42,4 +43,3 @@ class RepoContext:
     env_vars: list[str]
     risks: list[str]
     recommendation: str
-

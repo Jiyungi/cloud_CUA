@@ -14,10 +14,18 @@ def _client() -> CloudCUAClient:
 
 
 @mcp.tool()
-def cloud_cua_start_deployment(repo_path: str, cloud: str = "aws", mode: str = "vibe") -> Any:
-    """Start a deployment in the host-local backend and open its exact dashboard run."""
+def cloud_cua_start_deployment(
+    repo_path: str,
+    cloud: str = "aws",
+    mode: str = "vibe",
+    deployment_scope: str = "auto",
+) -> Any:
+    """Start a deployment and open its dashboard. Fixture repos default to an honest frontend preview."""
     client = _client()
-    run = client.post("/runs", {"repo_path": repo_path, "cloud": cloud, "mode": mode})
+    run = client.post(
+        "/runs",
+        {"repo_path": repo_path, "cloud": cloud, "mode": mode, "deployment_scope": deployment_scope},
+    )
     dashboard = client.open_dashboard(repo_path, run["run_id"])
     run = client.post(
         f"/runs/{run['run_id']}/dashboard",

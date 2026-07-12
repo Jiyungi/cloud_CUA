@@ -28,10 +28,23 @@ def test_invoiceops_contract_maps_fifteen_skills_and_keeps_textract_explicit() -
     assert "cloud-cua/aws-step-functions" in contract.matched_skill_names
 
 
-def test_fixture_run_blocks_frontend_only_success_before_login() -> None:
+def test_fixture_run_defaults_to_honest_frontend_preview() -> None:
     repo = ROOT / "agent-test-projects" / "receipt-split"
     orchestrator = Orchestrator(repo)
     run = orchestrator.start_deployment()
+    assert run["status"] == "waiting_for_login"
+    assert run["target"] == "aws_amplify"
+    assert run["deployment_scope"] == "frontend_preview"
+    assert run["current_step"] == "frontend_preview_ready"
+    result = orchestrator.run_aws_deployment_task(run["run_id"], target="aws_amplify")
+    assert result["status"] == "blocked"
+    assert "login" in result["summary"].lower()
+
+
+def test_fixture_full_scope_blocks_before_login() -> None:
+    repo = ROOT / "agent-test-projects" / "receipt-split"
+    orchestrator = Orchestrator(repo)
+    run = orchestrator.start_deployment(deployment_scope="full")
     assert run["status"] == "blocked"
     assert run["target"] == "aws_multi_service_application"
     assert run["current_step"] == "backend_implementation_required"
