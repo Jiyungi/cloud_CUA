@@ -290,7 +290,19 @@ def create_app() -> FastAPI:
 
     @app.post("/runs/{run_id}/aws-deploy")
     def aws_deploy(run_id: str, req: AWSDeploymentTaskRequest):
-        return Orchestrator(req.repo_path).run_aws_deployment_task(run_id, req.task, req.target, req.max_spend_usd)
+        orchestrator = Orchestrator(req.repo_path)
+        approved = any(
+            item.get("status") == "approved" and item.get("action", "").startswith("Run AWS deployment task:")
+            for item in orchestrator.list_approvals(run_id)
+        )
+        if approved:
+            return get_h_session_manager().schedule(
+                req.repo_path,
+                run_id,
+                "aws-deployment-retry",
+                lambda: Orchestrator(req.repo_path).run_aws_deployment_task(run_id, req.task, req.target, req.max_spend_usd),
+            )
+        return orchestrator.run_aws_deployment_task(run_id, req.task, req.target, req.max_spend_usd)
 
     @app.get("/runs/{run_id}/aws-plan")
     def aws_plan(run_id: str, repo_path: str):

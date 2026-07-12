@@ -307,6 +307,33 @@ def test_aws_deploy_does_not_start_duplicate_work(tmp_path):
     assert result.json()["current_step"] == "container_image_pushing"
 
 
+def test_approved_aws_retry_is_scheduled_as_an_h_job(tmp_path, monkeypatch):
+    client = TestClient(create_app())
+    (tmp_path / "index.html").write_text("<h1>static</h1>", encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
+    store = RunStore(tmp_path)
+    mark_aws_login_verified(store, run["run_id"])
+    planned = client.post(
+        f"/runs/{run['run_id']}/aws-deploy",
+        json={"repo_path": str(tmp_path), "target": "aws_s3_static_site", "max_spend_usd": 5},
+    ).json()
+    from cloud_cua.approvals import decide_approval
+
+    decide_approval(store.run_dir(run["run_id"]), planned["approval"]["approval_id"], True)
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.Orchestrator.run_aws_deployment_task",
+        lambda *args, **kwargs: {"status": "blocked", "summary": "bounded retry"},
+    )
+
+    result = client.post(
+        f"/runs/{run['run_id']}/aws-deploy",
+        json={"repo_path": str(tmp_path), "target": "aws_s3_static_site", "max_spend_usd": 5},
+    )
+
+    assert result.json()["status"] == "scheduled"
+    assert result.json()["h_job"]["operation"] == "aws-deployment-retry"
+
+
 def test_general_aws_deploy_blocks_over_budget(tmp_path):
     client = TestClient(create_app())
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
