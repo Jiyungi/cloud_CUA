@@ -4,6 +4,8 @@ import json
 import re
 import subprocess
 
+from ..deployment_contract import DeploymentContract
+
 from ..aws_cli import aws_command
 from .base import VerifierResult, run_command
 
@@ -106,6 +108,115 @@ def verify_ecs_run_services(run_id: str) -> VerifierResult:
 
     summary = json.dumps({"services": summaries, "targetHealth": target_health, "failures": failures}, indent=2)
     return VerifierResult("aws_ecs_run_services", "failed" if failures else "passed", "aws ecs describe-services + elbv2 describe-target-health", summary)
+
+
+def verify_ecs_contract(run_id: str, contract: DeploymentContract) -> VerifierResult:
+    command_label = "aws resourcegroupstaggingapi + ecs describe-services + ecs describe-task-definition + elbv2 describe-target-health"
+    tagged = _aws_json(
+        aws_command(
+            [
+                "resourcegroupstaggingapi",
+                "get-resources",
+                "--tag-filters",
+                "Key=cloud-cua,Values=true",
+                f"Key=cloud-cua-run,Values={run_id}",
+            ]
+        ),
+        timeout=45,
+    )
+    service_arns = sorted(
+        str(item.get("ResourceARN", ""))
+        for item in tagged.get("ResourceTagMappingList", [])
+        if ":ecs:" in str(item.get("ResourceARN", "")) and ":service/" in str(item.get("ResourceARN", ""))
+    )
+    failures: list[str] = []
+    evidence: list[dict] = []
+    if not service_arns:
+        failures.append(f"No ECS service carrying cloud-cua-run={run_id} was found.")
+
+    for arn in service_arns:
+        parsed = _parse_ecs_service_arn(arn)
+        if not parsed:
+            failures.append(f"Could not parse tagged ECS service ARN {arn}.")
+            continue
+        cluster, service_name = parsed
+        service_data = _aws_json(
+            aws_command(["ecs", "describe-services", "--cluster", cluster, "--services", service_name, "--include", "TAGS"]),
+            timeout=45,
+        )
+        services = service_data.get("services", [])
+        if not services:
+            failures.append(f"Tagged ECS service {service_name} was not returned by describe-services.")
+            continue
+        service = services[0]
+        task_definition_arn = str(service.get("taskDefinition") or "")
+        if not task_definition_arn:
+            failures.append(f"ECS service {service_name} has no task definition ARN.")
+            continue
+        task_data = _aws_json(
+            aws_command(["ecs", "describe-task-definition", "--task-definition", task_definition_arn, "--include", "TAGS"]),
+            timeout=45,
+        )
+        task_definition = task_data.get("taskDefinition", {})
+        containers = task_definition.get("containerDefinitions", [])
+        images = sorted({str(item.get("image", "")) for item in containers if item.get("image")})
+        ports = sorted(
+            {
+                int(mapping.get("containerPort"))
+                for item in containers
+                for mapping in item.get("portMappings", [])
+                if mapping.get("containerPort") is not None
+            }
+        )
+        if contract.container_image_uri and contract.container_image_uri not in images:
+            failures.append(f"Task definition image mismatch: expected {contract.container_image_uri}, found {images or 'none'}.")
+        if contract.selected_container_port is not None and contract.selected_container_port not in ports:
+            failures.append(f"Task definition port mismatch: expected {contract.selected_container_port}, found {ports or 'none'}.")
+
+        desired = int(service.get("desiredCount") or 0)
+        running = int(service.get("runningCount") or 0)
+        deployments = service.get("deployments", [])
+        primary = next((item for item in deployments if item.get("status") == "PRIMARY"), deployments[0] if deployments else {})
+        if service.get("status") != "ACTIVE":
+            failures.append(f"ECS service {service_name} status is {service.get('status')}.")
+        if desired < 1 or running < desired:
+            failures.append(f"ECS service {service_name} has {running}/{desired} running tasks.")
+        if primary.get("rolloutState") and primary.get("rolloutState") != "COMPLETED":
+            failures.append(f"ECS service {service_name} rollout is {primary.get('rolloutState')}.")
+
+        target_groups = {
+            str(item.get("targetGroupArn"))
+            for item in service.get("loadBalancers", [])
+            if item.get("targetGroupArn")
+        }
+        target_health: list[dict] = []
+        if not target_groups:
+            failures.append(f"ECS service {service_name} exposes no target group for health verification.")
+        for target_group in sorted(target_groups):
+            health_data = _aws_json(aws_command(["elbv2", "describe-target-health", "--target-group-arn", target_group]), timeout=45)
+            descriptions = health_data.get("TargetHealthDescriptions", [])
+            if not descriptions:
+                failures.append(f"Target group {target_group} has no registered targets.")
+            for item in descriptions:
+                state = str(item.get("TargetHealth", {}).get("State", "unknown"))
+                target = item.get("Target", {})
+                target_health.append({"target": target, "state": state})
+                if state != "healthy":
+                    failures.append(f"Target {target.get('Id')}:{target.get('Port')} is {state}, not healthy.")
+        evidence.append(
+            {
+                "serviceArn": arn,
+                "taskDefinitionArn": task_definition_arn,
+                "images": images,
+                "ports": ports,
+                "desiredCount": desired,
+                "runningCount": running,
+                "targetHealth": target_health,
+            }
+        )
+
+    summary = json.dumps({"contract": contract.to_dict(), "services": evidence, "failures": failures}, indent=2)
+    return VerifierResult("aws_ecs_contract", "failed" if failures else "passed", command_label, summary)
 
 
 def verify_ecr_repositories() -> VerifierResult:

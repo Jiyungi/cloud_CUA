@@ -21,6 +21,7 @@ from cloud_cua.resource_tracking import extract_resource_record
 from cloud_cua.run_store import RunStore
 from cloud_cua.safety import detect_approval_triggers
 from cloud_cua.verifier.base import VerifierResult
+from cloud_cua.verifier.aws import verify_ecs_contract
 from cloud_cua.voice_router import classify_voice_command
 from cloud_cua.voice_gradium import synthesize_tts
 
@@ -168,6 +169,85 @@ def test_ecs_inspection_wrong_port_blocks_creation(tmp_path: Path):
     review = review_ecs_inspection(result, contract)
     assert review.status == "blocked"
     assert "container port" in review.objections[0]
+
+
+def _ecs_contract_fixture(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx\nEXPOSE 8080\n", encoding="utf-8")
+    return build_deployment_contract(tmp_path, analyze_repo(tmp_path), "aws_ecs_express").with_runtime_inputs(
+        run_id="run-1",
+        skill_name="cloud-cua/aws-ecs-express",
+        skill_hash="abc",
+        autonomy_level=2,
+        cloud_region="us-east-1",
+        container_image_uri="123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+        repo_name="demo",
+    )
+
+
+def _fake_ecs_aws_json(command, timeout=30, *, image=None, port=8080, health="healthy", tagged=True):
+    joined = " ".join(command)
+    if "resourcegroupstaggingapi" in joined:
+        resources = [{"ResourceARN": "arn:aws:ecs:us-east-1:123456789012:service/default/cloud-cua-demo"}] if tagged else []
+        return {"ResourceTagMappingList": resources}
+    if "describe-services" in joined:
+        return {
+            "services": [
+                {
+                    "status": "ACTIVE",
+                    "desiredCount": 1,
+                    "runningCount": 1,
+                    "taskDefinition": "arn:aws:ecs:us-east-1:123456789012:task-definition/demo:1",
+                    "deployments": [{"status": "PRIMARY", "rolloutState": "COMPLETED"}],
+                    "loadBalancers": [{"targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/demo/abc"}],
+                }
+            ]
+        }
+    if "describe-task-definition" in joined:
+        return {
+            "taskDefinition": {
+                "containerDefinitions": [
+                    {
+                        "image": image or "123.dkr.ecr.us-east-1.amazonaws.com/app:run-1",
+                        "portMappings": [{"containerPort": port}],
+                    }
+                ]
+            }
+        }
+    if "describe-target-health" in joined:
+        return {"TargetHealthDescriptions": [{"Target": {"Id": "task-1", "Port": port}, "TargetHealth": {"State": health}}]}
+    return {}
+
+
+def test_ecs_contract_verifier_rejects_image_mismatch(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, image="wrong/image:tag"))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "image mismatch" in result.summary
+
+
+def test_ecs_contract_verifier_rejects_port_mismatch(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, port=80))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "port mismatch" in result.summary
+
+
+def test_ecs_contract_verifier_rejects_unhealthy_target(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, health="unhealthy"))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "not healthy" in result.summary
+
+
+def test_ecs_contract_verifier_requires_exact_run_tag(tmp_path: Path, monkeypatch):
+    contract = _ecs_contract_fixture(tmp_path)
+    monkeypatch.setattr("cloud_cua.verifier.aws._aws_json", lambda command, timeout=30: _fake_ecs_aws_json(command, timeout, tagged=False))
+    result = verify_ecs_contract("run-1", contract)
+    assert result.status == "failed"
+    assert "cloud-cua-run=run-1" in result.summary
 
 
 def test_resource_record_separates_console_and_app_urls():

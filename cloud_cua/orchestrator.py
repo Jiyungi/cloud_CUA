@@ -12,7 +12,7 @@ from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
 from .container_image import prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
-from .deployment_contract import build_deployment_contract, save_contract
+from .deployment_contract import build_deployment_contract, load_contract, save_contract
 from .deployment_milestones import build_ecs_creation_task, build_ecs_inspection_task, review_ecs_inspection
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
@@ -36,6 +36,7 @@ from .verifier.aws import (
     verify_aws_identity,
     verify_cloudformation_stacks,
     verify_ecs_clusters,
+    verify_ecs_contract,
     verify_ecs_run_services,
     verify_ecr_repositories,
     verify_lambda_functions,
@@ -565,8 +566,16 @@ class Orchestrator:
         run = self.store.load_run(run_id)
         run.current_step = "verifier_running"
         self.store.save_run(run)
+        report_path = write_report(self.repo_path, run_id)
         out_dir = self.store.verifier_dir(run_id)
         results = []
+        report_result = VerifierResult(
+            "report_written",
+            "passed" if report_path.exists() else "failed",
+            "DEPLOYMENT_REPORT.md",
+            f"Deployment report exists at {report_path}." if report_path.exists() else "Deployment report was not written.",
+        )
+        results.append(asdict(report_result.save(out_dir)))
         for result in [verify_git_diff(self.repo_path)]:
             results.append(asdict(result.save(out_dir)))
         if run.cloud == "aws":
@@ -583,6 +592,20 @@ class Orchestrator:
             ]
             if run.target in {"aws_ecs_express", "aws_ecs_fargate"}:
                 aws_results.append(verify_ecs_run_services(run_id))
+                if self.store.contract_path(run_id).exists():
+                    aws_results.append(verify_ecs_contract(run_id, load_contract(self.store.contract_path(run_id))))
+                else:
+                    aws_results.append(VerifierResult("aws_ecs_contract", "failed", "contract.json", "Saved deployment contract is missing."))
+                cleanup = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=True)
+                cleanup_status = "passed" if cleanup.status == "passed" and cleanup.actions else "failed"
+                aws_results.append(
+                    VerifierResult(
+                        "cleanup_discovery",
+                        cleanup_status,
+                        "cloud-cua aws-cleanup --run-id <run-id>",
+                        cleanup.summary if cleanup.actions else "Cleanup could not discover any resource belonging to this run.",
+                    )
+                )
             for result in aws_results:
                 results.append(asdict(result.save(out_dir)))
         else:
@@ -610,6 +633,7 @@ class Orchestrator:
         else:
             run.status = "blocked"
         self.store.save_run(run)
+        write_report(self.repo_path, run_id)
         return results
 
     def cleanup_h_sessions(self) -> dict:
