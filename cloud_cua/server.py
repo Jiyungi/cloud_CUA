@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from .dashboard import render_dashboard
 from .orchestrator import Orchestrator
+from .h_session_manager import get_h_session_manager
 
 
 class StartRequest(BaseModel):
@@ -203,9 +204,27 @@ def create_app() -> FastAPI:
     def resume(run_id: str, req: RepoRunRequest):
         return Orchestrator(req.repo_path).resume(run_id)
 
+    @app.post("/runs/{run_id}/cancel")
+    def cancel(run_id: str, req: RepoRunRequest):
+        return Orchestrator(req.repo_path).cancel(run_id)
+
+    @app.get("/runs/{run_id}/h-job")
+    def h_job(run_id: str, repo_path: str):
+        return get_h_session_manager().get(repo_path, run_id) or {"status": "idle"}
+
     @app.post("/runs/{run_id}/h-inspect")
     def h_inspect(run_id: str, req: HTaskRequest):
-        return Orchestrator(req.repo_path).run_h_inspect(run_id, req.task)
+        status = Orchestrator(req.repo_path).get_status(run_id)
+        if status["status"] == "waiting_for_login":
+            return {"status": "blocked", "summary": "Manual cloud login is required before H CUA can run."}
+        if status["status"] == "paused":
+            return {"status": "skipped", "summary": "Run is paused."}
+        return get_h_session_manager().schedule(
+            req.repo_path,
+            run_id,
+            "inspect",
+            lambda: Orchestrator(req.repo_path).run_h_inspect(run_id, req.task),
+        )
 
     @app.post("/runs/{run_id}/aws-deploy")
     def aws_deploy(run_id: str, req: AWSDeploymentTaskRequest):
@@ -243,13 +262,22 @@ def create_app() -> FastAPI:
     def approval_decision(run_id: str, req: ApprovalDecisionRequest, background_tasks: BackgroundTasks):
         approval = Orchestrator(req.repo_path).decide_approval(run_id, req.approval_id, req.approved)
         if req.approved:
-            background_tasks.add_task(Orchestrator(req.repo_path).resume_approved_deployment, run_id)
+            get_h_session_manager().schedule(
+                req.repo_path,
+                run_id,
+                "approved-deployment",
+                lambda: Orchestrator(req.repo_path).resume_approved_deployment(run_id),
+            )
         return approval
 
     @app.post("/runs/{run_id}/resume-approved")
     def resume_approved(run_id: str, req: RepoRunRequest, background_tasks: BackgroundTasks):
-        background_tasks.add_task(Orchestrator(req.repo_path).resume_approved_deployment, run_id)
-        return {"status": "scheduled", "summary": "Approved deployment gate resume was scheduled."}
+        return get_h_session_manager().schedule(
+            req.repo_path,
+            run_id,
+            "approved-deployment",
+            lambda: Orchestrator(req.repo_path).resume_approved_deployment(run_id),
+        )
 
     @app.post("/runs/{run_id}/voice")
     def voice(run_id: str, req: VoiceRequest):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
 
 from cloud_cua.container_image import ContainerImagePrepResult
@@ -169,7 +171,13 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
         json={"repo_path": str(tmp_path), "approval_id": result.json()["approval"]["approval_id"], "approved": True},
     )
     assert approved.status_code == 200
-    status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
+    deadline = time.time() + 3
+    status = {}
+    while time.time() < deadline:
+        status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
+        if status["status"] != "running":
+            break
+        time.sleep(0.03)
     assert status["status"] == "blocked"
     assert status["current_step"] == "ecs_form_contract_mismatch"
     assert (store.run_dir(run["run_id"]) / "contract.json").exists()

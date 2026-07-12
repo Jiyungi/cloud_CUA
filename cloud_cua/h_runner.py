@@ -323,6 +323,8 @@ def run_h_task(
             creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
         )
         if event_callback:
+            event_callback({"type": "HWorkerStarted", "data": {"status": "running", "worker_pid": proc.pid}})
+        if event_callback:
             stdout, stderr = _stream_worker(proc, payload, event_callback, outer_timeout)
         else:
             stdout, stderr = proc.communicate(json.dumps(payload), timeout=outer_timeout)

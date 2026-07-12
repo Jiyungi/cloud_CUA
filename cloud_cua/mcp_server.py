@@ -164,6 +164,12 @@ def cloud_cua_resume_h_cua(repo_path: str, run_id: str) -> Any:
 
 
 @mcp.tool()
+def cloud_cua_cancel_h_cua(repo_path: str, run_id: str) -> Any:
+    """Cancel the active H session and local worker without deleting cloud resources."""
+    return _client().post(f"/runs/{run_id}/cancel", {"repo_path": repo_path})
+
+
+@mcp.tool()
 def cloud_cua_run_verifier(repo_path: str, run_id: str, verifier_name: str = "default", url: str | None = None) -> Any:
     return _client().post(
         f"/runs/{run_id}/verify",

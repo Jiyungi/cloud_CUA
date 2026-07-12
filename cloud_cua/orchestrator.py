@@ -28,6 +28,7 @@ from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_clo
 from .h_admin import cleanup_h_sessions
 from .h_runner import run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
+from .h_session_manager import get_h_session_manager
 from .lessons import load_lesson_candidate, resolve_lesson_candidate, write_lesson_candidate
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
@@ -65,6 +66,8 @@ class Orchestrator:
     def __init__(self, repo_path: str | Path):
         self.repo_path = resolve_repo_path(repo_path)
         self.store = RunStore(self.repo_path)
+        self.h_sessions = get_h_session_manager()
+        self.h_sessions.recover_repo(self.repo_path)
 
     def start_deployment(self, cloud: str = "aws", mode: str = "vibe") -> dict:
         mode_v = normalize_mode(mode)
@@ -110,7 +113,7 @@ class Orchestrator:
         return plan.to_dict()
 
     def get_status(self, run_id: str) -> dict:
-        return asdict(self.store.load_run(run_id))
+        return {**asdict(self.store.load_run(run_id)), "h_job": self.h_sessions.get(self.repo_path, run_id)}
 
     def set_dashboard_url(self, run_id: str, dashboard_url: str) -> dict:
         run = self.store.load_run(run_id)
@@ -152,18 +155,29 @@ class Orchestrator:
         return asdict(run)
 
     def pause(self, run_id: str) -> dict:
+        control = self.h_sessions.pause(self.repo_path, run_id)
         run = self.store.load_run(run_id)
         run.status = "paused"
         self.store.save_run(run)
-        self.store.append_event(run_id, "user", "command", "Paused deployment.")
-        return asdict(run)
+        self.store.append_event(run_id, "user", "command", "Paused deployment and requested H session pause.", {"h_control": control})
+        return {**asdict(run), "h_job": control.get("h_job")}
 
     def resume(self, run_id: str) -> dict:
+        control = self.h_sessions.resume(self.repo_path, run_id)
         run = self.store.load_run(run_id)
         run.status = "running"
         self.store.save_run(run)
-        self.store.append_event(run_id, "user", "command", "Resumed deployment.")
-        return asdict(run)
+        self.store.append_event(run_id, "user", "command", "Resumed deployment and requested H session resume.", {"h_control": control})
+        return {**asdict(run), "h_job": control.get("h_job")}
+
+    def cancel(self, run_id: str) -> dict:
+        control = self.h_sessions.cancel(self.repo_path, run_id)
+        run = self.store.load_run(run_id)
+        run.status = "cancelled"
+        run.current_step = "cancelled"
+        self.store.save_run(run)
+        self.store.append_event(run_id, "user", "command", "Cancelled deployment. Existing cloud resources were not deleted.", {"h_control": control})
+        return {**asdict(run), "h_job": control.get("h_job")}
 
     def run_h_inspect(self, run_id: str, task: str | None = None) -> dict:
         run = self.store.load_run(run_id)
@@ -887,6 +901,7 @@ class Orchestrator:
 
     def _h_event_callback(self, run_id: str, milestone: str):
         def record(event: dict) -> None:
+            self.h_sessions.observe_event(self.repo_path, run_id, milestone, event)
             evidence = {"milestone": milestone, "h_event_type": event.get("type", "trajectory_event")}
             data = event.get("data")
             if isinstance(data, dict):
