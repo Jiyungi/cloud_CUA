@@ -46,11 +46,12 @@ Owner labels are suggested for parallel work.
     - Never write credentials into the repo
     - _Requirements: 3_
 
-  - [x] 2.2 Implement `cloud-cua init`
+  - [ ] 2.2 Implement `cloud-cua init`
     - Create config directory
     - Prompt for missing `HAI_API_KEY`
     - Save credentials
     - Validate basic shape without printing the secret
+    - Status: saves credentials today, but key-shape validation still needs to be added.
     - _Requirements: 2, 3_
 
   - [ ]* 2.3 Test credential behavior
@@ -125,25 +126,25 @@ Owner labels are suggested for parallel work.
     - Get events returns structured events
     - _Requirements: 1, 8, 9_
 
-- [x] 6. Spike: prove Codex can call H safely (Owner: Both)
+- [ ] 6. Spike: prove Codex can call H safely (Owner: Both)
   - [x] 6.1 Install and validate H tooling
     - Install H CLI/HoloDesktop or H SDK path chosen for local control
     - Run a tiny safe local task outside AWS
     - Confirm hosted/local model config is available
     - _Requirements: 20_
 
-  - [x] 6.2 Register H tool path with Codex or call through Cloud CUA
+  - [ ] 6.2 Register H tool path with Codex or call through Cloud CUA
     - Confirm Codex can call Cloud CUA MCP
     - Confirm Cloud CUA can ask H to open/focus a browser
     - _Requirements: 1, 7, 20_
 
-  - [x] 6.3 Run safe AWS navigation task
+  - [ ] 6.3 Run safe AWS navigation task
     - Task: open `https://console.aws.amazon.com`
     - Success: AWS sign-in page or console home is visible
     - Constraint: do not create/edit/delete anything
     - _Requirements: 4, 7, 20_
 
-  - [x] 6.4 Record spike result
+  - [ ] 6.4 Record spike result
     - Write result into `DEPLOYMENT_REPORT.md` or a spike report
     - Note whether H local browser or HoloDesktop MCP is the better path
     - _Requirements: 15, 20_
@@ -167,14 +168,14 @@ Owner labels are suggested for parallel work.
     - Failed identity verifier blocks modification
     - _Requirements: 4, 14_
 
-- [x] 8. Build local dashboard shell (Owner: Frontend/Product)
+- [ ] 8. Build local dashboard shell (Owner: Frontend/Product)
   - [x] 8.1 Create dashboard app
     - Local page at `http://localhost:3000` or backend-served equivalent
     - Run list/detail page
     - Current run status
     - _Requirements: 13_
 
-  - [x] 8.2 Build required run panels
+  - [ ] 8.2 Build required run panels
     - Repo summary
     - Cloud/provider target
     - Current step
@@ -247,14 +248,14 @@ Owner labels are suggested for parallel work.
     - _Requirements: 5, 6, 18_
 
 - [ ] 11. Implement H CUA runner (Owner: Agent/Backend)
-  - [x] 11.1 Implement inspect-only H task runner
+  - [ ] 11.1 Implement inspect-only H task runner
     - Accept bounded task payload
     - Include success criteria
     - Log command/result
     - Respect pause state
     - _Requirements: 7, 8_
 
-  - [x] 11.2 Implement H result handling
+  - [ ] 11.2 Implement H result handling
     - Handle completed, blocked, failed, timed_out, ambiguous
     - Stop workflow on blocked/ambiguous modification steps
     - Trigger verifier where useful
@@ -266,8 +267,8 @@ Owner labels are suggested for parallel work.
     - Pause prevents next task
     - _Requirements: 7, 8_
 
-- [x] 12. Implement independent verifiers (Owner: Cloud/Verification)
-  - [x] 12.1 Implement repo verifier
+- [ ] 12. Implement independent verifiers (Owner: Cloud/Verification)
+  - [ ] 12.1 Implement repo verifier
     - Git diff summary
     - Optional build/test command hooks
     - _Requirements: 14_
@@ -277,7 +278,7 @@ Owner labels are suggested for parallel work.
     - Store sanitized output
     - _Requirements: 14_
 
-  - [x] 12.3 Implement AWS action/resource verifiers
+  - [ ] 12.3 Implement AWS action/resource verifiers
     - CloudTrail lookup wrapper
     - Amplify list/get wrapper
     - Result parser
@@ -328,7 +329,7 @@ Owner labels are suggested for parallel work.
     - Approval event is written
     - _Requirements: 16_
 
-- [x] 14. Implement AWS frontend adapter through the generalized AWS runner (Owner: Cloud/Verification)
+- [ ] 14. Implement AWS frontend adapter through the generalized AWS runner (Owner: Cloud/Verification)
   - [x] 14.1 Build Amplify deployment plan generator
     - App name
     - Branch
@@ -337,20 +338,20 @@ Owner labels are suggested for parallel work.
     - Env var names and missing values
     - _Requirements: 6, 17_
 
-  - [x] 14.2 Build Amplify inspect tasks for H CUA
+  - [ ] 14.2 Build Amplify inspect tasks for H CUA
     - Check if AWS console is logged in
     - Check if Amplify page is reachable
     - Check if GitHub connection is required
     - Do not modify during inspect tasks
     - _Requirements: 7, 17_
 
-  - [x] 14.3 Build Amplify modifying tasks for H CUA
+  - [ ] 14.3 Build Amplify modifying tasks for H CUA
     - Only after approval
     - Use short task steps
     - Stop on OAuth/permission prompts
     - _Requirements: 7, 16, 17_
 
-  - [x] 14.4 Wire Amplify verifiers
+  - [ ] 14.4 Wire Amplify verifiers
     - AWS identity
     - Amplify app/branch
     - CloudTrail actions
@@ -358,7 +359,7 @@ Owner labels are suggested for parallel work.
     - Playwright render
     - _Requirements: 14, 17_
 
-  - [x]* 14.5 Test adapter with mocked H/AWS
+  - [ ]* 14.5 Test adapter with mocked H/AWS
     - Supported repo builds plan
     - OAuth prompt creates approval/block event
     - Verifier result gates completion
@@ -396,7 +397,7 @@ Owner labels are suggested for parallel work.
     - Voice disabled state when no key
     - _Requirements: 11, 11A, 13_
 
-  - [x] 16.2 Implement Voice Command Router
+  - [ ] 16.2 Implement Voice Command Router
     - Classify STT or typed text before Codex/H CUA sees it
     - Route direct controls to backend actions immediately
     - Route reasoning questions to Codex or the explanation engine
@@ -510,13 +511,14 @@ Owner labels are suggested for parallel work.
     - Verifier tests
     - _Requirements: 20_
 
-  - [x] 20.2 Run manual dashboard QA
+  - [ ] 20.2 Run full dashboard QA
     - Login modal
     - Mode switching
     - Approval gates
     - Pause/resume
     - Activity feed
     - Report link
+    - Automated visual smoke for desktop/mobile is implemented, but full dashboard QA is not complete.
     - _Requirements: 4, 9, 13, 16_
 
   - [ ] 20.3 Confirm MVP pass/fail criteria
@@ -605,5 +607,6 @@ Owner labels are suggested for parallel work.
 - Update `design.md` before changing architecture.
 - Update `tasks.md` when implementation scope changes.
 - Do not add NemoClaw tasks.
-- Current H status: local Chrome/Selenium attachment works, stale local bridge trajectories were deleted, quota returned to 3 available slots, and H previously completed safe browser/AWS sign-in-page navigation. Real H-driven AWS creation still requires the user to manually log into the H-controlled browser profile first.
+- Current H status: host-local doctor can confirm H credentials/quota and Chrome prerequisites, but the latest full H browser takeover is not proven after local bridge failures. Docker mode intentionally blocks H browser takeover; use host-local `python -m cloud_cua.cli start` for real H CUA work.
+- Current visual QA status: `npm run visual:dashboard` passes desktop/mobile/login-modal smoke checks and writes screenshots under `.cloud-cua/visual-checks/`, but this is not a full manual dashboard QA pass.
 - Current AWS smoke status: AWS CLI profile `cloud-cua-dev` created a tagged S3 static website, verified its public endpoint, deleted it, and `cloud-cua aws-cleanup` found zero leftover Cloud CUA resources.
