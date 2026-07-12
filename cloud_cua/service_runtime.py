@@ -86,15 +86,23 @@ def ensure_service(*, python_executable: str | None = None, preferred_port: int 
         [python, "-I", "-m", "cloud_cua.cli", "start", "--host", "127.0.0.1", "--port", str(port)],
         **kwargs,
     )
+    stdout.close()
+    stderr.close()
     state = ServiceState(proc.pid, port, f"http://127.0.0.1:{port}", token, python, time.time())
     save_service_state(state)
-    for _ in range(80):
+    for _ in range(150):
         if service_is_healthy(state, timeout=0.4):
             return state
         if proc.poll() is not None:
             break
-        time.sleep(0.1)
-    raise RuntimeError(f"Cloud CUA backend did not become healthy. See {service_stderr_path()}.")
+        time.sleep(0.2)
+    detail = ""
+    try:
+        detail = service_stderr_path().read_text(encoding="utf-8")[-2000:].strip()
+    except OSError:
+        pass
+    suffix = f" Last error: {detail}" if detail else ""
+    raise RuntimeError(f"Cloud CUA backend did not become healthy within 30 seconds. See {service_stderr_path()}.{suffix}")
 
 
 def stop_service() -> dict:
