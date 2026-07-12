@@ -749,6 +749,8 @@ def test_shareable_package_excludes_local_state(tmp_path: Path):
     (tmp_path / ".kiro" / "local.md").write_text("local", encoding="utf-8")
     (tmp_path / "readme files").mkdir()
     (tmp_path / "readme files" / "notes.md").write_text("notes", encoding="utf-8")
+    (tmp_path / "Conversation.md").write_text("local transcript", encoding="utf-8")
+    (tmp_path / "DEPLOYMENT_REPORT.md").write_text("local run report", encoding="utf-8")
     result = build_shareable_package(tmp_path, tmp_path / "out.zip")
     import zipfile
 
@@ -758,6 +760,8 @@ def test_shareable_package_excludes_local_state(tmp_path: Path):
     assert ".env" not in names
     assert ".kiro/local.md" not in names
     assert "readme files/notes.md" not in names
+    assert "Conversation.md" not in names
+    assert "DEPLOYMENT_REPORT.md" not in names
 
 
 def test_report_includes_approvals_and_verifiers(tmp_path: Path):

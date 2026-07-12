@@ -7,7 +7,7 @@ from pathlib import Path
 
 EXCLUDED_DIRS = {".git", ".venv", "venv", "node_modules", ".cloud-cua", ".kiro", ".pytest_cache", "cloud_cua.egg-info", "readme files"}
 EXCLUDED_SUFFIXES = {".pyc", ".log"}
-EXCLUDED_FILES = {".env"}
+EXCLUDED_FILES = {".env", "Conversation.md", "DEPLOYMENT_REPORT.md"}
 
 
 @dataclass(frozen=True)
