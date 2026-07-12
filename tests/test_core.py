@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from cloud_cua.aws_cli import aws_command
 from cloud_cua.h_runner import run_h_task
 from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
@@ -161,6 +162,20 @@ def test_aws_cleanup_dry_run_uses_discovery(monkeypatch):
     result = cleanup_cloud_cua_aws_resources(dry_run=True)
     assert result.status == "passed"
     assert result.dry_run is True
+
+
+def test_aws_command_uses_cloud_cua_profile_when_available(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "default\ncloud-cua-dev\n"
+        stderr = ""
+
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.setattr("cloud_cua.aws_cli.shutil.which", lambda name: "aws.exe")
+    monkeypatch.setattr("cloud_cua.aws_cli.subprocess.run", lambda *args, **kwargs: FakeProc())
+
+    assert aws_command(["sts", "get-caller-identity"]) == ["aws", "--profile", "cloud-cua-dev", "sts", "get-caller-identity"]
 
 
 def test_repo_analyzer_unknown_blocks(tmp_path: Path):

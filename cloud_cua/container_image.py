@@ -5,6 +5,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .aws_cli import aws_command
 from .deployments.aws_general import DEFAULT_AWS_REGION, RESOURCE_PREFIX
 
 
@@ -32,8 +33,9 @@ def prepare_ecr_image(repo_path: str | Path, repo_name: str, run_id: str, region
     image_tag = f"run-{suffix}"
     commands: list[str] = []
 
-    account = _run(["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"], timeout=30)
-    commands.append("aws sts get-caller-identity --query Account --output text")
+    account_command = aws_command(["sts", "get-caller-identity", "--query", "Account", "--output", "text"])
+    account = _run(account_command, timeout=30)
+    commands.append(" ".join(account_command))
     if account.returncode != 0:
         return _failed("Could not determine AWS account for ECR image preparation.", account, commands)
     account_id = account.stdout.strip()
@@ -44,29 +46,31 @@ def prepare_ecr_image(repo_path: str | Path, repo_name: str, run_id: str, region
     image_uri = f"{registry}/{repository}:{image_tag}"
 
     create_repo = _run(
-        [
-            "aws",
-            "ecr",
-            "create-repository",
-            "--repository-name",
-            repository,
-            "--image-scanning-configuration",
-            "scanOnPush=true",
-            "--tags",
-            "Key=cloud-cua,Value=true",
-            f"Key=cloud-cua-repo,Value={repo_name}",
-            f"Key=cloud-cua-run,Value={run_id}",
-            "--region",
-            region,
-        ],
+        aws_command(
+            [
+                "ecr",
+                "create-repository",
+                "--repository-name",
+                repository,
+                "--image-scanning-configuration",
+                "scanOnPush=true",
+                "--tags",
+                "Key=cloud-cua,Value=true",
+                f"Key=cloud-cua-repo,Value={repo_name}",
+                f"Key=cloud-cua-run,Value={run_id}",
+                "--region",
+                region,
+            ]
+        ),
         timeout=60,
     )
-    commands.append(f"aws ecr create-repository --repository-name {repository} --tags ... --region {region}")
+    commands.append(" ".join(aws_command(["ecr", "create-repository", "--repository-name", repository, "--tags", "...", "--region", region])))
     if create_repo.returncode != 0 and "RepositoryAlreadyExistsException" not in create_repo.stderr:
         return _failed("Could not create or reuse the Cloud CUA ECR repository.", create_repo, commands, image_uri, repository, registry)
 
-    password = _run(["aws", "ecr", "get-login-password", "--region", region], timeout=60)
-    commands.append(f"aws ecr get-login-password --region {region}")
+    password_command = aws_command(["ecr", "get-login-password", "--region", region])
+    password = _run(password_command, timeout=60)
+    commands.append(" ".join(password_command))
     if password.returncode != 0:
         return _failed("Could not get an ECR login token.", password, commands, image_uri, repository, registry)
 

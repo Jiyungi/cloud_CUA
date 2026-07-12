@@ -9,6 +9,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .aws_cli import aws_command, selected_aws_profile
 from .browser_profile import find_chrome
 from .codex_config import SERVER_NAME, codex_config_path
 from .credentials import inspect_credentials
@@ -70,17 +71,20 @@ def _command_check(name: str, command: list[str], *, required: bool = True) -> D
 def _aws_identity_check() -> DoctorCheck:
     if not shutil.which("aws"):
         return DoctorCheck("aws_identity", "skipped", "AWS CLI is not installed.")
+    command = aws_command(["sts", "get-caller-identity"])
     try:
-        proc = subprocess.run(["aws", "sts", "get-caller-identity"], text=True, capture_output=True, timeout=30)
+        proc = subprocess.run(command, text=True, capture_output=True, timeout=30)
     except Exception as exc:
         return DoctorCheck("aws_identity", "failed", f"aws sts get-caller-identity failed: {type(exc).__name__}: {exc}")
     if proc.returncode != 0:
         return DoctorCheck("aws_identity", "failed", (proc.stderr or proc.stdout or "AWS identity check failed.").strip()[:500])
+    profile = selected_aws_profile()
+    profile_note = f" using profile {profile}" if profile else ""
     try:
         data = json.loads(proc.stdout)
-        return DoctorCheck("aws_identity", "passed", f"Authenticated AWS account {data.get('Account', 'unknown')} as {data.get('Arn', 'unknown')}")
+        return DoctorCheck("aws_identity", "passed", f"Authenticated AWS account {data.get('Account', 'unknown')} as {data.get('Arn', 'unknown')}{profile_note}")
     except Exception:
-        return DoctorCheck("aws_identity", "passed", "AWS CLI identity is authenticated.")
+        return DoctorCheck("aws_identity", "passed", f"AWS CLI identity is authenticated{profile_note}.")
 
 
 def _chrome_check() -> DoctorCheck:
