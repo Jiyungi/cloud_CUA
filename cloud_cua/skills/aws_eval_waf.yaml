@@ -1,0 +1,139 @@
+name: cloud-cua/aws-waf
+description: Operate AWS WAF through its AWS console with reviewed facts, safety stops, proof, and cleanup gates.
+target: aws_waf
+autonomy_level: 1
+source: https://github.com/Jiyungi/cloud_CUA/blob/main/docs/aws-h-evaluation-catalog.md
+url_pattern: https://console.aws.amazon.com/wafv2/homev2
+required_facts:
+- affected_request_signature
+- control_region
+- default_action
+- exclusions
+- log_destination
+- malicious_test_signature
+- managed_rule_groups
+- rate_limit
+- redacted_fields
+- resource_arn
+- rule_actions
+- rule_priority
+- safe_rollback
+- scope
+- selected_region
+- selected_scope
+- target_arn
+- target_service
+- terminating_rule
+- traffic_baseline
+- web_acl_arn
+unknowns_that_block:
+- 'Required fact is missing or unverified: affected_request_signature'
+- 'Required fact is missing or unverified: control_region'
+- 'Required fact is missing or unverified: default_action'
+- 'Required fact is missing or unverified: exclusions'
+- 'Required fact is missing or unverified: log_destination'
+- 'Required fact is missing or unverified: malicious_test_signature'
+- 'Required fact is missing or unverified: managed_rule_groups'
+- 'Required fact is missing or unverified: rate_limit'
+- 'Required fact is missing or unverified: redacted_fields'
+- 'Required fact is missing or unverified: resource_arn'
+- 'Required fact is missing or unverified: rule_actions'
+- 'Required fact is missing or unverified: rule_priority'
+- 'Required fact is missing or unverified: safe_rollback'
+- 'Required fact is missing or unverified: scope'
+- 'Required fact is missing or unverified: selected_region'
+- 'Required fact is missing or unverified: selected_scope'
+- 'Required fact is missing or unverified: target_arn'
+- 'Required fact is missing or unverified: target_service'
+- 'Required fact is missing or unverified: terminating_rule'
+- 'Required fact is missing or unverified: traffic_baseline'
+- 'Required fact is missing or unverified: web_acl_arn'
+h_cua_allowed_actions:
+- Inspect AWS WAF console state without mutation.
+- Compare every visible selection with the approved run contract.
+- Perform only the bounded, approved service action after required facts are verified.
+- Return structured resource, verifier, blocker, and cleanup evidence.
+h_cua_stop_conditions:
+- Start new rules in Count where safe
+- CloudFront scope is configured in us-east-1
+- Logs and sampled requests may contain sensitive request data
+required_verifiers:
+- allowed_request
+- association
+- association_removed
+- blocked_request
+- blocker_report
+- count_metrics
+- good_request_recovered
+- log_destination_cleaned
+- malicious_request_still_blocked
+- missing_baseline
+- no_acl_associated
+- redaction_check
+- rollback_change
+- rule_action_summary
+- scope_region_diff
+- sensitive_logs_expired
+- terminating_rule_evidence
+- test_acl_deleted
+- test_association_removed
+- web_acl_arn
+- web_acl_deleted
+success_conditions:
+- Create scoped Web ACL managed rules rate limit logging redaction and association then promote one tested rule from Count
+- Block creation when CloudFront uses regional scope or an unbaselined managed group defaults to Block
+- Identify exact terminating rule switch it to Count or add narrow exclusion and verify protection remains
+cleanup_strategy: 'Delete only exact run-owned resources and prove: association_removed, log_destination_cleaned, no_acl_associated,
+  sensitive_logs_expired, test_acl_deleted, test_association_removed, web_acl_deleted.'
+body: '# Operate AWS WAF
+
+
+  Use the run contract as the source of truth. Inspect before mutation and stop when a required fact is unknown.
+
+  A console success label is not proof; independent service, workload, and cleanup evidence decide success.
+
+
+  Required sequence:
+
+  1. Confirm account, region, ownership tags, cost boundary, and service-specific facts.
+
+  2. Inspect defaults and report mismatches before editing anything.
+
+  3. Mutate only after approval and only within the exact run-owned resource boundary.
+
+  4. Stop on new IAM, public exposure, destructive, cross-account, secret, or billing decisions.
+
+  5. Return structured evidence and verify cleanup dependencies before declaring completion.
+
+
+  Service rules:
+
+  - Observe managed rules in Count before Block
+
+  - Match scope and control region
+
+  - Redact sensitive headers and query fields
+
+  - CloudFront Web ACL work occurs in us-east-1
+
+  - No baseline means no safe blocking promotion
+
+  - Preview resolved rule actions
+
+  - Rollback the terminating rule not the whole defense
+
+  - Validate both false-positive and malicious paths
+
+  - Keep request evidence redacted
+
+
+  Evaluation scenarios:
+
+  - waf-guided-provision: Create scoped Web ACL managed rules rate limit logging redaction and association then promote one
+  tested rule from Count
+
+  - waf-misconfiguration-trap: Block creation when CloudFront uses regional scope or an unbaselined managed group defaults
+  to Block
+
+  - waf-recovery-cleanup: Identify exact terminating rule switch it to Count or add narrow exclusion and verify protection
+  remains'
