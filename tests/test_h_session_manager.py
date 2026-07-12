@@ -44,3 +44,31 @@ def test_cancel_without_active_h_session_is_safe(tmp_path):
     manager = HSessionManager()
     result = manager.cancel(tmp_path, run.run_id)
     assert result["status"] == "cancelled"
+
+
+def test_pause_waits_for_remote_confirmation(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    manager = HSessionManager()
+    manager.schedule(tmp_path, run.run_id, "inspect", lambda: time.sleep(1) or {"status": "passed"})
+    manager.observe_event(tmp_path, run.run_id, "inspect", {"type": "HSessionStarted", "data": {"session_id": "session-1"}})
+    monkeypatch.setattr(manager, "_call_h_and_confirm", lambda *_args, **_kwargs: ("running", "pause not confirmed"))
+
+    result = manager.pause(tmp_path, run.run_id)
+
+    assert result["status"] == "failed"
+    assert manager.get(tmp_path, run.run_id)["status"] == "running"
+
+
+def test_cancel_stays_pending_when_remote_does_not_confirm(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    run = store.create_run("aws", "vibe")
+    manager = HSessionManager()
+    manager.schedule(tmp_path, run.run_id, "inspect", lambda: time.sleep(1) or {"status": "passed"})
+    manager.observe_event(tmp_path, run.run_id, "inspect", {"type": "HSessionStarted", "data": {"session_id": "session-1"}})
+    monkeypatch.setattr(manager, "_call_h_and_confirm", lambda *_args, **_kwargs: ("running", "cancel not confirmed"))
+
+    result = manager.cancel(tmp_path, run.run_id)
+
+    assert result["status"] == "cancelling"
+    assert manager.get(tmp_path, run.run_id)["status"] == "cancelling"

@@ -245,26 +245,40 @@ class Orchestrator:
     def pause(self, run_id: str) -> dict:
         control = self.h_sessions.pause(self.repo_path, run_id)
         run = self.store.load_run(run_id)
-        run.status = "paused"
+        if control["status"] in {"paused", "skipped"}:
+            run.status = "paused"
+            message = "Paused deployment and confirmed the H session is paused."
+        else:
+            message = "Could not confirm that the H session paused; the deployment state was not changed."
         self.store.save_run(run)
-        self.store.append_event(run_id, "user", "command", "Paused deployment and requested H session pause.", {"h_control": control})
+        self.store.append_event(run_id, "user", "command", message, {"h_control": control})
         return {**asdict(run), "h_job": control.get("h_job")}
 
     def resume(self, run_id: str) -> dict:
         control = self.h_sessions.resume(self.repo_path, run_id)
         run = self.store.load_run(run_id)
-        run.status = "running"
+        if control["status"] in {"running", "skipped"}:
+            run.status = "running"
+            message = "Resumed deployment and confirmed the H session is running."
+        else:
+            message = "Could not confirm that the H session resumed; the deployment state was not changed."
         self.store.save_run(run)
-        self.store.append_event(run_id, "user", "command", "Resumed deployment and requested H session resume.", {"h_control": control})
+        self.store.append_event(run_id, "user", "command", message, {"h_control": control})
         return {**asdict(run), "h_job": control.get("h_job")}
 
     def cancel(self, run_id: str) -> dict:
         control = self.h_sessions.cancel(self.repo_path, run_id)
         run = self.store.load_run(run_id)
-        run.status = "cancelled"
-        run.current_step = "cancelled"
+        if control["status"] == "cancelled":
+            run.status = "cancelled"
+            run.current_step = "cancelled"
+            message = "Cancelled deployment. Existing cloud resources were not deleted."
+        else:
+            run.status = "blocked"
+            run.current_step = "h_cancel_unconfirmed"
+            message = "H cancellation was not confirmed. Cloud CUA blocked the run for manual review."
         self.store.save_run(run)
-        self.store.append_event(run_id, "user", "command", "Cancelled deployment. Existing cloud resources were not deleted.", {"h_control": control})
+        self.store.append_event(run_id, "user", "command", message, {"h_control": control})
         return {**asdict(run), "h_job": control.get("h_job")}
 
     def run_h_inspect(self, run_id: str, task: str | None = None) -> dict:

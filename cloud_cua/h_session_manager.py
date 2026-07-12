@@ -15,6 +15,7 @@ from .run_store import RunStore, now_iso, sanitize_obj
 
 
 ACTIVE_JOB_STATES = {"queued", "running", "paused", "cancelling", "recovering"}
+H_TERMINAL_STATES = {"completed", "failed", "timed_out", "interrupted"}
 
 
 @dataclass
@@ -110,11 +111,19 @@ class HSessionManager:
             job.heartbeat_at = now_iso()
             self._save(store, job)
         if job.session_id:
-            self._call_h(job.session_id, "cancel")
+            remote_status, error = self._call_h_and_confirm(job.session_id, "cancel")
+            if error:
+                with self._guard:
+                    job.status = "cancelling"
+                    job.error = error
+                    job.heartbeat_at = now_iso()
+                    self._save(store, job)
+                return {"status": "cancelling", "summary": error, "h_job": job.to_dict()}
         if job.worker_pid:
             _terminate_worker(job.worker_pid)
         with self._guard:
             job.status = "cancelled"
+            job.milestone = f"remote_{remote_status}" if job.session_id else "cancelled_before_session_start"
             job.finished_at = now_iso()
             self._save(store, job)
         return {"status": "cancelled", "summary": "Cancelled the hosted H session and its local worker.", "h_job": job.to_dict()}
@@ -177,11 +186,13 @@ class HSessionManager:
                 return {"status": "skipped", "summary": f"No active H session is available to {action}."}
             session_id = job.session_id
         if session_id:
-            error = self._call_h(session_id, action)
+            remote_status, error = self._call_h_and_confirm(session_id, action)
             if error:
                 return {"status": "failed", "summary": error, "h_job": job.to_dict()}
         with self._guard:
             job.status = "paused" if action == "pause" else "running"
+            if session_id:
+                job.milestone = f"remote_{remote_status}"
             job.heartbeat_at = now_iso()
             self._save(store, job)
         return {"status": job.status, "summary": f"H workflow {job.status}.", "h_job": job.to_dict()}
@@ -198,6 +209,40 @@ class HSessionManager:
             return None
         except Exception as exc:
             return f"H session {action} failed: {type(exc).__name__}: {exc}"
+
+    def _call_h_and_confirm(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        timeout_seconds: float = 45,
+        poll_seconds: float = 2,
+    ) -> tuple[str, str | None]:
+        api_key = load_secret_values().get("HAI_API_KEY")
+        if not api_key:
+            return "unknown", "HAI_API_KEY is missing, so the hosted H session could not be controlled."
+        try:
+            from hai_agents import Client
+
+            handle = Client(api_key=api_key).session(session_id)
+            getattr(handle, action)()
+            expected = {"paused"} if action == "pause" else ({"running", "idle"} if action == "resume" else H_TERMINAL_STATES)
+            deadline = time.monotonic() + timeout_seconds
+            last_status = "unknown"
+            while time.monotonic() < deadline:
+                snapshot = handle.status()
+                last_status = str(getattr(snapshot, "status", snapshot)).lower()
+                if last_status in expected:
+                    return last_status, None
+                if action != "cancel" and last_status in H_TERMINAL_STATES:
+                    return last_status, f"H session became {last_status} before {action} was confirmed."
+                time.sleep(poll_seconds)
+            return last_status, (
+                f"H accepted the {action} request but did not confirm the expected remote state within "
+                f"{timeout_seconds:g} seconds (last state: {last_status})."
+            )
+        except Exception as exc:
+            return "unknown", f"H session {action} failed: {type(exc).__name__}: {exc}"
 
     def _recover_job(self, store: RunStore, job: HJob) -> None:
         job.status = "recovering"
