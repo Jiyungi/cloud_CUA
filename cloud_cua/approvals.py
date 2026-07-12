@@ -59,3 +59,15 @@ def decide_approval(run_dir: Path, approval_id: str, approved: bool) -> Approval
 
 def approved(run_dir: Path, action: str) -> bool:
     return any(item.action == action and item.status == "approved" for item in load_approvals(run_dir))
+
+
+def voice_action_name(action: str) -> str:
+    for prefix in ("Run AWS deployment task:", "Approval required:", "Approve:"):
+        if action.lower().startswith(prefix.lower()):
+            action = action[len(prefix) :].strip()
+            break
+    return " ".join(action.rstrip(".:").split())
+
+
+def voice_approval_phrase(approval: Approval) -> str:
+    return f"Approve {voice_action_name(approval.action)}"

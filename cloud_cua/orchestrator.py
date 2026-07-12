@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .approvals import approved as approval_is_approved
 from .agent_test_contract import load_agent_test_contract
-from .approvals import create_approval, decide_approval, load_approvals
+from .approvals import create_approval, decide_approval, load_approvals, voice_action_name, voice_approval_phrase
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .aws_costs import ensure_cost_policy, load_cost_policy, save_cost_policy, start_cost_clock, start_run_cost_clock, stop_run_cost_clock
 from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
@@ -18,6 +18,7 @@ from .amplify_artifact import stage_amplify_artifact
 from .browser_profile import launch_dedicated_browser
 from .cloud_identity import build_aws_browser_identity_task, load_browser_identity, review_aws_browser_identity, save_browser_identity
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
+from .codex_voice import CodexVoiceStore, get_codex_voice_manager
 from .cost_monitor import get_cost_monitor
 from .credentials import inspect_credentials
 from .deployment_contract import build_deployment_contract, load_contract, save_contract
@@ -84,6 +85,7 @@ from .verifier.playwright_check import verify_playwright_url
 from .verifier.repo import verify_repository
 from .voice_gradium import synthesize_tts, transcribe_stt
 from .voice_router import classify_voice_command
+from .voice_state import VoiceTurnStore
 
 
 class Orchestrator:
@@ -1151,13 +1153,22 @@ class Orchestrator:
     def list_approvals(self, run_id: str) -> list[dict]:
         return [asdict(item) for item in load_approvals(self.store.run_dir(run_id))]
 
-    def voice_command(self, run_id: str, text: str) -> dict:
-        route = classify_voice_command(text)
+    def voice_command(self, run_id: str, text: str, *, turn_id: str | None = None, playback_active: bool = False) -> dict:
+        turns = VoiceTurnStore(self.store.run_dir(run_id))
+        turn = turns.current() if turn_id else None
+        if not turn or (turn_id and turn.turn_id != turn_id):
+            turn = turns.create(run_id, "routing")
+        else:
+            turns.update(turn.turn_id, state="routing", transcript=text, partial_transcript="")
+        route = classify_voice_command(text, playback_active=playback_active)
         self.store.append_event(run_id, "user", "voice_command", route.transcript, asdict(route))
         response = ""
         executed = False
         ui_action = None
+        speak = False
+        extra: dict = {}
         if route.classification == "direct_control":
+            turns.update(turn.turn_id, state="executing", classification=route.classification, action=route.action or "")
             if route.action == "pause":
                 self.pause(run_id)
                 response, executed = "Deployment paused.", True
@@ -1173,25 +1184,127 @@ class Orchestrator:
             elif route.action == "run_verifier":
                 self.run_verifier(run_id, "default")
                 response, executed = "Independent verification completed.", True
+            elif route.action == "status":
+                run = self.store.load_run(run_id)
+                response, executed = f"The run is {run.status} at {run.current_step}. The selected target is {run.target}.", True
+            elif route.action == "cleanup_preview":
+                preview = self.cleanup_aws_resources(run_id, True)
+                count = len(preview.get("actions", []))
+                response, executed = f"Cleanup preview found {count} tagged resource action{'s' if count != 1 else ''}. Nothing was deleted.", True
+                extra["cleanup_preview"] = preview
             elif route.action == "open_logs":
                 response, executed, ui_action = "Opening the Activity timeline.", True, "open_logs"
             elif route.action == "mute_voice":
                 response, executed, ui_action = "Voice playback muted for this dashboard session.", True, "mute_voice"
+            elif route.action == "stop_speaking":
+                response, executed, ui_action = "Speech stopped.", True, "stop_speaking"
+        elif route.classification == "approval":
+            turns.update(turn.turn_id, state="executing", classification=route.classification, action=route.action or "")
+            approval_result = self._decide_voice_approval(run_id, route.action == "approve", route.spoken_target)
+            response = approval_result["response"]
+            executed = approval_result["executed"]
+            speak = True
+            extra.update({key: value for key, value in approval_result.items() if key not in {"response", "executed"}})
         elif route.classification == "reasoning_question":
-            run = self.store.load_run(run_id)
-            context = analyze_repo(self.repo_path)
-            cost = self.get_cost_status(run_id) if (self.store.run_dir(run_id) / "cost-policy.json").exists() else None
-            response = explain_run_question(route.transcript, run, context, cost)
-            executed = True
-            self.store.append_event(run_id, "codex", "explanation", response, {"question": route.transcript})
+            turns.update(turn.turn_id, state="answering", classification=route.classification, action="answer_question")
+            job = get_codex_voice_manager().run(
+                self.repo_path,
+                self.store.run_dir(run_id),
+                turn.turn_id,
+                route.transcript,
+                self.store.load_run(run_id).mode,
+                self._voice_codex_context(run_id),
+                turns.recent_conversation(),
+            )
+            extra["codex_job"] = asdict(job)
+            if job.status == "completed":
+                response = job.clarification_question or job.answer
+                executed = True
+                speak = True
+                self.store.append_event(run_id, "codex", "clarification" if job.clarification_question else "explanation", response, {"question": route.transcript, "job_id": job.job_id, "recommended_action": job.recommended_action, "needs_repo_change": job.needs_repo_change})
+            else:
+                response = job.error or "Codex could not answer this question."
         elif route.classification == "planned_cloud_action":
-            pending = self._record_pending_action(run_id, route.transcript)
-            response = "Cloud operation request saved for planning and approval. It was not sent directly to H CUA."
-            executed = True
+            turns.update(turn.turn_id, state="answering", classification=route.classification, action="plan_cloud_action")
+            planning_question = f"Prepare a safe deployment plan for this user request, identify any missing fact, and do not execute it: {route.transcript}"
+            job = get_codex_voice_manager().run(
+                self.repo_path,
+                self.store.run_dir(run_id),
+                turn.turn_id,
+                planning_question,
+                self.store.load_run(run_id).mode,
+                self._voice_codex_context(run_id),
+                turns.recent_conversation(),
+            )
+            pending = self._record_pending_action(run_id, route.transcript, asdict(job))
+            response = job.clarification_question or job.answer if job.status == "completed" else (job.error or "Codex could not prepare the requested plan.")
+            executed = job.status == "completed"
+            speak = True
+            extra["codex_job"] = asdict(job)
+            extra["pending_action"] = pending
             self.store.append_event(run_id, "codex", "plan", response, {"pending_action": pending})
         else:
-            response = "Command not recognized. Try pause, resume, cancel, verify, switch mode, or ask why this service was selected."
-        return {**asdict(route), "executed": executed, "response": response, "ui_action": ui_action}
+            response = "I could not understand that request."
+        final_state = "completed" if executed else "failed"
+        turns.update(turn.turn_id, state=final_state, transcript=route.transcript, classification=route.classification, action=route.action or "", response=response, error="" if executed else response)
+        return {**asdict(route), "turn_id": turn.turn_id, "executed": executed, "response": response, "ui_action": ui_action, "speak": speak, **extra}
+
+    def get_voice_status(self, run_id: str) -> dict:
+        turn = VoiceTurnStore(self.store.run_dir(run_id)).current()
+        job = CodexVoiceStore(self.store.run_dir(run_id)).current()
+        return {"turn": asdict(turn) if turn else None, "codex_job": asdict(job) if job else None}
+
+    def cancel_codex_voice(self, run_id: str) -> dict:
+        job = get_codex_voice_manager().cancel(self.store.run_dir(run_id))
+        if job:
+            self.store.append_event(run_id, "user", "voice_control", "Cancelled Codex voice job.", {"job_id": job.job_id})
+        return asdict(job) if job else {"status": "idle"}
+
+    def _voice_codex_context(self, run_id: str) -> dict:
+        run = self.store.load_run(run_id)
+        context = analyze_repo(self.repo_path)
+        payload: dict = {
+            "run": asdict(run),
+            "repository": asdict(context),
+            "events": self.store.read_events(run_id, 20),
+            "approvals": self.list_approvals(run_id),
+        }
+        if self.store.contract_path(run_id).exists():
+            try:
+                payload["contract"] = load_contract(self.store.contract_path(run_id)).to_dict()
+            except Exception:
+                payload["contract"] = {"status": "unreadable"}
+        if (self.store.run_dir(run_id) / "cost-policy.json").exists():
+            try:
+                payload["cost"] = self.get_cost_status(run_id)
+            except Exception:
+                payload["cost"] = {"status": "unavailable"}
+        return payload
+
+    def _decide_voice_approval(self, run_id: str, approved: bool, spoken_target: str | None) -> dict:
+        pending = [item for item in load_approvals(self.store.run_dir(run_id)) if item.status == "pending"]
+        if not pending:
+            return {"executed": False, "response": "There is no pending approval gate."}
+        selected = None
+        if spoken_target:
+            normalized = " ".join(spoken_target.casefold().split()).rstrip(".:")
+            selected = next((item for item in pending if normalized in {voice_action_name(item.action).casefold(), item.action.casefold()}), None)
+            if selected is None:
+                phrases = [voice_approval_phrase(item) for item in pending]
+                return {"executed": False, "response": f"That action does not match a pending gate. Say: {'; or '.join(phrases)}.", "expected_phrases": phrases}
+        elif len(pending) > 1:
+            phrases = [voice_approval_phrase(item) for item in pending]
+            return {"executed": False, "response": f"More than one approval is pending. Say: {'; or '.join(phrases)}.", "expected_phrases": phrases}
+        else:
+            selected = pending[0]
+            if approved and selected.risk_level.lower() in {"high", "critical"}:
+                phrase = voice_approval_phrase(selected)
+                return {"executed": False, "response": f"This is a {selected.risk_level}-risk action. Say exactly: {phrase}.", "expected_phrases": [phrase]}
+        decision = self.decide_approval(run_id, selected.approval_id, approved)
+        if approved and selected.action.startswith(("Run AWS deployment task:", "Run GCP Cloud Run deployment task")):
+            self.h_sessions.schedule(self.repo_path, run_id, "approved-deployment", lambda: Orchestrator(self.repo_path).resume_approved_deployment(run_id))
+        response = f"Approval {'approved' if approved else 'rejected'}: {voice_action_name(selected.action)}."
+        return {"executed": True, "response": response, "approval": decision}
 
     def get_pending_actions(self, run_id: str) -> list[dict]:
         path = self.store.run_dir(run_id) / "pending-actions.json"
@@ -1213,7 +1326,7 @@ class Orchestrator:
                 return {"cursor": len(events), "events": events[cursor:], "run": self.get_status(run_id), "pending_actions": self.get_pending_actions(run_id)}
             time.sleep(0.25)
 
-    def _record_pending_action(self, run_id: str, request: str) -> dict:
+    def _record_pending_action(self, run_id: str, request: str, codex_job: dict | None = None) -> dict:
         path = self.store.run_dir(run_id) / "pending-actions.json"
         items = self.get_pending_actions(run_id)
         context = analyze_repo(self.repo_path)
@@ -1223,6 +1336,7 @@ class Orchestrator:
             "request": request,
             "recommended_target": context.recommendation,
             "created_at": now_iso(),
+            "codex_job": codex_job,
         }
         items.append(item)
         temporary = path.with_suffix(".tmp")

@@ -114,18 +114,38 @@ def test_start_mode_voice_report_flow(tmp_path):
     assert (tmp_path / "DEPLOYMENT_REPORT.md").exists()
 
 
-def test_voice_reasoning_returns_local_explanation(tmp_path):
+def test_voice_reasoning_returns_codex_explanation(tmp_path, monkeypatch):
+    from cloud_cua.codex_voice import CodexVoiceJob
+
+    class Manager:
+        def run(self, *_args, **_kwargs):
+            return CodexVoiceJob("job-1", "turn-1", "completed", "why", answer="ECS matches the repository's Docker image.")
+
+        def cancel(self, *_args):
+            return None
+
+    monkeypatch.setattr("cloud_cua.orchestrator.get_codex_voice_manager", lambda: Manager())
     client = TestClient(create_app())
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
     response = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "why this service?"}).json()
     assert response["executed"] is True
-    assert "aws_ecs_express" in response["response"]
+    assert response["response"] == "ECS matches the repository's Docker image."
     events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
     assert any(event["source"] == "codex" and event["type"] == "explanation" for event in events)
 
 
-def test_voice_cloud_request_becomes_pending_action_not_h_task(tmp_path):
+def test_voice_cloud_request_becomes_pending_action_not_h_task(tmp_path, monkeypatch):
+    from cloud_cua.codex_voice import CodexVoiceJob
+
+    class Manager:
+        def run(self, *_args, **_kwargs):
+            return CodexVoiceJob("job-2", "turn-2", "completed", "create", answer="First select the database requirements and cost limit.")
+
+        def cancel(self, *_args):
+            return None
+
+    monkeypatch.setattr("cloud_cua.orchestrator.get_codex_voice_manager", lambda: Manager())
     client = TestClient(create_app())
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
@@ -135,6 +155,36 @@ def test_voice_cloud_request_becomes_pending_action_not_h_task(tmp_path):
     assert pending[0]["status"] == "needs_plan_and_approval"
     events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
     assert not any(event["source"] == "h_cua" for event in events)
+
+
+def test_voice_high_risk_approval_requires_exact_action_phrase(tmp_path):
+    client = TestClient(create_app())
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
+    approval = client.post(
+        f"/runs/{run['run_id']}/approvals",
+        json={"repo_path": str(tmp_path), "action": "Delete tagged test service", "reason": "Deletes a resource.", "risk_level": "high"},
+    ).json()
+
+    generic = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "yes"}).json()
+    exact = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "Approve Delete tagged test service"}).json()
+
+    assert generic["executed"] is False
+    assert generic["expected_phrases"] == ["Approve Delete tagged test service"]
+    assert exact["executed"] is True
+    approvals = client.get(f"/runs/{run['run_id']}/approvals", params={"repo_path": str(tmp_path)}).json()
+    assert next(item for item in approvals if item["approval_id"] == approval["approval_id"])["status"] == "approved"
+
+
+def test_voice_generic_approval_never_guesses_between_multiple_gates(tmp_path):
+    client = TestClient(create_app())
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "teach"}).json()
+    for action in ("Create bucket", "Create queue"):
+        client.post(f"/runs/{run['run_id']}/approvals", json={"repo_path": str(tmp_path), "action": action, "reason": "Creates a resource.", "risk_level": "medium"})
+
+    result = client.post(f"/runs/{run['run_id']}/voice", json={"repo_path": str(tmp_path), "text": "approve"}).json()
+
+    assert result["executed"] is False
+    assert len(result["expected_phrases"]) == 2
 
 
 def test_voice_cancel_reaches_real_run_cancel(tmp_path):

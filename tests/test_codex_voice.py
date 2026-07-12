@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cloud_cua.codex_voice import CodexVoiceManager, CodexVoiceStore, build_codex_voice_prompt
+from cloud_cua.codex_voice import CodexVoiceManager, CodexVoiceStore, build_codex_voice_prompt, enforce_answer_limit
 
 
 def test_codex_voice_prompt_is_concise_and_redacts_secrets() -> None:
@@ -22,6 +22,12 @@ def test_codex_voice_prompt_is_concise_and_redacts_secrets() -> None:
 def test_codex_voice_prompt_allows_bounded_expansion() -> None:
     prompt = build_codex_voice_prompt("Explain more in depth", "teach", {}, [])
     assert "within 180 words" in prompt
+
+
+def test_codex_voice_answer_is_hard_limited_in_teach_mode() -> None:
+    answer = " ".join(f"word{index}" for index in range(50))
+    limited = enforce_answer_limit(answer, "Why this service?", "teach")
+    assert len(limited.removesuffix("...").split()) == 35
 
 
 def test_codex_voice_worker_is_read_only_ephemeral_and_scrubs_cloud_secrets(tmp_path: Path, monkeypatch) -> None:

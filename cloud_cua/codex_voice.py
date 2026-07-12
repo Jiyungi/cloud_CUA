@@ -109,6 +109,15 @@ def codex_output_schema() -> dict:
     }
 
 
+def enforce_answer_limit(answer: str, question: str, mode: str) -> str:
+    expanded = any(marker in question.lower() for marker in ("more detail", "explain more", "in depth", "compare", "what does that mean"))
+    limit = 180 if expanded else (35 if mode == "teach" else 60)
+    words = answer.split()
+    if len(words) <= limit:
+        return answer.strip()
+    return " ".join(words[:limit]).rstrip(" ,;:") + "..."
+
+
 class CodexVoiceManager:
     def __init__(self):
         self._lock = threading.RLock()
@@ -169,7 +178,7 @@ class CodexVoiceManager:
                 message = (stderr or "Codex voice worker failed.").strip()[-600:]
                 return store.update(job.job_id, status="failed", error=message)
             payload = json.loads(output_path.read_text(encoding="utf-8"))
-            answer = str(payload.get("answer", "")).strip()
+            answer = enforce_answer_limit(str(payload.get("answer", "")).strip(), question, mode)
             clarification = str(payload.get("clarification_question", "")).strip()
             if not answer and not clarification:
                 raise ValueError("Codex returned neither an answer nor a clarification question.")

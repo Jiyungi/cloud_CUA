@@ -24,6 +24,8 @@ def classify_voice_command(text: str, *, playback_active: bool = False) -> Voice
         return VoiceRoute(raw, "direct_control", "backend", action="resume")
     if lower == "stop" and playback_active:
         return VoiceRoute(raw, "direct_control", "backend", action="stop_speaking")
+    if lower == "stop":
+        return VoiceRoute(raw, "unknown", "clarify", reason="stop is ambiguous when speech is not playing")
     if lower in {"cancel", "cancel run", "stop deployment"}:
         return VoiceRoute(raw, "direct_control", "backend", action="stop")
     if "switch" in lower and "vibe" in lower:
@@ -62,4 +64,4 @@ def classify_voice_command(text: str, *, playback_active: bool = False) -> Voice
     if any(marker in lower for marker in operation_markers):
         return VoiceRoute(raw, "planned_cloud_action", "planner", reason="cloud operation request needs planning and approvals")
 
-    return VoiceRoute(raw, "unknown", "clarify", reason="command not recognized")
+    return VoiceRoute(raw, "reasoning_question", "codex", reason="natural-language question or clarification")
