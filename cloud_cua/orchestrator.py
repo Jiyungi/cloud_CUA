@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import json
+import base64
 from dataclasses import asdict
 from pathlib import Path
 
 from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
+from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
 from .credentials import inspect_credentials
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
+from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
 from .h_runner import run_h_task
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
 from .repo_analyzer import analyze_repo
 from .reports import write_report
+from .resource_tracking import extract_resource_record, load_resource_records, save_resource_record
 from .run_store import RunStore
+from .safety import approval_reason, detect_approval_triggers, risk_level
 from .verifier.aws import (
     verify_amplify_apps,
     verify_app_runner_services,
@@ -25,12 +30,13 @@ from .verifier.aws import (
     verify_ecs_clusters,
     verify_lambda_functions,
     verify_s3_buckets,
+    verify_tagged_resources,
 )
-from .verifier.gcp import verify_gcp_identity, verify_gcp_project
+from .verifier.gcp import verify_gcp_cloud_run_services, verify_gcp_identity, verify_gcp_project
 from .verifier.http import verify_http_url
 from .verifier.playwright_check import verify_playwright_url
 from .verifier.repo import verify_git_diff
-from .voice_gradium import synthesize_tts
+from .voice_gradium import synthesize_tts, transcribe_stt
 from .voice_router import classify_voice_command
 
 
@@ -52,6 +58,11 @@ class Orchestrator:
         if cloud_v == "aws":
             aws_plan = build_aws_deployment_plan(self.repo_path.name, ctx)
             self.store.append_event(run.run_id, "system", "plan", "Prepared generalized AWS deployment plan.", {"aws_plan": aws_plan.to_dict()})
+        if cloud_v == "gcp":
+            gcp_plan = build_gcp_cloud_run_plan(self.repo_path.name, ctx)
+            run.target = gcp_plan.target if gcp_plan.supported else "gcp_cloud_run_blocked"
+            self.store.save_run(run)
+            self.store.append_event(run.run_id, "system", "plan", "Prepared GCP Cloud Run deployment plan.", {"gcp_plan": gcp_plan.to_dict()})
         if cloud_v == "aws" and ctx.recommendation == "aws_amplify":
             plan = build_amplify_plan(self.repo_path.name, ctx)
             self.store.append_event(run.run_id, "system", "plan", "Prepared AWS Amplify deployment plan.", {"amplify_plan": plan.to_dict()})
@@ -75,6 +86,12 @@ class Orchestrator:
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx)
         self.store.append_event(run_id, "system", "plan", "Generated generalized AWS deployment plan.", {"aws_plan": plan.to_dict()})
+        return plan.to_dict()
+
+    def get_gcp_plan(self, run_id: str) -> dict:
+        ctx = analyze_repo(self.repo_path)
+        plan = build_gcp_cloud_run_plan(self.repo_path.name, ctx)
+        self.store.append_event(run_id, "system", "plan", "Generated GCP Cloud Run plan.", {"gcp_plan": plan.to_dict()})
         return plan.to_dict()
 
     def get_status(self, run_id: str) -> dict:
@@ -157,6 +174,7 @@ class Orchestrator:
                 action,
                 "This can create cloud resources, connect GitHub, expose a public URL, and may incur AWS costs.",
                 "high",
+                ["paid_resources", "public_exposure", "oauth", "secrets"],
             )
             self.store.append_event(run_id, "system", "approval", "Approval required before AWS Amplify modification.", asdict(approval))
             run.status = "blocked"
@@ -171,6 +189,7 @@ class Orchestrator:
             f"Approval was granted for this action: {action}.\n"
             f"Use the currently open AWS Console to create or configure an AWS Amplify app named {plan['app_name']} "
             f"for branch {plan['branch']}. Build command: {plan.get('build_command')}. Output directory: {plan.get('output_directory')}. "
+            f"When tags are available, add cloud-cua=true, cloud-cua-repo={self.repo_path.name}, and cloud-cua-run={run_id}. "
             "Stop and report before GitHub OAuth, billing, broad IAM permissions, deletion, replacement, or any unclear prompt. "
             "When complete, report the app name, branch, and any visible live/deployment URL."
         )
@@ -181,6 +200,7 @@ class Orchestrator:
         result = run_h_task(task_text, run.mode, max_steps=35, max_time_s=420)
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
         if result.status == "completed":
+            self._record_resource_summary(run_id, run.cloud, "aws_amplify", result.summary)
             run.current_step = "h_cua_completed_run_verifier_next"
             run.status = "verifying"
             self.store.save_run(run)
@@ -210,16 +230,20 @@ class Orchestrator:
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
         option = plan.option(target)
         action = f"Run AWS deployment task: {option.label}"
+        triggers = detect_approval_triggers(action, option.label, option.h_task_goal, " ".join(option.risks), task or "")
         if not approval_is_approved(self.store.run_dir(run_id), action):
             approval = create_approval(
                 self.store.run_dir(run_id),
                 action,
-                (
+                approval_reason(
                     f"This lets H CUA operate AWS Console for {option.label}. "
                     f"The task can create cloud resources, public URLs, IAM/service roles, or service connections. "
-                    f"Hard budget cap: ${max_spend_usd:.2f}."
+                    "Cloud CUA will stop at new unapproved prompts and will verify with AWS CLI after H finishes.",
+                    triggers,
+                    budget_usd=max_spend_usd,
                 ),
-                "high",
+                risk_level(triggers),
+                [trigger.code for trigger in triggers],
             )
             self.store.append_event(run_id, "system", "approval", "Approval required before generalized AWS deployment task.", asdict(approval))
             run.status = "blocked"
@@ -227,7 +251,7 @@ class Orchestrator:
             self.store.save_run(run)
             return {"status": "blocked", "summary": "Approval required before H CUA can run the AWS deployment task.", "approval": asdict(approval), "aws_plan": plan.to_dict()}
 
-        task_text = build_general_aws_h_task(self.repo_path.name, ctx, plan, target=option.target, user_task=task)
+        task_text = build_general_aws_h_task(self.repo_path.name, ctx, plan, target=option.target, user_task=task, run_id=run_id)
         run.status = "running"
         run.current_step = f"h_cua_{option.target}"
         run.target = option.target
@@ -236,6 +260,7 @@ class Orchestrator:
         result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
         if result.status == "completed":
+            self._record_resource_summary(run_id, run.cloud, option.target, result.summary)
             run.status = "verifying"
             run.current_step = "h_cua_completed_run_verifier_next"
             self.store.save_run(run)
@@ -245,6 +270,62 @@ class Orchestrator:
             run.current_step = "h_cua_aws_task_blocked"
             self.store.save_run(run)
         return {**asdict(result), "aws_target": option.target, "aws_plan": plan.to_dict()}
+
+    def run_gcp_deployment_task(
+        self,
+        run_id: str,
+        task: str | None = None,
+    ) -> dict:
+        run = self.store.load_run(run_id)
+        if run.status == "waiting_for_login":
+            return {"status": "blocked", "summary": "Manual GCP login is required first."}
+        if run.cloud != "gcp":
+            return {"status": "blocked", "summary": "GCP deployment tasks require a GCP run."}
+
+        ctx = analyze_repo(self.repo_path)
+        plan = build_gcp_cloud_run_plan(self.repo_path.name, ctx)
+        if not plan.supported:
+            return {"status": "blocked", "summary": plan.reason, "gcp_plan": plan.to_dict()}
+
+        action = "Run GCP Cloud Run deployment task"
+        triggers = detect_approval_triggers(action, plan.reason, " ".join(plan.risks), task or "")
+        if not approval_is_approved(self.store.run_dir(run_id), action):
+            approval = create_approval(
+                self.store.run_dir(run_id),
+                action,
+                approval_reason(
+                    "This lets H CUA operate GCP Console for Cloud Run. It may create billable services, public URLs, Artifact Registry, Cloud Build, or IAM changes.",
+                    triggers,
+                    budget_usd=DEFAULT_MAX_SPEND_USD,
+                ),
+                risk_level(triggers),
+                [trigger.code for trigger in triggers],
+            )
+            self.store.append_event(run_id, "system", "approval", "Approval required before GCP Cloud Run task.", asdict(approval))
+            run.status = "blocked"
+            run.current_step = "approval_required"
+            self.store.save_run(run)
+            return {"status": "blocked", "summary": "Approval required before H CUA can run the GCP deployment task.", "approval": asdict(approval), "gcp_plan": plan.to_dict()}
+
+        task_text = build_gcp_cloud_run_h_task(self.repo_path.name, ctx, plan, task)
+        run.status = "running"
+        run.current_step = "h_cua_gcp_cloud_run"
+        run.target = plan.target
+        self.store.save_run(run)
+        self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "gcp_target": plan.target})
+        result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900)
+        self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
+        if result.status == "completed":
+            self._record_resource_summary(run_id, run.cloud, plan.target, result.summary)
+            run.status = "verifying"
+            run.current_step = "h_cua_completed_run_verifier_next"
+            self.store.save_run(run)
+            self.run_verifier(run_id, "default")
+        else:
+            run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
+            run.current_step = "h_cua_gcp_task_blocked"
+            self.store.save_run(run)
+        return {**asdict(result), "gcp_plan": plan.to_dict()}
 
     def submit_codex_plan(self, run_id: str, plan: str) -> dict:
         event = self.store.append_event(run_id, "codex", "plan", plan)
@@ -287,6 +368,18 @@ class Orchestrator:
         self.store.append_event(run_id, "system", "result", "Gradium TTS completed.", {"status": result.status, "summary": result.summary, "audio_bytes_base64_length": len(result.audio_base64)})
         return asdict(result)
 
+    def transcribe_voice(self, run_id: str, audio_base64: str, input_format: str = "webm") -> dict:
+        try:
+            audio = base64.b64decode(audio_base64.split(",", 1)[-1])
+        except Exception as exc:
+            return {"status": "failed", "summary": f"Invalid audio payload: {exc}", "transcript": ""}
+        stt = transcribe_stt(audio, str(self.repo_path), input_format)
+        self.store.append_event(run_id, "system", "result", "Gradium STT completed.", {"status": stt.status, "summary": stt.summary})
+        route = None
+        if stt.status == "passed" and stt.transcript.strip():
+            route = self.voice_command(run_id, stt.transcript)
+        return {"stt": asdict(stt), "route": route}
+
     def run_verifier(self, run_id: str, verifier_name: str = "default", url: str | None = None) -> list[dict]:
         run = self.store.load_run(run_id)
         run.current_step = "verifier_running"
@@ -298,6 +391,7 @@ class Orchestrator:
         if run.cloud == "aws":
             for result in [
                 verify_aws_identity(),
+                verify_tagged_resources(run_id),
                 verify_amplify_apps(),
                 verify_app_runner_services(),
                 verify_ecs_clusters(),
@@ -307,10 +401,13 @@ class Orchestrator:
             ]:
                 results.append(asdict(result.save(out_dir)))
         else:
-            for result in [verify_gcp_identity(), verify_gcp_project()]:
+            for result in [verify_gcp_identity(), verify_gcp_project(), verify_gcp_cloud_run_services()]:
                 results.append(asdict(result.save(out_dir)))
-        if url:
-            for result in [verify_http_url(url), verify_playwright_url(url)]:
+        urls = [url] if url else []
+        for record in load_resource_records(self.store.run_dir(run_id) / "resources.json"):
+            urls.extend(record.urls)
+        for item_url in sorted(set(item for item in urls if item)):
+            for result in [verify_http_url(item_url), verify_playwright_url(item_url)]:
                 results.append(asdict(result.save(out_dir)))
         self.store.append_event(run_id, "verifier", "result", "Ran verifier stack.", {"results": results})
         run = self.store.load_run(run_id)
@@ -326,9 +423,28 @@ class Orchestrator:
         result = cleanup_h_sessions(str(self.repo_path))
         return result.to_dict()
 
+    def cleanup_aws_resources(self, run_id: str | None = None, dry_run: bool = True) -> dict:
+        result = cleanup_cloud_cua_aws_resources(run_id=run_id, dry_run=dry_run)
+        if run_id:
+            self.store.append_event(run_id, "system", "command", "Ran AWS cleanup workflow.", result.to_dict())
+        return result.to_dict()
+
     def write_report(self, run_id: str) -> dict:
         path = write_report(self.repo_path, run_id)
         return {"path": str(path)}
 
     def list_runs(self) -> list[dict]:
         return [asdict(run) for run in self.store.list_runs()]
+
+    def capabilities(self) -> dict:
+        creds = inspect_credentials(self.repo_path)
+        return {
+            "hai_api_key_present": creds.hai_api_key_present,
+            "gradium_api_key_present": creds.gradium_api_key_present,
+            "credentials_source": creds.source,
+        }
+
+    def _record_resource_summary(self, run_id: str, cloud: str, target: str, summary: str) -> None:
+        record = extract_resource_record(run_id, cloud, target, summary)
+        path = save_resource_record(self.store.run_dir(run_id) / "resources.json", record)
+        self.store.append_event(run_id, "system", "result", "Recorded resource hints from H CUA final answer.", {"path": str(path), "record": asdict(record)})

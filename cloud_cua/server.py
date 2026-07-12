@@ -30,6 +30,12 @@ class VoiceRequest(BaseModel):
     text: str
 
 
+class VoiceAudioRequest(BaseModel):
+    repo_path: str
+    audio_base64: str
+    input_format: str = "webm"
+
+
 class HTaskRequest(BaseModel):
     repo_path: str
     task: str | None = None
@@ -40,6 +46,11 @@ class AWSDeploymentTaskRequest(BaseModel):
     task: str | None = None
     target: str | None = None
     max_spend_usd: float = 5.0
+
+
+class GCPDeploymentTaskRequest(BaseModel):
+    repo_path: str
+    task: str | None = None
 
 
 class VerifierRequest(BaseModel):
@@ -61,6 +72,12 @@ class ApprovalDecisionRequest(BaseModel):
     approved: bool
 
 
+class CleanupRequest(BaseModel):
+    repo_path: str
+    run_id: str | None = None
+    dry_run: bool = True
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Cloud CUA")
 
@@ -71,6 +88,10 @@ def create_app() -> FastAPI:
     @app.get("/defaults")
     def defaults():
         return {"repo_path": str(Path.cwd())}
+
+    @app.get("/capabilities")
+    def capabilities(repo_path: str):
+        return Orchestrator(repo_path).capabilities()
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard():
@@ -132,9 +153,21 @@ def create_app() -> FastAPI:
     def aws_plan(run_id: str, repo_path: str):
         return Orchestrator(repo_path).get_aws_plan(run_id)
 
+    @app.get("/runs/{run_id}/gcp-plan")
+    def gcp_plan(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_gcp_plan(run_id)
+
+    @app.post("/runs/{run_id}/gcp-deploy")
+    def gcp_deploy(run_id: str, req: GCPDeploymentTaskRequest):
+        return Orchestrator(req.repo_path).run_gcp_deployment_task(run_id, req.task)
+
     @app.post("/h-cleanup")
     def h_cleanup(req: RepoRunRequest):
         return Orchestrator(req.repo_path).cleanup_h_sessions()
+
+    @app.post("/aws-cleanup")
+    def aws_cleanup(req: CleanupRequest):
+        return Orchestrator(req.repo_path).cleanup_aws_resources(req.run_id, req.dry_run)
 
     @app.get("/runs/{run_id}/approvals")
     def approvals(run_id: str, repo_path: str):
@@ -151,6 +184,10 @@ def create_app() -> FastAPI:
     @app.post("/runs/{run_id}/voice")
     def voice(run_id: str, req: VoiceRequest):
         return Orchestrator(req.repo_path).voice_command(run_id, req.text)
+
+    @app.post("/runs/{run_id}/voice-transcribe")
+    def voice_transcribe(run_id: str, req: VoiceAudioRequest):
+        return Orchestrator(req.repo_path).transcribe_voice(run_id, req.audio_base64, req.input_format)
 
     @app.post("/runs/{run_id}/speak")
     def speak(run_id: str, req: VoiceRequest):

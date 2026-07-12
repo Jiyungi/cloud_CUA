@@ -82,6 +82,12 @@ def cloud_cua_get_aws_plan(repo_path: str, run_id: str) -> Any:
 
 
 @mcp.tool()
+def cloud_cua_get_gcp_plan(repo_path: str, run_id: str) -> Any:
+    """Generate the GCP Cloud Run deployment plan for this repo."""
+    return Orchestrator(repo_path).get_gcp_plan(run_id)
+
+
+@mcp.tool()
 def cloud_cua_h_inspect(repo_path: str, run_id: str, task: str | None = None) -> Any:
     """Run a bounded inspect-only H CUA browser task."""
     return Orchestrator(repo_path).run_h_inspect(run_id, task)
@@ -106,9 +112,21 @@ def cloud_cua_run_aws_deployment_task(
 
 
 @mcp.tool()
+def cloud_cua_run_gcp_cloud_run_task(repo_path: str, run_id: str, task: str | None = None) -> Any:
+    """Run an approval-gated GCP Cloud Run task through H CUA."""
+    return Orchestrator(repo_path).run_gcp_deployment_task(run_id, task)
+
+
+@mcp.tool()
 def cloud_cua_cleanup_h_sessions(repo_path: str) -> Any:
     """Cancel stale H sessions and local browser bridge trajectories that consume H concurrency."""
     return Orchestrator(repo_path).cleanup_h_sessions()
+
+
+@mcp.tool()
+def cloud_cua_cleanup_aws_resources(repo_path: str, run_id: str | None = None, dry_run: bool = True) -> Any:
+    """Clean up Cloud CUA tagged AWS resources. Defaults to dry-run."""
+    return Orchestrator(repo_path).cleanup_aws_resources(run_id, dry_run)
 
 
 @mcp.tool()

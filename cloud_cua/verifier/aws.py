@@ -35,6 +35,19 @@ def verify_cloudformation_stacks() -> VerifierResult:
     )
 
 
+def verify_tagged_resources(run_id: str | None = None) -> VerifierResult:
+    filters = ["Key=cloud-cua,Values=true"]
+    name = "aws_tagged_cloud_cua_resources"
+    if run_id:
+        filters.append(f"Key=cloud-cua-run,Values={run_id}")
+        name = "aws_tagged_run_resources"
+    return run_command(
+        name,
+        ["aws", "resourcegroupstaggingapi", "get-resources", "--tag-filters", *filters],
+        timeout=45,
+    )
+
+
 def verify_cloudtrail_event(event_name: str) -> VerifierResult:
     return run_command(
         f"aws_cloudtrail_{event_name}",

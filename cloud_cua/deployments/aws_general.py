@@ -83,6 +83,7 @@ def build_aws_deployment_plan(
             f"Prefer region {region} unless the AWS console forces another region.",
             f"Name created resources with the prefix {RESOURCE_PREFIX}-{repo_name}.",
             "Add tag cloud-cua=true and cloud-cua-repo to resources whenever the console exposes tags.",
+            "Add tag cloud-cua-run when Cloud CUA provides a run id.",
             "Stop before billing plan changes, broad administrator IAM, deleting existing non-cloud-cua resources, or GitHub OAuth/account linking.",
             "If the selected service is not appropriate, stop and explain the better AWS service instead of improvising an unsafe deployment.",
         ],
@@ -97,6 +98,7 @@ def build_general_aws_h_task(
     *,
     target: str | None = None,
     user_task: str | None = None,
+    run_id: str | None = None,
 ) -> str:
     option = plan.option(target)
     repo_details = [
@@ -110,7 +112,10 @@ def build_general_aws_h_task(
         f"Dockerfile present: {ctx.dockerfile}",
         f"Env var names only: {', '.join(ctx.env_vars) if ctx.env_vars else 'none detected'}",
     ]
-    constraints = "\n".join(f"- {item}" for item in plan.global_constraints)
+    constraints_items = list(plan.global_constraints)
+    if run_id:
+        constraints_items.append(f"Use cloud-cua-run={run_id} as the run tag value whenever tags are available.")
+    constraints = "\n".join(f"- {item}" for item in constraints_items)
     risks = "\n".join(f"- {item}" for item in option.risks)
     requested = user_task.strip() if user_task and user_task.strip() else option.h_task_goal
     return (
