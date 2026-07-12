@@ -27,6 +27,7 @@ from cloud_cua.verifier.base import VerifierResult
 from cloud_cua.verifier.aws import verify_ecs_contract
 from cloud_cua.voice_router import classify_voice_command
 from cloud_cua.voice_gradium import synthesize_tts
+from cloud_cua.voice_state import VoiceTurnStore
 
 
 def test_voice_router_fast_lane_pause():
@@ -46,6 +47,34 @@ def test_voice_router_cloud_action_needs_planning():
     route = classify_voice_command("click this in AWS")
     assert route.classification == "planned_cloud_action"
     assert route.route == "planner"
+
+
+def test_voice_router_stop_is_contextual():
+    assert classify_voice_command("stop", playback_active=True).action == "stop_speaking"
+    assert classify_voice_command("stop", playback_active=False).classification == "unknown"
+    assert classify_voice_command("stop deployment").action == "stop"
+
+
+def test_voice_router_supports_status_cleanup_and_exact_approval():
+    assert classify_voice_command("deployment status").action == "status"
+    assert classify_voice_command("cleanup preview").action == "cleanup_preview"
+    approval = classify_voice_command("Approve Create ECS service")
+    assert approval.classification == "approval"
+    assert approval.spoken_target == "Create ECS service"
+
+
+def test_voice_turn_store_persists_bounded_sanitized_history(tmp_path: Path):
+    store = VoiceTurnStore(tmp_path)
+    first = store.create("run-1")
+    store.update(first.turn_id, state="completed", transcript="api_key=secret-value", response="Done")
+    for index in range(25):
+        turn = store.create("run-1")
+        store.update(turn.turn_id, state="completed", transcript=f"question {index}", response=f"answer {index}")
+
+    assert len(store.list()) == 20
+    assert "secret-value" not in store.path.read_text(encoding="utf-8")
+    assert store.current().state == "completed"
+    assert len(store.recent_conversation()) == 6
 
 
 def test_run_store_redacts_secret(tmp_path: Path):
