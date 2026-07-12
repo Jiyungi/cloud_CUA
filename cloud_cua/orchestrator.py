@@ -20,6 +20,7 @@ from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_clo
 from .h_admin import cleanup_h_sessions
 from .h_runner import run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
+from .lessons import load_lesson_candidate, write_lesson_candidate
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
 from .paths import resolve_repo_path
@@ -323,6 +324,14 @@ class Orchestrator:
                     run.status = "blocked"
                     run.current_step = "ecs_form_contract_mismatch"
                     self.store.save_run(run)
+                    self._write_lesson(
+                        run_id,
+                        skill.name,
+                        "H CUA's ECS form inspection conflicted with the deployment contract.",
+                        inspection_review.to_dict(),
+                        "Require a structured, contract-matching ECS form inspection before any mutation milestone.",
+                        "Test that any visible image, port, region, health path, or service-target mismatch blocks creation.",
+                    )
                     return {
                         "status": "blocked",
                         "summary": "The ECS form inspection did not match the saved deployment contract.",
@@ -370,6 +379,14 @@ class Orchestrator:
                 run.status = "blocked" if result.status in {"blocked", "timed_out"} else "failed"
                 run.current_step = "h_cua_aws_task_blocked"
                 self.store.save_run(run)
+                self._write_lesson(
+                    run_id,
+                    skill.name,
+                    f"H CUA deployment milestone ended with status {result.status}.",
+                    {"summary": result.summary, "outcome": result.outcome, "error": result.error},
+                    "Stop the deployment when H cannot complete a skill milestone and preserve its blocker for review.",
+                    "Test that blocked, timed-out, and failed H milestones cannot advance to verification.",
+                )
             return {**asdict(result), "aws_target": option.target, "aws_plan": plan.to_dict()}
         finally:
             self.store.release_lock(run_id, "deployment")
@@ -633,6 +650,19 @@ class Orchestrator:
         else:
             run.status = "blocked"
         self.store.save_run(run)
+        failed_results = [item for item in results if item["status"] == "failed"]
+        if failed_results:
+            skill_name = ""
+            if self.store.contract_path(run_id).exists():
+                skill_name = load_contract(self.store.contract_path(run_id)).skill_name
+            self._write_lesson(
+                run_id,
+                skill_name or f"cloud-cua/{run.target.replace('_', '-')}",
+                "Independent deployment verification failed.",
+                {"failed_verifiers": failed_results},
+                "Do not mark a deployment complete until every verifier required by the active skill passes.",
+                "Reproduce each failed verifier with a fixture and prove the run remains blocked.",
+            )
         write_report(self.repo_path, run_id)
         return results
 
@@ -678,6 +708,10 @@ class Orchestrator:
             ],
         }
 
+    def get_lesson_candidate(self, run_id: str) -> dict:
+        lesson = load_lesson_candidate(self.store.run_dir(run_id))
+        return lesson or {"status": "none", "run_id": run_id}
+
     def sync_h_skills(self, names: list[str] | None = None, dry_run: bool = False) -> dict:
         return sync_h_skills(self.repo_path, names=names, dry_run=dry_run).to_dict()
 
@@ -697,3 +731,29 @@ class Orchestrator:
             )
 
         return record
+
+    def _write_lesson(
+        self,
+        run_id: str,
+        affected_skill: str,
+        failure: str,
+        evidence: dict,
+        proposed_rule: str,
+        required_test: str,
+    ) -> None:
+        path = write_lesson_candidate(
+            self.store.run_dir(run_id),
+            run_id=run_id,
+            affected_skill=affected_skill,
+            failure=failure,
+            evidence=evidence,
+            proposed_rule=proposed_rule,
+            required_test=required_test,
+        )
+        self.store.append_event(
+            run_id,
+            "codex",
+            "lesson_candidate",
+            "Recorded a skill lesson candidate for review; it was not auto-promoted.",
+            {"path": str(path), "affected_skill": affected_skill},
+        )

@@ -127,6 +127,10 @@ def create_app() -> FastAPI:
     def get_events(run_id: str, repo_path: str, limit: int = 100):
         return Orchestrator(repo_path).get_events(run_id, limit)
 
+    @app.get("/runs/{run_id}/lesson")
+    def get_lesson(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_lesson_candidate(run_id)
+
     @app.post("/runs/{run_id}/mode")
     def set_mode(run_id: str, req: ModeRequest):
         return Orchestrator(req.repo_path).set_mode(run_id, req.mode)

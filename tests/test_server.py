@@ -157,6 +157,9 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     assert status["status"] == "blocked"
     assert status["current_step"] == "ecs_form_contract_mismatch"
     assert (store.run_dir(run["run_id"]) / "contract.json").exists()
+    lesson = client.get(f"/runs/{run['run_id']}/lesson", params={"repo_path": str(tmp_path)}).json()
+    assert lesson["status"] == "pending_review"
+    assert lesson["affected_skill"] == "cloud-cua/aws-ecs-express"
     events = client.get(f"/runs/{run['run_id']}/events", params={"repo_path": str(tmp_path)}).json()
     assert any(event["source"] == "h_cua" and event["type"] == "milestone" for event in events)
 
