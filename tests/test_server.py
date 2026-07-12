@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from cloud_cua.container_image import ContainerImagePrepResult
 from cloud_cua.h_runner import HTaskResult
 from cloud_cua.run_store import RunStore
 from cloud_cua.server import create_app
@@ -118,6 +119,16 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "cloud_cua.orchestrator.run_h_task",
         lambda *args, **kwargs: HTaskResult("blocked", "fake H handoff stopped for test"),
+    )
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.prepare_ecr_image",
+        lambda *args, **kwargs: ContainerImagePrepResult(
+            "passed",
+            "fake image prepared",
+            image_uri="123456789012.dkr.ecr.us-east-1.amazonaws.com/cloud-cua-demo:run-test",
+            repository_name="cloud-cua-demo",
+            registry="123456789012.dkr.ecr.us-east-1.amazonaws.com",
+        ),
     )
     approved = client.post(
         f"/runs/{run['run_id']}/approval-decision",

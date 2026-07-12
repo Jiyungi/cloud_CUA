@@ -19,6 +19,10 @@ def verify_ecs_clusters() -> VerifierResult:
     return run_command("aws_ecs_clusters", ["aws", "ecs", "list-clusters"], timeout=30)
 
 
+def verify_ecr_repositories() -> VerifierResult:
+    return run_command("aws_ecr_repositories", ["aws", "ecr", "describe-repositories"], timeout=30)
+
+
 def verify_lambda_functions() -> VerifierResult:
     return run_command("aws_lambda_functions", ["aws", "lambda", "list-functions", "--max-items", "20"], timeout=30)
 

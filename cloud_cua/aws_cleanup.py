@@ -51,6 +51,7 @@ def discover_cleanup_actions(*, run_id: str | None = None) -> list[CleanupAction
     actions.extend(_lambda_actions())
     actions.extend(_cloudformation_actions())
     actions.extend(_s3_actions())
+    actions.extend(_ecr_actions())
     actions.extend(_tagged_resource_actions(run_id))
     return _dedupe_actions(actions)
 
@@ -107,6 +108,16 @@ def _s3_actions() -> list[CleanupAction]:
     return actions
 
 
+def _ecr_actions() -> list[CleanupAction]:
+    data = _aws_json(["aws", "ecr", "describe-repositories"])
+    actions: list[CleanupAction] = []
+    for repo in data.get("repositories", []) if isinstance(data, dict) else []:
+        name = str(repo.get("repositoryName", ""))
+        if _cloud_cua_named(name):
+            actions.append(CleanupAction("ecr", name, ["aws", "ecr", "delete-repository", "--repository-name", name, "--force"]))
+    return actions
+
+
 def _tagged_resource_actions(run_id: str | None) -> list[CleanupAction]:
     filters = ["Key=cloud-cua,Values=true"]
     if run_id:
@@ -138,6 +149,9 @@ def _action_from_arn(arn: str) -> CleanupAction | None:
     if arn.startswith("arn:aws:s3:::"):
         bucket = arn.rsplit(":::", 1)[-1]
         return CleanupAction("s3", bucket, ["aws", "s3", "rb", f"s3://{bucket}", "--force"])
+    if ":ecr:" in arn and ":repository/" in arn:
+        name = arn.split(":repository/", 1)[-1]
+        return CleanupAction("ecr", name, ["aws", "ecr", "delete-repository", "--repository-name", name, "--force"])
     return None
 
 

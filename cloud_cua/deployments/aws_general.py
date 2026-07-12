@@ -102,6 +102,7 @@ def build_general_aws_h_task(
     target: str | None = None,
     user_task: str | None = None,
     run_id: str | None = None,
+    prepared_inputs: dict[str, str] | None = None,
 ) -> str:
     option = plan.option(target)
     repo_details = [
@@ -121,6 +122,11 @@ def build_general_aws_h_task(
     constraints = "\n".join(f"- {item}" for item in constraints_items)
     risks = "\n".join(f"- {item}" for item in option.risks)
     requested = user_task.strip() if user_task and user_task.strip() else option.h_task_goal
+    prepared = ""
+    if prepared_inputs:
+        prepared_lines = [f"- {key}: {value}" for key, value in prepared_inputs.items() if value]
+        if prepared_lines:
+            prepared = "\n\nPrepared inputs from Codex/local repo tools:\n" + "\n".join(prepared_lines)
     return (
         "You are operating the AWS Console for Cloud CUA.\n"
         "Goal: complete a safe deployment task or stop with a precise blocker.\n\n"
@@ -129,6 +135,7 @@ def build_general_aws_h_task(
         f"Open or navigate to: {option.console_url}\n\n"
         "Repo facts:\n"
         + "\n".join(f"- {item}" for item in repo_details)
+        + prepared
         + "\n\nSafety constraints:\n"
         + constraints
         + "\n\nKnown risks for this target:\n"

@@ -9,6 +9,7 @@ from .approvals import approved as approval_is_approved
 from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .browser_profile import launch_dedicated_browser
+from .container_image import prepare_ecr_image
 from .credentials import inspect_credentials
 from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment_plan, build_general_aws_h_task
 from .deployments.amplify import build_amplify_plan
@@ -28,6 +29,7 @@ from .verifier.aws import (
     verify_aws_identity,
     verify_cloudformation_stacks,
     verify_ecs_clusters,
+    verify_ecr_repositories,
     verify_lambda_functions,
     verify_s3_buckets,
     verify_tagged_resources,
@@ -255,7 +257,33 @@ class Orchestrator:
             self.store.save_run(run)
             return {"status": "blocked", "summary": "Approval required before H CUA can run the AWS deployment task.", "approval": asdict(approval), "aws_plan": plan.to_dict()}
 
-        task_text = build_general_aws_h_task(self.repo_path.name, ctx, plan, target=option.target, user_task=task, run_id=run_id)
+        prepared_inputs: dict[str, str] = {}
+        if option.target == "aws_ecs_express":
+            self.store.append_event(run_id, "system", "command", "Preparing local Docker image and ECR repository for ECS Express Mode.")
+            image_prep = prepare_ecr_image(self.repo_path, self.repo_path.name, run_id, plan.region)
+            self.store.append_event(run_id, "system", "result", image_prep.summary, image_prep.to_dict())
+            if image_prep.status != "passed":
+                run.status = "blocked"
+                run.current_step = "container_image_prep_failed"
+                run.target = option.target
+                self.store.save_run(run)
+                return {"status": "blocked", "summary": image_prep.summary, "image_prep": image_prep.to_dict(), "aws_target": option.target, "aws_plan": plan.to_dict()}
+            prepared_inputs = {
+                "container_image_uri": image_prep.image_uri,
+                "ecr_repository": image_prep.repository_name,
+                "aws_region": plan.region,
+                "instruction": "Use this exact image URI in ECS Express Mode. Do not ask for GitHub source or App Runner.",
+            }
+
+        task_text = build_general_aws_h_task(
+            self.repo_path.name,
+            ctx,
+            plan,
+            target=option.target,
+            user_task=task,
+            run_id=run_id,
+            prepared_inputs=prepared_inputs,
+        )
         run.status = "running"
         run.current_step = f"h_cua_{option.target}"
         run.target = option.target
@@ -461,6 +489,7 @@ class Orchestrator:
                 verify_amplify_apps(),
                 verify_app_runner_services(),
                 verify_ecs_clusters(),
+                verify_ecr_repositories(),
                 verify_lambda_functions(),
                 verify_s3_buckets(),
                 verify_cloudformation_stacks(),

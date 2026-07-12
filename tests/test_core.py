@@ -7,7 +7,8 @@ from pathlib import Path
 from cloud_cua.h_runner import run_h_task
 from cloud_cua.aws_cleanup import cleanup_cloud_cua_aws_resources
 from cloud_cua.codex_config import install_cloud_cua_mcp, upsert_mcp_server
-from cloud_cua.deployments.aws_general import build_aws_deployment_plan
+from cloud_cua.container_image import prepare_ecr_image
+from cloud_cua.deployments.aws_general import build_aws_deployment_plan, build_general_aws_h_task
 from cloud_cua.deployments.gcp_cloud_run import build_gcp_cloud_run_plan
 from cloud_cua.packaging import build_shareable_package
 from cloud_cua.reports import write_report
@@ -96,6 +97,28 @@ def test_general_aws_plan_uses_ecs_express_for_docker(tmp_path: Path):
     assert plan.primary_target == "aws_ecs_express"
     assert "aws_app_runner_deprecated" in targets
     assert "App Runner is closed" in " ".join(plan.unknowns)
+
+
+def test_ecs_h_task_includes_prepared_image_uri(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\n", encoding="utf-8")
+    ctx = analyze_repo(tmp_path)
+    plan = build_aws_deployment_plan("demo-api", ctx)
+    task = build_general_aws_h_task(
+        "demo-api",
+        ctx,
+        plan,
+        target="aws_ecs_express",
+        run_id="run-123",
+        prepared_inputs={"container_image_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/cloud-cua-demo:run-123"},
+    )
+    assert "Prepared inputs from Codex/local repo tools" in task
+    assert "123456789012.dkr.ecr.us-east-1.amazonaws.com/cloud-cua-demo:run-123" in task
+    assert "Do not choose AWS App Runner" in task
+
+
+def test_prepare_ecr_image_skips_without_dockerfile(tmp_path: Path):
+    result = prepare_ecr_image(tmp_path, "demo", "run-123")
+    assert result.status == "skipped"
 
 
 def test_gcp_cloud_run_plan_supports_docker_repo(tmp_path: Path):
