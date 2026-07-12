@@ -87,6 +87,15 @@ class ECSPreparedFormAnswer(BaseModel):
     console_url: str | None = None
 
 
+class AWSBrowserIdentityAnswer(BaseModel):
+    milestone: str
+    status: str
+    account_id: str | None = None
+    account_alias: str | None = None
+    console_url: str | None = None
+    blockers: list[str] | None = None
+
+
 def _event_excerpt(events: list[Any], limit: int = 8) -> str:
     lines: list[str] = []
     for event in events[-limit:]:
@@ -582,6 +591,7 @@ def cleanup_orphaned_chromedrivers() -> list[int]:
 
 def _answer_schema_for(name: str | None):
     return {
+        "aws_browser_identity": AWSBrowserIdentityAnswer,
         "ecs_inspection": ECSInspectionAnswer,
         "ecs_prepared_form": ECSPreparedFormAnswer,
         "ecs_creation": ECSCreationAnswer,

@@ -201,7 +201,20 @@ def create_app() -> FastAPI:
 
     @app.post("/runs/{run_id}/continue-login")
     def continue_login(run_id: str, req: RepoRunRequest):
-        return Orchestrator(req.repo_path).continue_after_login(run_id)
+        result = Orchestrator(req.repo_path).continue_after_login(run_id)
+        if result.get("current_step") == "browser_identity_verifying":
+            job = get_h_session_manager().schedule(
+                req.repo_path,
+                run_id,
+                "browser-identity",
+                lambda: Orchestrator(req.repo_path).inspect_browser_identity(run_id),
+            )
+            result["h_job"] = job.get("h_job")
+        return result
+
+    @app.get("/runs/{run_id}/browser-identity")
+    def browser_identity(run_id: str, repo_path: str):
+        return Orchestrator(repo_path).get_browser_identity(run_id)
 
     @app.post("/runs/{run_id}/pause")
     def pause(run_id: str, req: RepoRunRequest):

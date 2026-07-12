@@ -11,6 +11,7 @@ from .approvals import create_approval, decide_approval, load_approvals
 from .aws_cleanup import cleanup_cloud_cua_aws_resources
 from .aws_runtime_config import load_runtime_configuration, provision_aws_runtime_configuration
 from .browser_profile import launch_dedicated_browser
+from .cloud_identity import build_aws_browser_identity_task, load_browser_identity, review_aws_browser_identity, save_browser_identity
 from .container_image import ContainerImagePrepResult, ecr_image_exists, prepare_ecr_image_with_progress
 from .credentials import inspect_credentials
 from .deployment_contract import build_deployment_contract, load_contract, save_contract
@@ -153,7 +154,53 @@ class Orchestrator:
             run.current_step = "identity_verifier_failed"
             self.store.save_run(run)
             self.store.append_event(run_id, "system", "result", "Cloud identity verifier failed. H CUA modification tasks are blocked.")
+        if saved.status == "passed" and run.cloud == "aws":
+            try:
+                account_id = str(json.loads(saved.summary).get("Account") or "")
+            except (TypeError, json.JSONDecodeError):
+                account_id = ""
+            if len(account_id) != 12 or not account_id.isdigit():
+                run.status = "blocked"
+                run.current_step = "identity_verifier_failed"
+                self.store.save_run(run)
+            else:
+                run.status = "running"
+                run.current_step = "browser_identity_verifying"
+                self.store.save_run(run)
+                (self.store.run_dir(run_id) / "expected-account.json").write_text(json.dumps({"account_id": account_id}), encoding="utf-8")
         return asdict(run)
+
+    def inspect_browser_identity(self, run_id: str) -> dict:
+        run = self.store.load_run(run_id)
+        expected_path = self.store.run_dir(run_id) / "expected-account.json"
+        try:
+            expected = str(json.loads(expected_path.read_text(encoding="utf-8"))["account_id"])
+        except Exception:
+            run.status = "blocked"
+            run.current_step = "browser_identity_missing_cli_proof"
+            self.store.save_run(run)
+            return {"status": "blocked", "message": "Expected AWS CLI account proof is missing."}
+        task = build_aws_browser_identity_task(expected)
+        self.store.append_event(run_id, "h_cua", "command", "Inspecting the logged-in AWS browser account ID without making changes.", {"expected_account_id": expected})
+        result = run_h_task(
+            task,
+            run.mode,
+            max_steps=15,
+            max_time_s=240,
+            event_callback=self._h_event_callback(run_id, "verify_aws_browser_identity"),
+            answer_schema_name="aws_browser_identity",
+        )
+        proof = review_aws_browser_identity(result, expected)
+        save_browser_identity(self.store.run_dir(run_id) / "browser-identity.json", proof)
+        self.store.append_event(run_id, "verifier", "result", proof.message, {"browser_identity": proof.to_dict(), "session_id": result.session_id})
+        if proof.status == "matched":
+            run.status = "running"
+            run.current_step = "login_verified"
+        else:
+            run.status = "blocked"
+            run.current_step = "browser_identity_mismatch" if proof.status == "mismatched" else "browser_identity_unverified"
+        self.store.save_run(run)
+        return proof.to_dict()
 
     def pause(self, run_id: str) -> dict:
         control = self.h_sessions.pause(self.repo_path, run_id)
@@ -213,6 +260,9 @@ class Orchestrator:
             return {"status": "blocked", "summary": "General AWS deployment tasks require an AWS run."}
         if max_spend_usd > DEFAULT_MAX_SPEND_USD:
             return {"status": "blocked", "summary": f"Requested max spend ${max_spend_usd:.2f} exceeds the configured ${DEFAULT_MAX_SPEND_USD:.2f} limit."}
+        browser_identity = load_browser_identity(self.store.run_dir(run_id) / "browser-identity.json")
+        if not browser_identity or browser_identity.status != "matched":
+            return {"status": "blocked", "summary": "The AWS account visible in the browser has not been proven to match the AWS CLI account."}
 
         ctx = analyze_repo(self.repo_path)
         plan = build_aws_deployment_plan(self.repo_path.name, ctx, max_spend_usd=max_spend_usd)
@@ -235,6 +285,7 @@ class Orchestrator:
                 container_image_uri=previous_contract.container_image_uri if previous_contract and previous_contract.target == option.target else "",
                 ecr_repository=previous_contract.ecr_repository if previous_contract and previous_contract.target == option.target else "",
                 repo_name=self.repo_path.name,
+                expected_account_id=browser_identity.expected_account_id,
             )
         contract_path = save_contract(self.store.contract_path(run_id), contract)
         self.store.append_event(run_id, "codex", "contract", "Prepared and saved deployment contract from repo facts.", {"contract": contract.to_dict(), "path": str(contract_path)})
@@ -363,6 +414,7 @@ class Orchestrator:
                 container_image_uri=prepared_inputs.get("container_image_uri", ""),
                 ecr_repository=prepared_inputs.get("ecr_repository", ""),
                 repo_name=self.repo_path.name,
+                expected_account_id=browser_identity.expected_account_id,
                 runtime_secret_references=runtime_config.reference_map(),
             )
             save_contract(self.store.contract_path(run_id), contract)
@@ -673,6 +725,10 @@ class Orchestrator:
     def get_runtime_configuration(self, run_id: str) -> dict:
         ctx = analyze_repo(self.repo_path)
         return load_runtime_configuration(self.store.run_dir(run_id), ctx.env_vars).to_dict()
+
+    def get_browser_identity(self, run_id: str) -> dict:
+        proof = load_browser_identity(self.store.run_dir(run_id) / "browser-identity.json")
+        return proof.to_dict() if proof else {"status": "not_checked", "message": "Browser account identity has not been checked."}
 
     def configure_runtime(
         self,

@@ -5,10 +5,22 @@ import time
 from fastapi.testclient import TestClient
 
 from cloud_cua.container_image import ContainerImagePrepResult
+from cloud_cua.cloud_identity import BrowserIdentityProof, save_browser_identity
 from cloud_cua.h_runner import HTaskResult
 from cloud_cua.run_store import RunStore
 from cloud_cua.server import create_app
 from cloud_cua.verifier.base import VerifierResult
+
+
+def mark_aws_login_verified(store: RunStore, run_id: str) -> None:
+    saved = store.load_run(run_id)
+    saved.status = "running"
+    saved.current_step = "login_verified"
+    store.save_run(saved)
+    save_browser_identity(
+        store.run_dir(run_id) / "browser-identity.json",
+        BrowserIdentityProof("matched", "123456789012", "123456789012", checked_at="now", message="match"),
+    )
 
 
 def test_dashboard_health():
@@ -109,10 +121,7 @@ def test_frontend_aws_deploy_requires_approval(tmp_path):
     (tmp_path / "package.json").write_text('{"scripts":{"build":"vite build"},"dependencies":{"vite":"^5.0.0"}}', encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
     store = RunStore(tmp_path)
-    saved = store.load_run(run["run_id"])
-    saved.status = "running"
-    saved.current_step = "login_confirmed"
-    store.save_run(saved)
+    mark_aws_login_verified(store, run["run_id"])
 
     result = client.post(
         f"/runs/{run['run_id']}/aws-deploy",
@@ -130,10 +139,7 @@ def test_general_aws_deploy_requires_approval(tmp_path, monkeypatch):
     (tmp_path / "Dockerfile").write_text("FROM nginx:alpine\nEXPOSE 80\n", encoding="utf-8")
     run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
     store = RunStore(tmp_path)
-    saved = store.load_run(run["run_id"])
-    saved.status = "running"
-    saved.current_step = "login_confirmed"
-    store.save_run(saved)
+    mark_aws_login_verified(store, run["run_id"])
 
     plan = client.get(f"/runs/{run['run_id']}/aws-plan", params={"repo_path": str(tmp_path)})
     result = client.post(
@@ -246,6 +252,32 @@ def test_login_gate_blocks_h_until_continue(tmp_path, monkeypatch):
     continued = client.post(f"/runs/{run['run_id']}/continue-login", json={"repo_path": str(tmp_path)})
     assert continued.json()["status"] == "blocked"
     assert continued.json()["current_step"] == "identity_verifier_failed"
+
+
+def test_login_continue_matches_browser_and_cli_accounts(tmp_path, monkeypatch):
+    client = TestClient(create_app())
+    (tmp_path / "package.json").write_text('{"scripts":{"build":"vite build"},"dependencies":{"vite":"^5.0.0"}}', encoding="utf-8")
+    run = client.post("/runs", json={"repo_path": str(tmp_path), "cloud": "aws", "mode": "vibe"}).json()
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.verify_aws_identity",
+        lambda: VerifierResult("aws_identity", "passed", "aws sts get-caller-identity", '{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/test"}'),
+    )
+    monkeypatch.setattr(
+        "cloud_cua.orchestrator.run_h_task",
+        lambda *args, **kwargs: HTaskResult("completed", '{"milestone":"verify_aws_browser_identity","status":"observed","account_id":"123456789012","console_url":"https://console.aws.amazon.com/"}'),
+    )
+    continued = client.post(f"/runs/{run['run_id']}/continue-login", json={"repo_path": str(tmp_path)})
+    assert continued.status_code == 200
+    deadline = time.time() + 2
+    status = {}
+    while time.time() < deadline:
+        status = client.get(f"/runs/{run['run_id']}", params={"repo_path": str(tmp_path)}).json()
+        if status["current_step"] == "login_verified":
+            break
+        time.sleep(0.02)
+    assert status["current_step"] == "login_verified"
+    proof = client.get(f"/runs/{run['run_id']}/browser-identity", params={"repo_path": str(tmp_path)}).json()
+    assert proof["status"] == "matched"
 
 
 def test_dashboard_contains_supervision_sections():
