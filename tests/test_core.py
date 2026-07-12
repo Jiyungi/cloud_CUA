@@ -349,6 +349,14 @@ def test_h_agent_includes_active_skill_name():
     assert agent["skills"] == ["cloud-cua/aws-ecs-express"]
 
 
+def test_h_event_summary_keeps_action_without_large_payload():
+    from cloud_cua.h_runner import summarize_h_event
+
+    summary = summarize_h_event({"type": "agent_event", "data": {"action": "click Create service", "screenshot": "x" * 10000}})
+    assert "click Create service" in summary
+    assert len(summary) < 500
+
+
 def test_verifier_result_redacts_saved_artifact(tmp_path: Path):
     result = VerifierResult(
         "secret_check",

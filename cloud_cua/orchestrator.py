@@ -18,7 +18,7 @@ from .deployments.aws_general import DEFAULT_MAX_SPEND_USD, build_aws_deployment
 from .deployments.amplify import build_amplify_plan
 from .deployments.gcp_cloud_run import build_gcp_cloud_run_h_task, build_gcp_cloud_run_plan
 from .h_admin import cleanup_h_sessions
-from .h_runner import run_h_task
+from .h_runner import run_h_task, summarize_h_event
 from .h_skills import get_h_skill_status, sync_h_skills
 from .mode_policy import normalize_mode
 from .models import Cloud, Mode
@@ -157,7 +157,7 @@ class Orchestrator:
             return {"status": "blocked", "summary": "Manual cloud login is required before H CUA can run."}
         task_text = task or "Inspect the visible cloud console page and report what page is visible. Do not create, edit, or delete anything."
         self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode})
-        result = run_h_task(task_text, run.mode)
+        result = run_h_task(task_text, run.mode, event_callback=self._h_event_callback(run_id, "inspect"))
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status})
         if result.status in {"blocked", "failed", "timed_out"}:
             run.status = "blocked" if result.status == "blocked" else "failed"
@@ -306,7 +306,14 @@ class Orchestrator:
                 self.store.save_run(run)
                 inspect_task = build_ecs_inspection_task(contract)
                 self.store.append_event(run_id, "h_cua", "milestone", "H CUA is inspecting the ECS Express form without making changes.", {"milestone": "inspect_ecs_express_form", "skill_name": skill.name})
-                inspect_result = run_h_task(inspect_task, run.mode, max_steps=30, max_time_s=420, skill_names=[skill.name])
+                inspect_result = run_h_task(
+                    inspect_task,
+                    run.mode,
+                    max_steps=30,
+                    max_time_s=420,
+                    skill_names=[skill.name],
+                    event_callback=self._h_event_callback(run_id, "inspect_ecs_express_form"),
+                )
                 self.store.append_event(run_id, "h_cua", "observation", inspect_result.summary, {"status": inspect_result.status, "session_id": inspect_result.session_id, "milestone": "inspect_ecs_express_form"})
                 inspection_review = review_ecs_inspection(inspect_result, contract)
                 self.store.append_event(run_id, "codex", "milestone_review", f"Supervisor reviewed ECS form inspection: {inspection_review.status}.", inspection_review.to_dict())
@@ -340,7 +347,14 @@ class Orchestrator:
             run.target = option.target
             self.store.save_run(run)
             self.store.append_event(run_id, "h_cua", "milestone", "H CUA is executing the approved deployment milestone.", {"mode": run.mode, "aws_target": option.target, "max_spend_usd": max_spend_usd, "skill_name": skill.name, "milestone": "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"})
-            result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900, skill_names=[skill.name])
+            result = run_h_task(
+                task_text,
+                run.mode,
+                max_steps=60,
+                max_time_s=900,
+                skill_names=[skill.name],
+                event_callback=self._h_event_callback(run_id, "create_ecs_express_service" if option.target == "aws_ecs_express" else "deploy"),
+            )
             self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
             review = review_h_result(result, contract)
             self.store.append_event(run_id, "codex", "observation_review", f"Reviewed H CUA result: {review.status}.", review.to_dict())
@@ -414,7 +428,14 @@ class Orchestrator:
         run.target = plan.target
         self.store.save_run(run)
         self.store.append_event(run_id, "h_cua", "command", task_text, {"mode": run.mode, "gcp_target": plan.target, "skill_name": skill.name})
-        result = run_h_task(task_text, run.mode, max_steps=60, max_time_s=900, skill_names=[skill.name])
+        result = run_h_task(
+            task_text,
+            run.mode,
+            max_steps=60,
+            max_time_s=900,
+            skill_names=[skill.name],
+            event_callback=self._h_event_callback(run_id, "gcp_cloud_run"),
+        )
         self.store.append_event(run_id, "h_cua", "observation", result.summary, {"status": result.status, "session_id": result.session_id, "outcome": result.outcome})
         if result.status == "completed":
             self._record_resource_summary(run_id, run.cloud, plan.target, result.summary)
@@ -640,3 +661,15 @@ class Orchestrator:
         record = extract_resource_record(run_id, cloud, target, summary)
         path = save_resource_record(self.store.run_dir(run_id) / "resources.json", record)
         self.store.append_event(run_id, "system", "result", "Recorded resource hints from H CUA final answer.", {"path": str(path), "record": asdict(record)})
+
+    def _h_event_callback(self, run_id: str, milestone: str):
+        def record(event: dict) -> None:
+            self.store.append_event(
+                run_id,
+                "h_cua",
+                "trajectory",
+                summarize_h_event(event),
+                {"milestone": milestone, "h_event_type": event.get("type", "trajectory_event")},
+            )
+
+        return record
