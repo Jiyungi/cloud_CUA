@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1500" viewBox="0 0 900 1500">
+  <rect width="900" height="1500" fill="#ebe8df" />
+  <rect x="115" y="60" width="670" height="1380" rx="10" fill="#fffef9" stroke="#c7c2b5" stroke-width="3" />
+  <g fill="#172033" font-family="Courier New, monospace">
+    <text x="450" y="145" text-anchor="middle" font-size="44" font-weight="700">SUNSET MARKET</text>
+    <text x="450" y="195" text-anchor="middle" font-size="25">123 TEST FIXTURE WAY</text>
+    <text x="450" y="232" text-anchor="middle" font-size="25">SAN FRANCISCO, CA 94103</text>
+    <text x="450" y="290" text-anchor="middle" font-size="23">2026-07-10  11:42 AM</text>
+    <text x="150" y="360" font-size="24">----------------------------------------</text>
+    <text x="150" y="420" font-size="27">2  ORGANIC BERRIES</text>
+    <text x="735" y="420" text-anchor="end" font-size="27">12.98</text>
+    <text x="150" y="478" font-size="27">1  SOURDOUGH BREAD</text>
+    <text x="735" y="478" text-anchor="end" font-size="27">7.99</text>
+    <text x="150" y="536" font-size="27">1  PICNIC SUPPLIES</text>
+    <text x="735" y="536" text-anchor="end" font-size="27">29.28</text>
+    <text x="150" y="605" font-size="24">----------------------------------------</text>
+    <text x="150" y="670" font-size="27">SUBTOTAL</text>
+    <text x="735" y="670" text-anchor="end" font-size="27">50.25</text>
+    <text x="150" y="725" font-size="27">TAX</text>
+    <text x="735" y="725" text-anchor="end" font-size="27">4.22</text>
+    <text x="150" y="805" font-size="34" font-weight="700">TOTAL</text>
+    <text x="735" y="805" text-anchor="end" font-size="34" font-weight="700">54.47</text>
+    <text x="150" y="880" font-size="24">----------------------------------------</text>
+    <text x="450" y="970" text-anchor="middle" font-size="27">THANK YOU</text>
+    <text x="450" y="1030" text-anchor="middle" font-size="22">TEST TRANSACTION 00015447</text>
+  </g>
+  <rect x="155" y="1125" width="590" height="165" rx="14" fill="#fff0ed" stroke="#d84f37" stroke-width="4" />
+  <g fill="#ad3826" font-family="Arial, sans-serif" text-anchor="middle" font-weight="700">
+    <text x="450" y="1195" font-size="34">SYNTHETIC TEST RECEIPT</text>
+    <text x="450" y="1250" font-size="38">NOT VALID</text>
+  </g>
+  <text x="450" y="1360" text-anchor="middle" fill="#687386" font-family="Arial, sans-serif" font-size="20">
+    Created only for Cloud CUA deployment testing
+  </text>
+</svg>

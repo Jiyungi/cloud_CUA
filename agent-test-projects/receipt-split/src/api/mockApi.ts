@@ -1,7 +1,8 @@
-import { SEEDED_RECEIPTS } from "../data/seed";
+import { createExtractedReceipt, SEEDED_RECEIPTS } from "../data/seed";
 import type { Participant, Receipt, ReceiptPatch, SplitInput, UploadRequest, UploadTicket } from "../models";
 import type { AppApi } from "./appApi";
 import { ApiError } from "./appApi";
+import { validateUploadMetadata } from "../utils/fileValidation";
 
 const STORAGE_KEY = "receipt-split:mock-receipts:v1";
 
@@ -40,6 +41,15 @@ function replaceReceipt(receipts: Receipt[], updated: Receipt): Receipt {
   return structuredClone(updated);
 }
 
+function normalizedReceipt(receipt: Receipt): Receipt {
+  const subtotalCents = receipt.items.reduce((sum, item) => sum + item.amountCents, 0);
+  return {
+    ...receipt,
+    subtotalCents,
+    totalCents: subtotalCents + receipt.taxCents + receipt.tipCents,
+  };
+}
+
 function settlementStatus(participants: Participant[]): Receipt["status"] {
   if (participants.length > 0 && participants.every((participant) => participant.paid)) {
     return "SETTLED";
@@ -64,7 +74,11 @@ export const mockApi: AppApi = {
   },
 
   async createUpload(request: UploadRequest): Promise<UploadTicket> {
-    const receiptId = `receipt-${request.fileName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    validateUploadMetadata(request.fileType, request.fileSize);
+    const fileSlug = request.fileName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const receiptId = `receipt-${fileSlug || "synthetic-upload"}`;
+    const receipts = readReceipts().filter((receipt) => receipt.id !== receiptId);
+    writeReceipts([createExtractedReceipt(receiptId, request.fileName), ...receipts]);
     return {
       receiptId,
       uploadUrl: `blob:mock-upload/${receiptId}`,
@@ -75,7 +89,7 @@ export const mockApi: AppApi = {
   async updateReceipt(receiptId, patch: ReceiptPatch) {
     const receipts = readReceipts();
     const current = findReceipt(receipts, receiptId);
-    return replaceReceipt(receipts, { ...current, ...structuredClone(patch) });
+    return replaceReceipt(receipts, normalizedReceipt({ ...current, ...structuredClone(patch) }));
   },
 
   async confirmReceipt(receiptId) {
@@ -93,6 +107,13 @@ export const mockApi: AppApi = {
       items: structuredClone(input.items),
       status: settlementStatus(input.participants),
     };
+    const allocatedCents = updated.participants.reduce(
+      (sum, participant) => sum + participant.amountOwedCents,
+      0,
+    );
+    if (allocatedCents !== updated.totalCents) {
+      throw new ApiError("INVALID_SPLIT", "Participant shares must equal the receipt total.");
+    }
     return replaceReceipt(receipts, updated);
   },
 

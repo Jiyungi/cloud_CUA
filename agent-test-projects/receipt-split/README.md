@@ -11,6 +11,12 @@ npm run dev
 
 The default `.env.example` selects mock mode. Copy it to `.env.local` only when local overrides are needed; never commit real identifiers or credentials.
 
+The safe upload fixture lives at `public/test-fixtures/synthetic-receipt.png`. Regenerate it from its tracked SVG source with:
+
+```bash
+npm run fixture:generate
+```
+
 ## Test contract
 
 Read `AGENT_TEST_SPEC.md` before running Cloud CUA. A rendered mock frontend is not a successful AWS deployment.
